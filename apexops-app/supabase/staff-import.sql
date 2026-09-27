@@ -1,0 +1,2 @@
+-- Staff/supplier contacts are intentionally imported from the Suppliers tab.
+-- Use the APEXOPS-suppliers-template.xlsx file rather than seeded demo records.

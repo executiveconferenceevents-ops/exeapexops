@@ -1,0 +1,20 @@
+-- Run this in Supabase SQL Editor to enable shared scanner checkout tracking.
+alter table public.exhibitors add column if not exists scanner_booked_out boolean not null default false;
+alter table public.exhibitors add column if not exists scanner_booked_out_at timestamptz;
+alter table public.exhibitors add column if not exists scanner_due_at timestamptz;
+alter table public.exhibitors add column if not exists scanner_day1_booked_out boolean not null default false;
+alter table public.exhibitors add column if not exists scanner_day1_booked_out_at timestamptz;
+alter table public.exhibitors add column if not exists scanner_day1_booked_in boolean not null default false;
+alter table public.exhibitors add column if not exists scanner_day1_booked_in_at timestamptz;
+alter table public.exhibitors add column if not exists scanner_day2_booked_out boolean not null default false;
+alter table public.exhibitors add column if not exists scanner_day2_booked_out_at timestamptz;
+alter table public.exhibitors add column if not exists scanner_day2_booked_in boolean not null default false;
+alter table public.exhibitors add column if not exists scanner_day2_booked_in_at timestamptz;
+alter table public.exhibitors add column if not exists scanner_booked_in boolean not null default false;
+alter table public.exhibitors add column if not exists scanner_booked_in_at timestamptz;
+alter table public.exhibitors add column if not exists scanner_staff_name text;
+alter table public.exhibitors add column if not exists scanner_staff_contact text;
+alter table public.exhibitors add column if not exists scanner_out_staff_name text;
+alter table public.exhibitors add column if not exists scanner_out_staff_contact text;
+alter table public.exhibitors add column if not exists scanner_in_staff_name text;
+alter table public.exhibitors add column if not exists scanner_in_staff_contact text;
