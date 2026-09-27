@@ -124,7 +124,11 @@ export default function ExhibitorStatus() {
       {message && <div role="status" style={duplicateWarning ? warningStyle : successStyle}><CheckCircle2 size={16} /> {message}</div>}
 
       {searched && <section style={resultStyle}>
-        <div style={resultHeading}><div><div style={eyebrowStyle}>Stand</div><h2 style={standHeading}>{matchedExhibitor?.name || 'Your stand'} <span>· {matchedExhibitor?.stand || normalizedStand}</span></h2></div><button onClick={() => setShowQueryForm(true)} style={queryButton}><ClipboardPlus size={16} /> Log a Query</button></div>
+        <div style={resultHeading}>
+          {matchedExhibitor?.logo_url && <img src={matchedExhibitor.logo_url} alt={`${matchedExhibitor.name} logo`} style={resultLogoStyle} />}
+          <div><div style={eyebrowStyle}>Stand</div><h2 style={standHeading}>{matchedExhibitor?.name || 'Your stand'} <span>· {matchedExhibitor?.stand || normalizedStand}</span></h2></div>
+          <button onClick={() => setShowQueryForm(true)} style={queryButton}><ClipboardPlus size={16} /> Log a Query</button>
+        </div>
         {activeQueries.length ? <>
           <div style={activeCountStyle}>OPEN QUERIES ({activeQueries.length})</div>
           {activeQueries.map(query => {
@@ -204,6 +208,7 @@ const checkButton = { marginTop: 12, width: '100%', display: 'flex', alignItems:
 const queryButton = { display: 'inline-flex', alignItems: 'center', gap: 7, border: 0, borderRadius: 5, padding: '10px 12px', background: NAVY, color: '#fff', fontSize: 12, fontWeight: 800, cursor: 'pointer' };
 const resultStyle = { marginTop: 14, padding: 20, background: 'rgba(255,255,255,.96)', borderTop: `3px solid ${TEAL}`, boxShadow: '0 12px 34px rgba(0,0,0,.18)' };
 const resultHeading = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 14 };
+const resultLogoStyle = { width: 52, height: 52, objectFit: 'contain', borderRadius: 8, border: '1px solid #dfe7eb', background: '#fff', padding: 4, flex: '0 0 52px' };
 const standHeading = { margin: '5px 0 0', color: NAVY, fontSize: 18 };
 const smallLabel = { color: '#718089', fontSize: 10, textTransform: 'uppercase', letterSpacing: .8 };
 const queryCard = { border: '1px solid #e2e9ed', borderLeft: `3px solid ${BLUE}`, padding: 14, marginTop: 10, background: '#fff' };

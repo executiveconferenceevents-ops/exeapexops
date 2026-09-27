@@ -576,6 +576,7 @@ function EditPanel({ q, staff, onSave, onClose }) {
           {staffForCat.length === 0 && <option disabled>No staff allocated to this department</option>}
         </select>
         <div style={{ marginTop:5, fontSize:11, color:'#687780' }}>Only staff allocated to this department can be newly assigned.</div>
+        {currentAssignee && <AssigneeContactCard member={currentAssignee} />}
       </Field>
       <Field label="Status">
         <select value={status} onChange={e=>setStatus(e.target.value)}>
@@ -596,6 +597,36 @@ function EditPanel({ q, staff, onSave, onClose }) {
       </div>
     </Modal>
   );
+}
+
+function AssigneeContactCard({ member }) {
+  return (
+    <div style={{ marginTop:10, display:'flex', alignItems:'center', gap:12, background:'#f8fafb', border:'1px solid #dfe7eb', borderRadius:8, padding:'10px 12px' }}>
+      {member.supplier_logo_url && <img src={member.supplier_logo_url} alt={`${member.supplier_name || 'Supplier'} logo`} title={member.supplier_name || 'Supplier'} style={{ width:38, height:38, objectFit:'contain', borderRadius:6, border:'1px solid #dfe7eb', background:'#fff', padding:3 }} />}
+      <div style={{ width:38, height:38, borderRadius:'50%', background:NAVY, display:'flex', alignItems:'center', justifyContent:'center', color:GOLD_PALE, fontWeight:700, fontSize:13, overflow:'hidden', flex:'0 0 38px' }}>
+        {member.photo_url ? <img src={member.photo_url} alt={`${member.name} profile`} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : initials(member.name)}
+      </div>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontWeight:700, fontSize:13, color:NAVY }}>{member.name}</div>
+        <div style={{ fontSize:11, color:'#687780' }}>{member.supplier_name || 'Supplier not assigned'}</div>
+        <div style={{ fontSize:11, marginTop:3, display:'flex', gap:10, flexWrap:'wrap' }}>
+          {member.email ? <a href={`mailto:${firstContact(member.email)}`} style={{ color:BLUE, fontWeight:600, textDecoration:'none' }}>Email</a> : <span style={{ color:'#8a97a0' }}>No email</span>}
+          {member.mobile ? <a href={whatsappLink(member.mobile)} target="_blank" rel="noreferrer" style={{ color:BLUE, fontWeight:600, textDecoration:'none' }}>WhatsApp</a> : <span style={{ color:'#8a97a0' }}>No mobile</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function initials(name) { return String(name || '?').split(/\s+/).map(part => part[0]).join('').slice(0,2).toUpperCase(); }
+function firstContact(value) { return String(value).split(/[;,]/)[0].trim(); }
+function whatsappLink(value) {
+  const digits = whatsappDigits(firstContact(value));
+  return digits ? `https://wa.me/${digits}` : `tel:${encodeURIComponent(value)}`;
+}
+function whatsappDigits(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return /^0[6-8]\d{8}$/.test(digits) ? `27${digits.slice(1)}` : digits;
 }
 
 function Modal({ title, onClose, children, wide }) {

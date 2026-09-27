@@ -49,7 +49,7 @@ export default function DeptQueue() {
           padding:'9px 12px', fontSize:13, fontWeight:600, color:NAVY, cursor:'pointer', minWidth:220,
         }}>
           <option value="">— Select your name —</option>
-          {staff.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+          {staff.map(s=><option key={s.id} value={s.id}>{s.name}{s.supplier_name ? ` (${s.supplier_name})` : ''}</option>)}
         </select>
       </div>
 
@@ -72,6 +72,10 @@ export default function DeptQueue() {
               <div style={{ fontWeight:700, fontSize:17, color:NAVY }}>{myStaff.name}</div>
               <div style={{ fontSize:12, color:'#687780', marginTop:3 }}>{myStaff.supplier_name || 'Supplier not assigned'}</div>
               <div style={{ fontSize:11, color:'#536b79', marginTop:3 }}>Department: {myStaff.category}</div>
+              <div style={{ fontSize:12, marginTop:5, display:'flex', gap:12 }}>
+                {myStaff.email ? <a href={`mailto:${firstContact(myStaff.email)}`} style={contactLink}>Email: {myStaff.email}</a> : <span style={{ color:'#8a97a0' }}>Email not recorded</span>}
+                {myStaff.mobile ? <a href={whatsappLink(myStaff.mobile)} target="_blank" rel="noreferrer" style={contactLink}>WhatsApp: {myStaff.mobile}</a> : <span style={{ color:'#8a97a0' }}>Mobile not recorded</span>}
+              </div>
             </div>
             <div style={{ marginLeft:'auto', display:'flex', gap:24 }}>
               <Stat label="Active" value={active.length} color={GREEN} />
@@ -182,4 +186,15 @@ function Stat({ label, value, color }) {
       <div style={{ fontSize:10, color:'#888', letterSpacing:.5 }}>{label}</div>
     </div>
   );
+}
+
+const contactLink = { color:BLUE, textDecoration:'none', fontWeight:600 };
+function firstContact(value) { return String(value).split(/[;,]/)[0].trim(); }
+function whatsappLink(value) {
+  const digits = whatsappDigits(firstContact(value));
+  return digits ? `https://wa.me/${digits}` : `tel:${encodeURIComponent(value)}`;
+}
+function whatsappDigits(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return /^0[6-8]\d{8}$/.test(digits) ? `27${digits.slice(1)}` : digits;
 }
