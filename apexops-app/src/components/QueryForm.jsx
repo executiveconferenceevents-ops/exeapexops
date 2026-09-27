@@ -28,6 +28,7 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const submissionInProgress = useRef(false);
+  const selectedExhibitor = exhibitors.find(item => item.name === form.exhibitor);
 
   function selectExhibitor(name) {
     const exhibitor = exhibitors.find(item => item.name === name);
@@ -64,6 +65,7 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
             <option value="">Select exhibitor and stand...</option>
             {exhibitors.map(item => <option key={`${item.stand}-${item.name}`} value={item.name}>{item.name} - Stand {item.stand}</option>)}
           </select>
+          {selectedExhibitor?.logo_url && <img src={selectedExhibitor.logo_url} alt={`${selectedExhibitor.name} logo`} style={selectedLogoStyle} />}
         </Field>
         <Field label="Department" required>
           <select aria-label="Department" required value={form.category} onChange={event => { setForm(current => ({ ...current, category: event.target.value })); setQuickIssues([]); setCustomIssue(''); }} style={inputStyle}>
@@ -111,6 +113,7 @@ const introStyle = { display: 'flex', alignItems: 'center', gap: 10, marginBotto
 const gridStyle = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 };
 const fieldStyle = { display: 'grid', gap: 6, marginBottom: 12, color: '#555', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' };
 const inputStyle = { width: '100%', boxSizing: 'border-box', border: '1px solid #cfdadd', borderRadius: 5, padding: '9px 10px', color: '#172746', fontSize: 13, fontWeight: 500, textTransform: 'none' };
+const selectedLogoStyle = { width: 44, height: 44, objectFit: 'contain', borderRadius: 6, border: '1px solid #dfe7eb', background: '#fff', padding: 4, marginTop: 8 };
 const issuesStyle = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 };
 const issueStyle = { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 9, minHeight: 42, padding: '8px 10px', border: '1px solid', borderRadius: 5, color: '#2d3c44', fontSize: 12, fontWeight: 500, textAlign: 'left', textTransform: 'none', cursor: 'pointer' };
 const issueCheckboxStyle = { width: 16, height: 16, flex: '0 0 16px', margin: 0, padding: 0, accentColor: BLUE };

@@ -115,6 +115,13 @@ export default function RebookingForm() {
                         {exhibitors.map(item => <option key={`${item.stand}-${item.name}`} value={item.name}>{item.name} — Stand {item.stand}</option>)}
                       </select>
                     </label>
+                    {exhibitors.find(item => item.name === form.company)?.logo_url && (
+                      <img
+                        src={exhibitors.find(item => item.name === form.company).logo_url}
+                        alt={`${form.company} logo`}
+                        style={selectedLogoStyle}
+                      />
+                    )}
                   </div>
                   <div style={fieldGrid}>
                     <Field label="Company" value={form.company} onChange={value => update('company', value)} required />
@@ -209,6 +216,7 @@ const sectionTitle = { fontSize: 14, fontWeight: 800, color: NAVY, marginBottom:
 const fieldGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 };
 const labelStyle = { display: 'grid', gap: 6, color: NAVY, fontSize: 12, fontWeight: 700 };
 const inputStyle = { width: '100%', boxSizing: 'border-box', border: '1px solid #d8e1e5', borderRadius: 8, padding: '11px 12px', color: NAVY, fontSize: 14, fontFamily: FONT, background: '#fff' };
+const selectedLogoStyle = { width: 44, height: 44, objectFit: 'contain', borderRadius: 6, border: '1px solid #dfe7eb', background: '#fff', padding: 4, marginTop: 8 };
 const textareaStyle = { ...inputStyle, resize: 'vertical', minHeight: 110 };
 const fieldsetStyle = { border: '1px solid #dfe7e8', borderRadius: 8, padding: '14px 16px', margin: 0 };
 const topicGrid = { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginTop: 10 };
