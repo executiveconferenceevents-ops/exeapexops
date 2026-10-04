@@ -25,19 +25,19 @@ export default function ClientQuery() {
     }
   }
 
-  return <div style={pageStyle}>
-    <header style={headerStyle}>
+  return <div className="apex-service-screen client-query-screen" style={pageStyle}>
+    <header className="apex-service-header" style={headerStyle}>
       <div><div style={{ color: GOLD_PALE, fontWeight: 700, fontSize: 20, letterSpacing: 2 }}>APEXOPS™</div><div style={eyebrowStyle}>Exhibitor service desk</div></div>
       <div style={{ color: 'rgba(255,255,255,.66)', fontSize: 12 }}>Send a request to the Ops Desk</div>
     </header>
-    <main style={mainStyle}>
-      {savedQuery ? <section style={cardStyle}>
+    <main className="apex-service-main" style={mainStyle}>
+      {savedQuery ? <section className="apex-service-panel" style={cardStyle}>
         <CheckCircle2 size={40} color={TEAL} />
         <div style={eyebrowStyle}>{alreadySubmitted ? 'Already submitted' : 'Query sent to Ops'}</div>
         <h1 style={headingStyle}>{alreadySubmitted ? 'This issue is already logged.' : 'Your request is in the queue.'}</h1>
         <p style={copyStyle}>{alreadySubmitted ? 'We did not create another query. Use this existing reference if you contact the Ops Desk:' : 'Reference'} <strong>{savedQuery.id}</strong> for Stand {savedQuery.stand}. {!alreadySubmitted && 'The Ops Desk will assign the right team.'}</p>
         {!supabase && <p style={{ color: '#922B21', fontSize: 12 }}>Demo mode: Supabase is not connected, so this query is only saved in this browser.</p>}
-      </section> : <section style={cardStyle}>
+      </section> : <section className="apex-service-panel" style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}><div style={iconBox}><ClipboardPlus size={20} /></div><div><div style={eyebrowStyle}>Client request</div><h1 style={headingStyle}>Log a query</h1></div></div>
         <p style={copyStyle}>Share the issue at your stand. Your request will be sent to the Ops Desk, where a team member will assign staff.</p>
         {error && <div role="alert" style={{ color: '#922B21', fontSize: 13, marginBottom: 12 }}>{error}</div>}

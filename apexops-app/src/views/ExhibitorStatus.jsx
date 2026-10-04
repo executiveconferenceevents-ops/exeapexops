@@ -103,13 +103,13 @@ export default function ExhibitorStatus() {
 
   const queryInitialValues = { stand: matchedExhibitor?.stand || normalizedStand, exhibitor: matchedExhibitor?.name || '' };
 
-  return <div style={pageStyle}>
-    <header style={headerStyle}>
+  return <div className="apex-service-screen exhibitor-status-screen" style={pageStyle}>
+    <header className="apex-service-header" style={headerStyle}>
       <div><div style={{ color: GOLD_PALE, fontWeight: 700, fontSize: 20, letterSpacing: 2 }}>APEXOPS™</div><div style={eyebrowStyle}>Exhibitor service desk</div></div>
       <div style={{ color: 'rgba(255,255,255,.66)', fontSize: 12 }}>Live query status</div>
     </header>
-    <main style={mainStyle}>
-      <section style={cardStyle}>
+    <main className="apex-service-main" style={mainStyle}>
+      <section className="apex-service-panel status-search-panel" style={cardStyle}>
         <div style={titleRow}><div style={iconBox}><Building2 size={20} /></div><div><h1 style={headingStyle}>Check My Status</h1><p style={copyStyle}>Find live requests for your stand or send a new issue directly to the Ops Desk.</p></div></div>
         <form onSubmit={search}>
           <div style={modeRow}>{[['number', 'Stand number'], ['name', 'Stand name']].map(([mode, label]) => <button type="button" key={mode} onClick={() => { setSearchMode(mode); setStand(''); setResolvedStand(''); setSearched(false); setQueries([]); }} style={{ ...modeButton, borderColor: searchMode === mode ? BLUE : '#dce4e5', color: searchMode === mode ? NAVY : '#687780' }}>{label}</button>)}</div>
@@ -123,7 +123,7 @@ export default function ExhibitorStatus() {
       {error && <div role="alert" style={errorStyle}>{error}</div>}
       {message && <div role="status" style={duplicateWarning ? warningStyle : successStyle}><CheckCircle2 size={16} /> {message}</div>}
 
-      {searched && <section style={resultStyle}>
+      {searched && <section className="apex-service-panel status-results-panel" style={resultStyle}>
         <div style={resultHeading}>
           {matchedExhibitor?.logo_url && <img src={matchedExhibitor.logo_url} alt={`${matchedExhibitor.name} logo`} style={resultLogoStyle} />}
           <div><div style={eyebrowStyle}>Stand</div><h2 style={standHeading}>{matchedExhibitor?.name || 'Your stand'} <span>· {matchedExhibitor?.stand || normalizedStand}</span></h2></div>
@@ -148,7 +148,7 @@ export default function ExhibitorStatus() {
     </main>
 
     {showQueryForm && <div style={overlay}>
-      <section style={modalStyle}>
+      <section className="apex-service-panel status-query-modal" style={modalStyle}>
         <div style={modalHeader}><strong>Log a Query</strong><button aria-label="Close" onClick={() => setShowQueryForm(false)} style={closeButton}>×</button></div>
         <div style={{ padding: 20 }}><QueryForm exhibitors={exhibitors} initialValues={queryInitialValues} onSubmit={submitQuery} onCancel={() => setShowQueryForm(false)} clientMode /></div>
       </section>

@@ -7,6 +7,7 @@ import StatusBadge from '../components/StatusBadge';
 import QueryForm from '../components/QueryForm';
 import { Activity, AlertTriangle, Archive, Bell, Building2, Check, CheckCircle2, ClipboardList, ClipboardPlus, FileText, Hammer, HeartPulse, LayoutDashboard, Monitor, MoreHorizontal, Package, Palette, Plus, Printer, Shield, Sparkles, Truck, Users, Wifi, X, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { getActiveEvent } from '../lib/eventScope';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, BG, BLUE, TEAL, CORAL, GREEN, FONT, DISPLAY_FONT } from '../theme';
 import { buildOperationsReport, buildTaskReport, downloadWordReport, printPdfReport } from '../lib/reporting';
 
@@ -136,10 +137,12 @@ const DEPARTMENT_ICONS = {
 };
 
 export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
+  const eventName = getActiveEvent()?.name || 'Event workspace';
   const [queries, setQueries]   = useState([]);
   const [staff, setStaff]       = useState([]);
   const [exhibitors, setExhibitors] = useState([]);
   const [rebookings, setRebookings] = useState([]);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [notifications, setNotifications] = useState([]);
   const [toast, setToast] = useState(null);
   const [tab, setTab]           = useState('DASHBOARD');
@@ -170,13 +173,28 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
   };
 
   useEffect(() => {
-    refresh();
+    let cancelled = false;
+    const loadInitialData = async () => {
+      const [queryResult, staffResult, exhibitorResult, rebookingResult] = await Promise.allSettled([
+        getQueries(),
+        getStaff(),
+        getExhibitors(),
+        getRebookingRequests().catch(() => []),
+      ]);
+      if (cancelled) return;
+
+      if (queryResult.status === 'fulfilled') setQueries(queryResult.value);
+      else setError(readableError(queryResult.reason, 'Could not load live query status.'));
+      if (staffResult.status === 'fulfilled') setStaff(staffResult.value);
+      else setError(readableError(staffResult.reason, 'Could not load staff.'));
+      if (exhibitorResult.status === 'fulfilled') setExhibitors(exhibitorResult.value);
+      else setError(readableError(exhibitorResult.reason, 'Could not load exhibitors.'));
+      if (rebookingResult.status === 'fulfilled') setRebookings(rebookingResult.value);
+      setInitialLoading(false);
+    };
+
+    loadInitialData();
     refreshNotifications();
-    Promise.all([getStaff(), getExhibitors(), getRebookingRequests().catch(() => [])]).then(([nextStaff, nextExhibitors, nextRebookings]) => {
-      setStaff(nextStaff);
-      setExhibitors(nextExhibitors);
-      setRebookings(nextRebookings);
-    }).catch(queryError => setError(readableError(queryError, 'Could not load staff or exhibitors.')));
     const timer = window.setInterval(refresh, 15000);
     let toastTimeout;
     const channel = supabase?.channel('live-query-status')
@@ -189,6 +207,7 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
       })
       .subscribe();
     return () => {
+      cancelled = true;
       window.clearInterval(timer);
       window.clearTimeout(toastTimeout);
       if (channel) supabase.removeChannel(channel);
@@ -197,7 +216,7 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
 
   function exportOperationsReport(format) {
     try {
-      const html = buildOperationsReport({ queries, rebookings });
+      const html = buildOperationsReport({ queries, rebookings, eventName });
       if (format === 'word') downloadWordReport('APEXOPS-operations-report.doc', html);
       else printPdfReport(html);
     } catch (reportError) {
@@ -222,6 +241,7 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
           assignedName: staff.find(member => String(member.id) === String(query.assignedTo))?.name || 'Unassigned',
         })),
         title,
+        eventName,
         filters: `Staff: ${staffLabel}`,
       });
       const filename = `APEXOPS-${title.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '')}`;
@@ -328,98 +348,122 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
     { label: 'ISSUES',      value: queries.filter(q=>q.status==='ISSUES/DELAYED').length,color: CORAL, accent: '#F2D9D7', icon: AlertTriangle },
     { label: 'COMPLETED',   value: complete.length,                               color: TEAL, accent: '#D5EEEC', icon: CheckCircle2 },
   ];
+  const pageTitle = tab === 'DASHBOARD' ? 'Operations overview'
+    : tab === 'COMPLETED' ? 'Completed tasks'
+      : tab === 'ESCALATIONS' ? 'Escalations'
+        : tab === 'NOTIFICATIONS' ? 'Notifications'
+          : tab;
+
+    if (initialLoading) return (
+      <div className="ops-loading-screen" role="status" aria-live="polite">
+        <div className="ops-loading-panel">
+          <div className="ops-loading-brand">APEXOPS™</div>
+          <div className="ops-loading-content">
+            <span className="ops-loading-spinner" aria-hidden="true" />
+            <div>
+              <h1>Preparing your workspace</h1>
+              <p>Loading requests, staff and exhibitors...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
 
   return (
-    <div style={{ fontFamily:FONT, minHeight:'100vh', background:`radial-gradient(circle at 12% 18%, rgba(87,145,199,.18), transparent 28%), linear-gradient(180deg, #dce8f1 0%, #edf3f7 42%, #e5eef4 100%)`, color:NAVY }}>
-
-      {/* Header */}
-      <div style={{ background:`linear-gradient(110deg, ${NAVY_DEEP}, ${NAVY})`, padding:'0 40px', display:'flex', alignItems:'center', justifyContent:'space-between', minHeight:88, boxShadow:'0 8px 30px rgba(13,26,50,.16)' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:28 }}>
-          <div><div style={{ color:GOLD_PALE, fontWeight:700, fontSize:19, letterSpacing:2 }}>APEXOPS™</div><div style={{ color:'rgba(255,255,255,.56)', fontSize:10, letterSpacing:1.8, textTransform:'uppercase', marginTop:3 }}>Operations command centre</div></div>
-          <div style={{ display:'flex', alignItems:'center', gap:8, paddingLeft:22, borderLeft:'1px solid rgba(255,255,255,.2)' }}>
-            <button onClick={()=>exportOperationsReport('pdf')} style={{ ...reportButton, display:'inline-flex', alignItems:'center', gap:7 }}><Printer size={14} /> Export PDF</button>
-            <button onClick={()=>exportOperationsReport('word')} style={{ ...reportButton, display:'inline-flex', alignItems:'center', gap:7 }}><FileText size={14} /> Export Word</button>
-          </div>
+    <div className="ops-app-shell">
+      <aside className="ops-sidebar">
+        <div className="ops-brand-lockup">
+          <div className="ops-brand-mark">AP</div>
+          <div><div className="ops-brand-name">APEXOPS™</div><div className="ops-brand-byline">by Executive Conference Events</div></div>
         </div>
-        <div className="ops-utility-actions" style={{ display:'flex', alignItems:'center', gap:10, marginRight:250 }}>
-        <button onClick={onOpenStaff} style={{ ...reportButton, display:'inline-flex', alignItems:'center', gap:7 }}><Users size={14} /> Suppliers / Staff</button>
-        <button onClick={onOpenExhibitors} style={{ ...reportButton, display:'inline-flex', alignItems:'center', gap:7 }}><Building2 size={14} /> Exhibitors</button>
-        <button onClick={()=>setShowForm(true)} style={{
-          background:'rgba(255,255,255,.96)', color:NAVY, border:'1px solid rgba(215,197,160,.65)', borderRadius:4,
-          padding:'11px 19px', fontWeight:800, fontSize:13, cursor:'pointer', boxShadow:'0 2px 8px rgba(0,0,0,.12)',
-        }}>+ Log Query</button>
+        <div className="ops-sidebar-event">
+          <div className="ops-sidebar-label">Operations workspace</div>
+          <div className="ops-sidebar-event-name">{eventName}</div>
+          <div className="ops-sidebar-event-meta">Exhibitor service &amp; delivery</div>
         </div>
-      </div>
-
-      {/* KPI bar */}
-      <div className="ops-kpi-bar" style={{ display:'grid', gridTemplateColumns:'repeat(5, minmax(0, 1fr))', gap:14, padding:'26px 32px 18px', maxWidth:1504, width:'100%', margin:'0 auto', background:'rgba(218,231,241,.58)', borderBottom:'3px solid #0d2b4d', boxShadow:'inset 0 -1px 0 rgba(13,26,50,.08)' }}>
-        {kpis.map(k => (
-          <div key={k.label} style={{ background:'#fff', textAlign:'left', padding:'17px 18px', border:'1px solid #e7edf0', borderTop:`3px solid ${k.color}`, borderRadius:12, boxShadow:'0 6px 18px rgba(13,26,50,.06)', position:'relative' }}>
-            <k.icon size={17} strokeWidth={2} color={k.color} style={{ position:'absolute', right:16, top:16, opacity:.9 }} />
-            <div style={{ fontSize:30, lineHeight:1, fontWeight:700, color:NAVY }}>{k.value}</div>
-            <div style={{ fontSize:10, color:'#7d8588', letterSpacing:1.1, marginTop:9, fontWeight:700 }}>{k.label}</div>
-          </div>
-        ))}
-      </div>
-
-      {overdue.length > 0 && <div className="ops-alert-bar" style={{ background:'#fff', color:NAVY, padding:'12px 32px', fontSize:13, fontWeight:700, borderTop:'1px solid #dbe7ee', borderBottom:`2px solid ${BLUE}`, boxShadow:'0 3px 9px rgba(13,26,50,.06)' }}>
-        <div className="ops-alert-inner"><span style={{ display:'inline-flex', alignItems:'center', gap:9 }}><span style={{ width:28, height:28, display:'inline-grid', placeItems:'center', borderRadius:'50%', background:'#eaf4fa', color:BLUE }}><AlertTriangle size={15} /></span><span><strong>{overdue.length}</strong> overdue {overdue.length === 1 ? 'query needs' : 'queries need'} escalation</span></span><button onClick={()=>setTab('ESCALATIONS')} style={alertButton}>Review escalations <span aria-hidden="true">→</span></button></div>
-      </div>}
-      {error && <div style={{ background:'#FDEDEC', color:'#922B21', padding:'10px 24px', fontSize:13 }}>{error}</div>}
-
-      {/* Dashboard and department tabs */}
-      <div className="ops-tabs-shell" style={{ background:`linear-gradient(180deg, ${NAVY_DEEP} 0%, ${NAVY} 100%)`, borderTop:`3px solid ${BLUE}`, borderBottom:`3px solid ${BLUE}`, padding:'28px 32px 26px', boxShadow:'0 12px 30px rgba(13,26,50,.2)', position:'relative' }}>
-        <div className="ops-primary-tabs" style={{ display:'flex', justifyContent:'center', gap:14, flexWrap:'wrap', marginBottom:24 }}>
+        <nav className="ops-sidebar-nav" aria-label="Operations navigation">
+          <div className="ops-nav-group-label">Work queue</div>
           {[
-            ['DASHBOARD', 'Dashboard', LayoutDashboard],
-            ['COMPLETED', `Completed tasks (${complete.length})`, CheckCircle2],
-            ['ESCALATIONS', `Escalated${escalated.length ? ` (${escalated.length})` : ''}`, AlertTriangle],
-            ['NOTIFICATIONS', `Notifications${notifications.filter(item => !item.read_at).length ? ` (${notifications.filter(item => !item.read_at).length})` : ''}`, Bell],
-          ].map(([value, label, Icon]) => (
-            <button className="ops-primary-tab" key={value} onClick={()=>{ setStatusFilter(null); setTab(value); }} style={{
-              border:'1px solid', borderColor: tab===value ? GOLD_PALE : 'rgba(255,255,255,.24)', borderRadius:8, padding:'12px 22px', cursor:'pointer', fontSize:13, fontWeight:700,
-              display:'inline-flex', alignItems:'center', justifyContent:'center', gap:8,
-              background: tab===value ? `linear-gradient(135deg, ${GOLD_PALE}, ${GOLD})` : 'linear-gradient(180deg, rgba(255,255,255,.1), rgba(255,255,255,.05))', color: tab===value ? NAVY : '#fff', boxShadow: tab===value ? 'inset 0 1px 0 rgba(255,255,255,.65), 0 7px 16px rgba(0,0,0,.25)' : '0 3px 9px rgba(0,0,0,.14)',
-            }}><Icon size={16} strokeWidth={2} /><span>{label}</span></button>
+            ['DASHBOARD', 'Dashboard', LayoutDashboard, dashboardPool.filter(query => query.status !== 'COMPLETED').length],
+            ['COMPLETED', 'Completed tasks', CheckCircle2, complete.length],
+            ['ESCALATIONS', 'Escalations', AlertTriangle, escalated.length],
+            ['NOTIFICATIONS', 'Notifications', Bell, notifications.filter(item => !item.read_at).length],
+          ].map(([value, label, Icon, count]) => (
+            <button key={value} className={`ops-nav-item${tab === value ? ' active' : ''}`} aria-current={tab === value ? 'page' : undefined} onClick={()=>{ setStatusFilter(null); setTab(value); }}>
+              <Icon size={15} /><span>{label}</span>{count > 0 && <span className="ops-nav-badge">{count}</span>}
+            </button>
           ))}
-        </div>
-        <div className="ops-category-tabs" style={{ display:'flex', justifyContent:'center', flexWrap:'wrap', gap:12, width:'100%', maxWidth:1400, margin:'0 auto', alignItems:'stretch', padding:'0 8px 2px', boxSizing:'border-box' }}>
-          {CATEGORIES.map(t=>{
-            const Icon = DEPARTMENT_ICONS[t] || ClipboardList;
-            return <button key={t} onClick={()=>{ setStatusFilter(null); setTab(t); }} style={{
-            border:`1px solid ${tab===t ? GOLD_PALE : 'rgba(255,255,255,.24)'}`, borderRadius:7, padding:'12px 14px', cursor:'pointer', fontSize:12, fontWeight:800, letterSpacing:.1,
-            display:'inline-flex', alignItems:'center', justifyContent:'center', gap:8, flex:'0 1 176px', minWidth:150,
-            background:tab===t ? `linear-gradient(135deg, ${GOLD_PALE}, ${GOLD})` : 'linear-gradient(180deg, rgba(255,255,255,.1), rgba(255,255,255,.05))', color:tab===t ? NAVY : '#fff', boxShadow: tab===t ? 'inset 0 1px 0 rgba(255,255,255,.65), 0 4px 10px rgba(0,0,0,.22)' : '0 2px 7px rgba(0,0,0,.12)', minHeight:54,
-          }}><Icon size={16} strokeWidth={2} style={{ flex:'0 0 auto', color:tab===t ? NAVY : GOLD_PALE }} /><span style={{ minWidth:0 }}>{t}</span></button>;
+          <div className="ops-nav-group-label">Directories</div>
+          <button className="ops-nav-item" onClick={onOpenStaff}><Users size={15} /><span>Suppliers &amp; staff</span></button>
+          <button className="ops-nav-item" onClick={onOpenExhibitors}><Building2 size={15} /><span>Exhibitors</span></button>
+          <div className="ops-nav-group-label">Departments</div>
+          {CATEGORIES.map(category => {
+            const Icon = DEPARTMENT_ICONS[category] || ClipboardList;
+            const count = dashboardPool.filter(query => query.category === category && query.status !== 'COMPLETED').length;
+            return <button key={category} className={`ops-nav-item ops-department-item${tab === category ? ' active' : ''}`} aria-current={tab === category ? 'page' : undefined} onClick={()=>{ setStatusFilter(null); setTab(category); }}>
+              <Icon size={15} /><span>{category}</span>{count > 0 && <span className="ops-nav-badge">{count}</span>}
+            </button>;
           })}
-        </div>
-      </div>
+        </nav>
+        <div className="ops-sidebar-footer"><span className="ops-live-pip" /> Ops Desk <span className="ops-footer-org">Executive Conference Events</span></div>
+      </aside>
+
+      <main className="ops-main">
+        <header className="ops-topbar">
+          <div className="ops-page-heading">
+            <div className="ops-breadcrumb">{eventName} <span>/</span> OPERATIONS</div>
+            <h1>{pageTitle}</h1>
+            <p>Live exhibitor requests, service delivery and team assignments.</p>
+          </div>
+          <div className="ops-top-actions">
+            <button className="ops-quiet-action" title="Export operations report as PDF" onClick={()=>exportOperationsReport('pdf')}><Printer size={15} /><span>PDF report</span></button>
+            <button className="ops-quiet-action" title="Export operations report as Word" onClick={()=>exportOperationsReport('word')}><FileText size={15} /><span>Word report</span></button>
+            <button className="ops-new-query" onClick={()=>setShowForm(true)}><Plus size={15} /><span>Log query</span></button>
+          </div>
+        </header>
+
+        <div className="ops-content">
+          <div className="ops-kpi-bar">
+            {kpis.map(k => (
+              <div key={k.label} className="ops-kpi-card" style={{ '--kpi-color':k.color }}>
+                <div className="ops-kpi-label">{k.label}</div>
+                <div className="ops-kpi-value">{k.value}</div>
+                <k.icon size={16} className="ops-kpi-icon" />
+              </div>
+            ))}
+          </div>
+
+          {overdue.length > 0 && <div className="ops-alert-bar">
+            <div className="ops-alert-inner"><span className="ops-alert-copy"><span className="ops-alert-icon"><AlertTriangle size={15} /></span><span><strong>{overdue.length}</strong> overdue {overdue.length === 1 ? 'query needs' : 'queries need'} escalation</span></span><button onClick={()=>setTab('ESCALATIONS')} className="ops-alert-link">Review escalations <span aria-hidden="true">→</span></button></div>
+          </div>}
+          {error && <div className="ops-error-banner">{error}</div>}
+
+          <div className="ops-primary-tabs" role="tablist" aria-label="Query views">
+            {[
+              ['DASHBOARD', 'Dashboard', LayoutDashboard],
+              ['COMPLETED', `Completed (${complete.length})`, CheckCircle2],
+              ['ESCALATIONS', `Escalations${escalated.length ? ` · ${escalated.length}` : ''}`, AlertTriangle],
+              ['NOTIFICATIONS', `Notifications${notifications.filter(item => !item.read_at).length ? ` · ${notifications.filter(item => !item.read_at).length}` : ''}`, Bell],
+            ].map(([value, label, Icon]) => (
+              <button className={`ops-primary-tab${tab===value ? ' active' : ''}`} role="tab" aria-selected={tab===value} key={value} onClick={()=>{ setStatusFilter(null); setTab(value); }}><Icon size={15} /><span>{label}</span></button>
+            ))}
+          </div>
 
       {activeStatusLabel && (
-        <div style={{ maxWidth:1400, width:'calc(100% - 48px)', margin:'18px auto 0', display:'flex', justifyContent:'space-between', alignItems:'center', background:'#edf6ff', border:'1px solid #d8eaf7', color:NAVY, borderRadius:6, padding:'10px 14px', fontSize:12, fontWeight:700 }}>
+        <div className="ops-filter-summary">
           <span>Showing: {activeStatusLabel}</span>
-          <button onClick={()=>setStatusFilter(null)} style={{ border:'1px solid #cfe0ee', background:'#fff', color:NAVY, borderRadius:4, padding:'5px 10px', cursor:'pointer', fontWeight:700 }}>Clear filter</button>
+          <button onClick={()=>setStatusFilter(null)}>Clear filter</button>
         </div>
       )}
 
-      <div className="ops-workspace-kpis" style={{ maxWidth:1400, width:'calc(100% - 48px)', margin:'18px auto 0', padding:'18px 0 14px', borderTop:'1px solid #cbdbe5', borderBottom:'1px solid #cbdbe5', position:'relative', background:'rgba(235,243,248,.88)', borderRadius:12, boxShadow:'0 8px 18px rgba(13,26,50,.05)' }}>
-        <div style={{ position:'absolute', top:-1, left:0, width:72, height:3, background:NAVY, borderRadius:999 }} />
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:10 }}>
+      <div className="ops-workspace-kpis">
+        <div className="ops-quick-filters">
         {tabKpis.map(kpi => {
           const active = statusFilter === kpi.filterKey;
           return (
-            <button key={kpi.label} onClick={()=>toggleStatusFilter(kpi.filterKey)} style={{
-              background: active ? '#EEF6FF' : '#fff',
-              border:`1px solid ${active ? kpi.color : '#e3e6e5'}`,
-              borderRadius:5,
-              textAlign:'center',
-              padding:'12px 8px',
-              boxShadow: active ? `0 2px 8px ${kpi.color}33` : '0 2px 8px rgba(13,26,50,.04)',
-              cursor:'pointer',
-              transition:'all .15s ease',
-            }}>
-              <div style={{ fontSize:22, fontWeight:700, color:kpi.color }}>{kpi.value}</div>
-              <div style={{ fontSize:10, color:'#777', fontWeight:700, letterSpacing:.4, marginTop:4 }}>{kpi.label}</div>
+            <button key={kpi.label} className={`ops-filter-card${active ? ' active' : ''}`} onClick={()=>toggleStatusFilter(kpi.filterKey)} style={{ '--filter-color':kpi.color }}>
+              <span className="ops-filter-label">{kpi.label}</span>
+              <span className="ops-filter-value">{kpi.value}</span>
             </button>
           );
         })}
@@ -427,11 +471,11 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
       </div>
 
       {/* Query list */}
-      <div className="ops-query-workspace" style={{ padding:'24px 24px 18px', maxWidth:1400, width:'calc(100% - 48px)', margin:'0 auto', borderTop:'1px solid #e7ecec', background:'rgba(255,255,255,.78)', borderRadius:'0 0 14px 14px', boxShadow:'0 10px 22px rgba(13,26,50,.04)' }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap', marginBottom:12 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}><div style={{ color:NAVY, fontSize:12, fontWeight:700, letterSpacing:.8, textTransform:'uppercase' }}>Query workspace</div><label style={{ display:'inline-flex', alignItems:'center', gap:7, color:'#687780', fontSize:11, fontWeight:700, whiteSpace:'nowrap' }}>View <select value={filter} onChange={e=>setFilter(e.target.value)} style={{ width:'auto', border:'1px solid #cfdadd', borderRadius:5, padding:'7px 10px', fontSize:12, color:NAVY, minWidth:170, background:'#fff' }}><option value="ALL">All Categories</option>{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></label></div>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:8, flexWrap:'wrap' }}>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:7, color:'#687780', fontSize:11, fontWeight:700, whiteSpace:'nowrap' }}>Staff <select aria-label="Filter tasks by staff member" value={staffFilter} onChange={event=>setStaffFilter(event.target.value)} style={{ width:'auto', border:'1px solid #cfdadd', borderRadius:5, padding:'8px 10px', fontSize:12, color:NAVY, minWidth:150, background:'#fff' }}>
+      <div className="ops-query-workspace">
+        <div className="ops-workspace-toolbar">
+          <div className="ops-workspace-heading"><span>Request queue</span><label>Department <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="ALL">All departments</option>{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></label></div>
+          <div className="ops-workspace-controls">
+            <label>Assigned to <select aria-label="Filter tasks by staff member" value={staffFilter} onChange={event=>setStaffFilter(event.target.value)}>
               <option value="ALL">All staff</option><option value="UNASSIGNED">Unassigned</option>
               {staff.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}
             </select></label>
@@ -482,7 +526,8 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
         {toast.query_id && <button onClick={()=>{ setTab('NOTIFICATIONS'); setToast(null); }} style={toastAction}>View</button>}
         <button aria-label="Dismiss notification" onClick={()=>setToast(null)} style={{ border:0, background:'transparent', color:'#718089', cursor:'pointer', padding:4 }}><X size={15} /></button>
       </div>}
-
+        </div>
+      </main>
     </div>
   );
 }
@@ -554,7 +599,7 @@ function EditPanel({ q, staff, onSave, onClose }) {
   const [assignedTo, setAssigned] = useState(q.assignedTo || '');
   const [notes, setNotes]       = useState(q.notes || '');
   const [noteError, setNoteError] = useState('');
-  const staffForCat = staff.filter(s => s.category === q.category);
+  const staffForCat = staff.filter(member => (member.departments || [member.category]).includes(q.category));
   const currentAssignee = staff.find(member => String(member.id) === String(assignedTo));
 
   return (

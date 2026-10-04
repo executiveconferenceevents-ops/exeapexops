@@ -1,6 +1,15 @@
 // ─── Data catalog and query store ────────────────────────────────────────────
 import { supabase } from './supabase';
 import { DEMO_MODE, getAppStorage, getDemoCollection, setDemoCollection } from './demoStore';
+import { getActiveEventCode, getActiveEventId, getEventSlug } from './eventScope';
+
+function eventCacheKey(key) {
+  return `${key}:${getEventSlug()}`;
+}
+
+function eventRow(row) {
+  return { ...row, event_id:getActiveEventId() };
+}
 
 export function readableError(error, fallback = 'Something went wrong.') {
   if (typeof error === 'string') return error;
@@ -51,6 +60,22 @@ export function normalizeCategory(category) {
   return aliases[value] || value;
 }
 
+export function normalizeDepartments(departments, fallbackCategory) {
+  const values = Array.isArray(departments) && departments.length
+    ? departments
+    : String(fallbackCategory || departments || '').split(/[;,]/);
+  return [...new Set(values.map(normalizeCategory).filter(Boolean))];
+}
+
+function departmentsMigrationError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return /departments/.test(message) && /(column|schema cache|does not exist|could not find)/.test(message);
+}
+
+function missingDepartmentsMigrationError() {
+  return new Error('Staff departments are not enabled in Supabase yet. Run supabase/staff-departments-migration.sql in the Supabase SQL Editor, then try again.');
+}
+
 export function canViewDepartment(member, category) {
   const memberCategory = normalizeCategory(member?.category);
   const targetCategory = normalizeCategory(category);
@@ -61,7 +86,7 @@ export function canViewDepartment(member, category) {
 }
 
 function readStaffContactOverrides() {
-  try { return JSON.parse(getAppStorage().getItem(STAFF_CONTACT_CACHE_KEY) || '{}'); }
+  try { return JSON.parse(getAppStorage().getItem(eventCacheKey(STAFF_CONTACT_CACHE_KEY)) || '{}'); }
   catch { return {}; }
 }
 
@@ -69,12 +94,12 @@ function cacheStaffContact(member) {
   try {
     const overrides = readStaffContactOverrides();
     overrides[member.id] = { supplier_name: member.supplier_name || '', email: member.email || '', photo_url: member.photo_url || overrides[member.id]?.photo_url || '' };
-    getAppStorage().setItem(STAFF_CONTACT_CACHE_KEY, JSON.stringify(overrides));
+    getAppStorage().setItem(eventCacheKey(STAFF_CONTACT_CACHE_KEY), JSON.stringify(overrides));
   } catch { /* local storage may be unavailable */ }
 }
 
 function readSupplierLogoOverrides() {
-  try { return JSON.parse(getAppStorage().getItem(SUPPLIER_LOGO_CACHE_KEY) || '{}'); }
+  try { return JSON.parse(getAppStorage().getItem(eventCacheKey(SUPPLIER_LOGO_CACHE_KEY)) || '{}'); }
   catch { return {}; }
 }
 
@@ -82,12 +107,47 @@ function cacheSupplierLogo(memberId, logoUrl) {
   try {
     const overrides = readSupplierLogoOverrides();
     overrides[String(memberId || '')] = logoUrl || '';
-    getAppStorage().setItem(SUPPLIER_LOGO_CACHE_KEY, JSON.stringify(overrides));
+    getAppStorage().setItem(eventCacheKey(SUPPLIER_LOGO_CACHE_KEY), JSON.stringify(overrides));
   } catch { /* local storage may be unavailable */ }
 }
 
+function isUploadFile(value) {
+  return typeof Blob !== 'undefined' && value instanceof Blob;
+}
+
+async function uploadPublicImage(bucket, prefix, file) {
+  if (file.size > 2 * 1024 * 1024) throw new Error('Please choose an image smaller than 2 MB.');
+  if (file.type && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    throw new Error('Please choose a PNG, JPG, or WebP image.');
+  }
+  if (!supabase) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('Could not read the selected image.'));
+      reader.readAsDataURL(file);
+    });
+  }
+  const fileName = String(file.name || 'image').replace(/[^a-zA-Z0-9._-]/g, '-');
+  const path = `${getActiveEventId()}/${prefix}/${Date.now()}-${fileName}`;
+  const { error } = await supabase.storage.from(bucket).upload(path, file, {
+    upsert: false,
+    contentType: file.type || 'application/octet-stream',
+  });
+  if (error) {
+    if (error.message?.toLowerCase().includes('bucket not found')) {
+      throw new Error(`Photo storage bucket '${bucket}' is missing. Run supabase/media-buckets.sql in the Supabase SQL editor, then try again.`);
+    }
+    if (error.message?.toLowerCase().includes('row-level security') || error.statusCode === '403' || error.statusCode === 403) {
+      throw new Error('Photo upload was blocked by Supabase Storage policies. Confirm you are signed in and that the media bucket policies allow authenticated uploads.');
+    }
+    throw error;
+  }
+  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+
 function readExhibitorLogoOverrides() {
-  try { return JSON.parse(getAppStorage().getItem(EXHIBITOR_LOGO_CACHE_KEY) || '{}'); }
+  try { return JSON.parse(getAppStorage().getItem(eventCacheKey(EXHIBITOR_LOGO_CACHE_KEY)) || '{}'); }
   catch { return {}; }
 }
 
@@ -95,12 +155,12 @@ function cacheExhibitorLogo(stand, logoUrl) {
   try {
     const overrides = readExhibitorLogoOverrides();
     overrides[normalizeStand(stand)] = logoUrl || '';
-    getAppStorage().setItem(EXHIBITOR_LOGO_CACHE_KEY, JSON.stringify(overrides));
+    getAppStorage().setItem(eventCacheKey(EXHIBITOR_LOGO_CACHE_KEY), JSON.stringify(overrides));
   } catch { /* local storage may be unavailable */ }
 }
 
 function readScannerOverrides() {
-  try { return JSON.parse(getAppStorage().getItem(EXHIBITOR_SCANNER_CACHE_KEY) || '{}'); }
+  try { return JSON.parse(getAppStorage().getItem(eventCacheKey(EXHIBITOR_SCANNER_CACHE_KEY)) || '{}'); }
   catch { return {}; }
 }
 
@@ -108,19 +168,19 @@ function cacheScannerOverride(stand, patch) {
   try {
     const overrides = readScannerOverrides();
     overrides[normalizeStand(stand)] = { ...(overrides[normalizeStand(stand)] || {}), ...patch };
-    getAppStorage().setItem(EXHIBITOR_SCANNER_CACHE_KEY, JSON.stringify(overrides));
+    getAppStorage().setItem(eventCacheKey(EXHIBITOR_SCANNER_CACHE_KEY), JSON.stringify(overrides));
   } catch { /* local storage may be unavailable */ }
 }
 
 export function getEventBanner() {
-  try { return getAppStorage().getItem(EVENT_BANNER_CACHE_KEY) || ''; }
+  try { return getAppStorage().getItem(eventCacheKey(EVENT_BANNER_CACHE_KEY)) || ''; }
   catch { return ''; }
 }
 
 export function saveEventBanner(bannerUrl) {
   try {
-    if (bannerUrl) getAppStorage().setItem(EVENT_BANNER_CACHE_KEY, bannerUrl);
-    else getAppStorage().removeItem(EVENT_BANNER_CACHE_KEY);
+    if (bannerUrl) getAppStorage().setItem(eventCacheKey(EVENT_BANNER_CACHE_KEY), bannerUrl);
+    else getAppStorage().removeItem(eventCacheKey(EVENT_BANNER_CACHE_KEY));
   } catch { /* local storage may be unavailable */ }
   return bannerUrl || '';
 }
@@ -131,36 +191,57 @@ export async function getStaff() {
   const supplierLogoOverrides = readSupplierLogoOverrides();
   const withSupplierLogos = rows => (rows || []).map(member => ({
     ...member,
-    supplier_logo_url: supplierLogoOverrides[String(member.id)] || member.supplier_logo_url || '',
+    supplier_logo_url: member.supplier_logo_url || supplierLogoOverrides[String(member.id)] || '',
   }));
   if (supabase) {
     const { data, error } = await supabase
       .from('staff')
-      .select('id, name, supplier_name, supplier_logo_url, email, category, role, mobile, photo_url')
+      .select('id, name, supplier_name, supplier_logo_url, email, category, departments, role, mobile, photo_url')
+      .eq('event_id', getActiveEventId())
       .order('supplier_name');
     if (!error) {
       const overrides = readStaffContactOverrides();
-      return withSupplierLogos((data || []).map(member => ({ ...member, category: normalizeCategory(member.category), ...(overrides[member.id] || {}) })));
+      return withSupplierLogos((data || []).map(member => {
+        const departments = normalizeDepartments(member.departments, member.category);
+        return { ...member, category: departments[0] || normalizeCategory(member.category), departments, ...(overrides[member.id] || {}) };
+      }));
     }
 
     // Keep the app usable while an existing Supabase project is waiting for the
-    // supplier fields migration.
-    const legacy = await supabase.from('staff').select('id, name, category, role, mobile, photo_url').order('name');
-    if (legacy.error) throw error;
+    // supplier fields or departments migrations.
+    let departmentsAvailable = true;
+    let legacy = await supabase.from('staff').select('id, name, category, departments, role, mobile, photo_url').eq('event_id', getActiveEventId()).order('name');
+    if (legacy.error && departmentsMigrationError(legacy.error)) {
+      departmentsAvailable = false;
+      legacy = await supabase.from('staff').select('id, name, category, role, mobile, photo_url').eq('event_id', getActiveEventId()).order('name');
+    }
+    if (legacy.error) {
+      throw error;
+    }
     const overrides = readStaffContactOverrides();
-    return withSupplierLogos((legacy.data || []).map(member => ({ ...member, category: normalizeCategory(member.category), ...(overrides[member.id] || {}), supplier_name: overrides[member.id]?.supplier_name || '', email: overrides[member.id]?.email || '' })));
+    return withSupplierLogos((legacy.data || []).map(member => {
+      const departments = normalizeDepartments(departmentsAvailable ? member.departments : [], member.category);
+      return { ...member, category: departments[0] || normalizeCategory(member.category), departments, ...(!departmentsAvailable && { departmentsMigrationPending: true }), ...(overrides[member.id] || {}), supplier_name: overrides[member.id]?.supplier_name || '', email: overrides[member.id]?.email || '' };
+    }));
   }
   const rows = DEMO_MODE ? getDemoCollection('staff', DEMO_STAFF) : STAFF_FALLBACK;
-  return withSupplierLogos([...rows].map(member => ({ ...member, category: normalizeCategory(member.category) })));
+  return withSupplierLogos([...rows].map(member => {
+    const departments = normalizeDepartments(member.departments, member.category);
+    return { ...member, category: departments[0] || normalizeCategory(member.category), departments };
+  }));
 }
 
 export async function updateSupplierLogo(memberId, logoUrl) {
-  cacheSupplierLogo(memberId, logoUrl);
+  const persistedUrl = isUploadFile(logoUrl)
+    ? await uploadPublicImage('supplier-logos', String(memberId), logoUrl)
+    : logoUrl;
+  cacheSupplierLogo(memberId, persistedUrl);
   if (supabase) {
     const { data, error } = await supabase
       .from('staff')
-      .update({ supplier_logo_url: logoUrl || null })
+      .update({ supplier_logo_url: persistedUrl || null })
       .eq('id', memberId)
+      .eq('event_id', getActiveEventId())
       .select();
     if (!error) return data || [];
     // Only tolerate a missing supplier_logo_url column (pending migration); surface any other error.
@@ -169,7 +250,7 @@ export async function updateSupplierLogo(memberId, logoUrl) {
   }
   const staffRows = DEMO_MODE ? getDemoCollection('staff', DEMO_STAFF) : STAFF_FALLBACK;
   staffRows.forEach(member => {
-    if (String(member.id) === String(memberId)) member.supplier_logo_url = logoUrl || '';
+    if (String(member.id) === String(memberId)) member.supplier_logo_url = persistedUrl || '';
   });
   if (DEMO_MODE) setDemoCollection('staff', staffRows);
   return getStaff();
@@ -178,6 +259,7 @@ export async function updateSupplierLogo(memberId, logoUrl) {
 export async function submitRebookingRequest(request) {
   const row = {
     id: `rebook-${Date.now()}`,
+    ...(supabase && { event_id:getActiveEventId() }),
     company: request.company.trim(),
     contact_person: request.contact_person.trim(),
     contact_title: request.contact_title?.trim() || '',
@@ -194,9 +276,13 @@ export async function submitRebookingRequest(request) {
     created_at: new Date().toISOString(),
   };
   if (supabase) {
-    const { data, error } = await supabase.from('rebooking_requests').insert(row).select().single();
+    const { data, error } = await supabase.rpc('submit_public_rebooking', {
+      requested_event_slug:getEventSlug(),
+      requested_code:getActiveEventCode(),
+      request_payload:row,
+    });
     if (error) throw error;
-    return data;
+    return Array.isArray(data) ? data[0] : data;
   }
   if (DEMO_MODE) {
     const rows = getDemoCollection('rebookings', DEMO_REBOOKINGS);
@@ -211,6 +297,7 @@ export async function getRebookingRequests() {
   const { data, error } = await supabase
     .from('rebooking_requests')
     .select('*')
+    .eq('event_id', getActiveEventId())
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
@@ -221,6 +308,7 @@ export async function getOpsNotifications() {
   const { data, error } = await supabase
     .from('ops_notifications')
     .select('*')
+    .eq('event_id', getActiveEventId())
     .order('created_at', { ascending: false })
     .limit(100);
   if (error) throw error;
@@ -238,7 +326,8 @@ export async function markOpsNotificationRead(id) {
   const { error } = await supabase
     .from('ops_notifications')
     .update({ read_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('event_id', getActiveEventId());
   if (error) throw error;
 }
 
@@ -253,6 +342,8 @@ export async function escalatePublicQuery({ queryId, stand, message = '' }) {
     return queryId;
   }
   const { data, error } = await supabase.rpc('escalate_public_query', {
+    requested_event_slug: getEventSlug(),
+    requested_code: getActiveEventCode(),
     requested_query_id: queryId,
     requested_stand: normalizeStand(stand),
     escalation_message: message.trim(),
@@ -262,20 +353,26 @@ export async function escalatePublicQuery({ queryId, stand, message = '' }) {
 }
 
 export async function upsertStaffRecords(records) {
-  const rows = records.map((record, index) => ({
-    id: record.id || `s-import-${Date.now()}-${index}`,
-    name: record.name,
-    supplier_name: record.supplier_name || record.supplier || record.company || null,
-    email: record.email || null,
-    category: normalizeCategory(record.category) || 'Other',
-    mobile: record.mobile || null,
-    role: record.role || 'staff',
-  }));
+  const rows = records.map((record, index) => {
+    const departments = normalizeDepartments(record.departments, record.category);
+    if (!departments.length) departments.push('Other');
+    return {
+      id: record.id || `s-import-${Date.now()}-${index}`,
+      name: record.name,
+      supplier_name: record.supplier_name || record.supplier || record.company || null,
+      email: record.email || null,
+      category: departments[0] || normalizeCategory(record.category) || 'Other',
+      departments,
+      mobile: record.mobile || null,
+      role: record.role || 'staff',
+      ...(supabase && { event_id:getActiveEventId() }),
+    };
+  });
   if (supabase) {
-    const { data, error } = await supabase.from('staff').upsert(rows).select();
+    const { data, error } = await supabase.from('staff').upsert(rows, { onConflict:'id' }).select();
     if (!error) return data || [];
     const legacyRows = rows.map(({ supplier_name, email, ...legacy }) => legacy);
-    const legacy = await supabase.from('staff').upsert(legacyRows).select();
+    const legacy = await supabase.from('staff').upsert(legacyRows, { onConflict:'id' }).select();
     if (legacy.error) throw error;
     const cachedRows = (legacy.data || []).map((member, index) => ({ ...member, supplier_name: rows[index]?.supplier_name || '', email: rows[index]?.email || '' }));
     cachedRows.forEach(cacheStaffContact);
@@ -290,7 +387,7 @@ export async function upsertStaffRecords(records) {
 
 export async function getSuppliers() {
   if (supabase) {
-    const { data, error } = await supabase.from('suppliers').select('*').order('name');
+    const { data, error } = await supabase.from('suppliers').select('*').eq('event_id', getActiveEventId()).order('name');
     if (error) throw error;
     return data || [];
   }
@@ -305,9 +402,10 @@ export async function upsertSuppliers(records) {
     mobile: record.mobile || null,
     email: record.email || null,
     category: record.category || 'Other',
+    ...(supabase && { event_id:getActiveEventId() }),
   }));
   if (supabase) {
-    const { data, error } = await supabase.from('suppliers').upsert(rows).select();
+    const { data, error } = await supabase.from('suppliers').upsert(rows, { onConflict:'id' }).select();
     if (error) throw error;
     return data || [];
   }
@@ -332,9 +430,10 @@ export async function upsertExhibitorRecords(records) {
     contact: record.contact || record.contact_name || null,
     phone: record.phone || record.mobile || record.contact_number || null,
     email: record.email || null,
+    ...(supabase && { event_id:getActiveEventId() }),
   })).filter(record => record.stand && record.name);
   if (supabase) {
-    const { data, error } = await supabase.from('exhibitors').upsert(rows).select();
+    const { data, error } = await supabase.from('exhibitors').upsert(rows, { onConflict:'event_id,stand' }).select();
     if (error) throw error;
     return data || [];
   }
@@ -348,8 +447,9 @@ export async function upsertExhibitorRecords(records) {
   return rows;
 }
 
-export async function addStaff({ name, supplier_name, email, category, mobile, photo }) {
-  const member = { id: `s-${Date.now()}`, name: name.trim(), supplier_name: supplier_name?.trim() || null, email: email?.trim() || null, category, mobile: mobile || null, role: 'staff' };
+export async function addStaff({ name, supplier_name, email, category, departments, mobile, photo }) {
+  const normalizedDepartments = normalizeDepartments(departments, category);
+  const member = { id: `s-${Date.now()}`, name: name.trim(), supplier_name: supplier_name?.trim() || null, email: email?.trim() || null, category: normalizedDepartments[0] || normalizeCategory(category), departments: normalizedDepartments, mobile: mobile || null, role: 'staff', ...(supabase && { event_id:getActiveEventId() }) };
   if (supabase) {
     const { data, error } = await supabase.from('staff').insert(member).select().single();
     if (!error) {
@@ -357,9 +457,13 @@ export async function addStaff({ name, supplier_name, email, category, mobile, p
       if (photo) return uploadStaffPhoto(data, photo);
       return data;
     }
+    if (departmentsMigrationError(error)) throw missingDepartmentsMigrationError();
     const { supplier_name, email, ...legacyMember } = member;
     const legacy = await supabase.from('staff').insert(legacyMember).select().single();
-    if (legacy.error) throw error;
+    if (legacy.error) {
+      if (departmentsMigrationError(legacy.error)) throw missingDepartmentsMigrationError();
+      throw error;
+    }
     if (photo) return uploadStaffPhoto({ ...legacy.data, supplier_name, email }, photo);
     const cached = { ...legacy.data, supplier_name, email };
     cacheStaffContact(cached);
@@ -376,17 +480,25 @@ export async function updateStaff(id, patch) {
   const email = patch.email || '';
   const dbPatch = { ...patch };
   delete dbPatch.photo;
+  if (patch.departments) {
+    dbPatch.departments = normalizeDepartments(patch.departments, patch.category);
+    dbPatch.category = dbPatch.departments[0] || normalizeCategory(patch.category);
+  }
   if (supabase) {
-    const { data, error } = await supabase.from('staff').update(dbPatch).eq('id', id).select().single();
+    const { data, error } = await supabase.from('staff').update(dbPatch).eq('id', id).eq('event_id', getActiveEventId()).select().single();
     if (!error) {
       cacheStaffContact(data);
       if (photo) return uploadStaffPhoto(data, photo);
       return data;
     }
+    if (departmentsMigrationError(error)) throw missingDepartmentsMigrationError();
     delete dbPatch.supplier_name;
     delete dbPatch.email;
-    const legacy = await supabase.from('staff').update(dbPatch).eq('id', id).select().single();
-    if (legacy.error) throw error;
+    const legacy = await supabase.from('staff').update(dbPatch).eq('id', id).eq('event_id', getActiveEventId()).select().single();
+    if (legacy.error) {
+      if (departmentsMigrationError(legacy.error)) throw missingDepartmentsMigrationError();
+      throw error;
+    }
     if (photo) return uploadStaffPhoto({ ...legacy.data, supplier_name: supplierName, email }, photo);
     const cached = { ...legacy.data, supplier_name: supplierName, email };
     cacheStaffContact(cached);
@@ -400,7 +512,7 @@ export async function updateStaff(id, patch) {
 }
 
 async function uploadStaffPhoto(member, photo) {
-  const path = `${member.id}-${Date.now()}-${photo.name}`;
+  const path = `${getActiveEventId()}/staff-photos/${member.id}-${Date.now()}-${photo.name}`;
   const { error: uploadError } = await supabase.storage.from('staff-photos').upload(path, photo, { upsert: false, contentType: photo.type || 'application/octet-stream' });
   if (uploadError) {
     if (uploadError.message?.toLowerCase().includes('bucket not found')) {
@@ -413,7 +525,7 @@ async function uploadStaffPhoto(member, photo) {
     throw uploadError;
   }
   const { data: publicFile } = supabase.storage.from('staff-photos').getPublicUrl(path);
-  const { data, error } = await supabase.from('staff').update({ photo_url: publicFile.publicUrl }).eq('id', member.id).select().single();
+  const { data, error } = await supabase.from('staff').update({ photo_url: publicFile.publicUrl }).eq('id', member.id).eq('event_id', getActiveEventId()).select().single();
   if (error) throw error;
   cacheStaffContact(data);
   return data;
@@ -421,7 +533,7 @@ async function uploadStaffPhoto(member, photo) {
 
 export async function removeStaff(id) {
   if (supabase) {
-    const { error } = await supabase.from('staff').delete().eq('id', id);
+    const { error } = await supabase.from('staff').delete().eq('id', id).eq('event_id', getActiveEventId());
     if (error) throw error;
     return;
   }
@@ -515,6 +627,7 @@ function addDemoNotification(kind, title, message, related = {}) {
 }
 
 function mergeExhibitorRows(rows) {
+  if (supabase) return [...(rows || [])];
   const byStand = new Map((rows || []).map(row => [normalizeStand(row.stand), row]));
   return EXHIBITORS.map(master => ({ ...master, ...(byStand.get(normalizeStand(master.stand)) || {}) }))
     .concat((rows || []).filter(row => !EXHIBITORS.some(master => normalizeStand(master.stand) === normalizeStand(row.stand))));
@@ -525,7 +638,7 @@ export async function getExhibitors() {
   const scannerOverrides = readScannerOverrides();
   const withOverrides = rows => (rows || []).map(row => ({
     ...row,
-    logo_url: logoOverrides[normalizeStand(row.stand)] || row.logo_url || '',
+    logo_url: row.logo_url || logoOverrides[normalizeStand(row.stand)] || '',
     ...(scannerOverrides[normalizeStand(row.stand)] || {}),
   }));
   if (DEMO_MODE) return withOverrides(getDemoCollection('exhibitors', DEMO_EXHIBITORS));
@@ -534,12 +647,14 @@ export async function getExhibitors() {
       const { data, error } = await supabase
         .from('exhibitors')
         .select('stand, name, contact, phone, email, logo_url, pack_collected, pack_collected_by, pack_collected_at, scanner_booked_out, scanner_booked_out_at, scanner_due_at, scanner_booked_in, scanner_booked_in_at, scanner_day1_booked_out, scanner_day1_booked_out_at, scanner_day1_booked_in, scanner_day1_booked_in_at, scanner_day2_booked_out, scanner_day2_booked_out_at, scanner_day2_booked_in, scanner_day2_booked_in_at, scanner_staff_name, scanner_staff_contact, scanner_out_staff_name, scanner_out_staff_contact, scanner_in_staff_name, scanner_in_staff_contact')
+        .eq('event_id', getActiveEventId())
         .order('stand');
       if (!error) return withOverrides(mergeExhibitorRows(data));
       if (error.message?.includes('logo_url') || error.message?.includes('scanner_') || error.message?.includes('Could not find the')) {
         const { data: fallbackData, error: fallbackError } = await supabase
           .from('exhibitors')
           .select('stand, name, contact, phone, email, logo_url')
+          .eq('event_id', getActiveEventId())
           .order('stand');
         if (!fallbackError) return withOverrides(mergeExhibitorRows(fallbackData));
       }
@@ -552,14 +667,18 @@ export async function getExhibitors() {
 }
 
 export async function addExhibitor(exhibitor) {
-  const { logo_url, ...safeExhibitor } = exhibitor || {};
-  if (logo_url) cacheExhibitorLogo(exhibitor.stand, logo_url);
+  const { logo_url, logo_file, ...safeExhibitor } = exhibitor || {};
+  const persistedLogoUrl = logo_file
+    ? await uploadPublicImage('exhibitor-logos', normalizeStand(exhibitor.stand), logo_file)
+    : logo_url;
+  if (persistedLogoUrl) cacheExhibitorLogo(exhibitor.stand, persistedLogoUrl);
   if (supabase) {
+    const scopedExhibitor = eventRow(safeExhibitor);
     try {
-      const { data, error } = await supabase.from('exhibitors').insert({ ...safeExhibitor, logo_url: logo_url || null }).select().single();
+      const { data, error } = await supabase.from('exhibitors').insert({ ...scopedExhibitor, logo_url: persistedLogoUrl || null }).select().single();
       if (!error) return data;
       if (error.message?.includes('logo_url') || error.message?.includes('Could not find the')) {
-        const { data: fallbackData, error: fallbackError } = await supabase.from('exhibitors').insert(safeExhibitor).select().single();
+        const { data: fallbackData, error: fallbackError } = await supabase.from('exhibitors').insert(scopedExhibitor).select().single();
         if (!fallbackError) return fallbackData;
       }
       throw error;
@@ -572,7 +691,7 @@ export async function addExhibitor(exhibitor) {
       throw saveError;
     }
   }
-  const row = { ...exhibitor, logo_url: exhibitor?.logo_url || '' };
+  const row = { ...safeExhibitor, logo_url: persistedLogoUrl || '' };
   const exhibitors = DEMO_MODE ? getDemoCollection('exhibitors', DEMO_EXHIBITORS) : EXHIBITORS;
   exhibitors.push(row);
   if (DEMO_MODE) setDemoCollection('exhibitors', exhibitors);
@@ -580,16 +699,19 @@ export async function addExhibitor(exhibitor) {
 }
 
 export async function updateExhibitor(stand, patch) {
-  const { logo_url, ...safePatch } = patch || {};
-  if (logo_url !== undefined) cacheExhibitorLogo(stand, logo_url);
+  const { logo_url, logo_file, ...safePatch } = patch || {};
+  const persistedLogoUrl = logo_file
+    ? await uploadPublicImage('exhibitor-logos', normalizeStand(stand), logo_file)
+    : logo_url;
+  if (persistedLogoUrl !== undefined) cacheExhibitorLogo(stand, persistedLogoUrl);
   const scannerPatch = Object.fromEntries(Object.entries(safePatch).filter(([key]) => key.startsWith('scanner_')));
   if (Object.keys(scannerPatch).length) cacheScannerOverride(stand, scannerPatch);
   if (supabase) {
     try {
-      const { data, error } = await supabase.from('exhibitors').update({ ...safePatch, ...(logo_url !== undefined && { logo_url: logo_url || null }) }).eq('stand', stand).select().single();
+      const { data, error } = await supabase.from('exhibitors').update({ ...safePatch, ...(persistedLogoUrl !== undefined && { logo_url: persistedLogoUrl || null }) }).eq('stand', stand).eq('event_id', getActiveEventId()).select().single();
       if (!error) return data;
       if (error.message?.includes('logo_url') || error.message?.includes('Could not find the')) {
-        const { data: fallbackData, error: fallbackError } = await supabase.from('exhibitors').update(safePatch).eq('stand', stand).select().single();
+        const { data: fallbackData, error: fallbackError } = await supabase.from('exhibitors').update(safePatch).eq('stand', stand).eq('event_id', getActiveEventId()).select().single();
         if (!fallbackError) return fallbackData;
       }
       throw error;
@@ -604,14 +726,14 @@ export async function updateExhibitor(stand, patch) {
   }
   const exhibitors = DEMO_MODE ? getDemoCollection('exhibitors', DEMO_EXHIBITORS) : EXHIBITORS;
   const index = exhibitors.findIndex(exhibitor => exhibitor.stand === stand);
-  if (index >= 0) exhibitors[index] = { ...exhibitors[index], ...safePatch, logo_url: patch?.logo_url || exhibitors[index].logo_url || '' };
+  if (index >= 0) exhibitors[index] = { ...exhibitors[index], ...safePatch, ...(persistedLogoUrl !== undefined && { logo_url: persistedLogoUrl || '' }) };
   if (DEMO_MODE) setDemoCollection('exhibitors', exhibitors);
   return exhibitors[index];
 }
 
 export async function removeExhibitor(stand) {
   if (supabase) {
-    const { error } = await supabase.from('exhibitors').delete().eq('stand', stand);
+    const { error } = await supabase.from('exhibitors').delete().eq('stand', stand).eq('event_id', getActiveEventId());
     if (error) throw error;
     return;
   }
@@ -624,7 +746,7 @@ export async function removeExhibitor(stand) {
 export async function getPublicStatus(stand) {
   const normalizedStand = normalizeStand(stand);
   if (supabase) {
-    const { data, error } = await supabase.rpc('get_public_stand_status', { requested_stand: normalizedStand });
+    const { data, error } = await supabase.rpc('get_public_stand_status', { requested_event_slug:getEventSlug(), requested_code:getActiveEventCode(), requested_stand:normalizedStand });
     if (error) throw error;
     return (data || []).map(fromRow);
   }
@@ -633,37 +755,12 @@ export async function getPublicStatus(stand) {
 
 export async function getPublicExhibitors() {
   const logoOverrides = readExhibitorLogoOverrides();
-  const publicRow = row => ({ stand: row.stand, name: row.name, logo_url: logoOverrides[normalizeStand(row.stand)] || row.logo_url || '' });
+  const publicRow = row => ({ stand: row.stand, name: row.name, logo_url: row.logo_url || logoOverrides[normalizeStand(row.stand)] || '' });
   if (DEMO_MODE) return getDemoCollection('exhibitors', DEMO_EXHIBITORS).map(publicRow);
   if (supabase) {
-    try {
-      const { data: rpcData, error: rpcError } = await supabase.rpc('get_public_exhibitors');
-      if (!rpcError) return mergeExhibitorRows(rpcData).map(publicRow);
-
-      const { data, error } = await supabase
-        .from('exhibitors')
-        .select('stand, name, logo_url')
-        .order('stand');
-
-      if (!error) {
-        return mergeExhibitorRows(data).map(publicRow);
-      }
-
-      if (error?.message?.includes('logo_url') || error?.message?.includes('Could not find the')) {
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('exhibitors')
-          .select('stand, name')
-          .order('stand');
-
-        if (!fallbackError) {
-          return mergeExhibitorRows(fallbackData).map(publicRow);
-        }
-      }
-    } catch (schemaError) {
-      // Old/partial Supabase projects may not yet include the logo field.
-    }
-
-    return mergeExhibitorRows([]).map(publicRow);
+    const { data, error } = await supabase.rpc('get_public_exhibitors', { requested_event_slug:getEventSlug(), requested_code:getActiveEventCode() });
+    if (error) throw error;
+    return (data || []).map(publicRow);
   }
   return mergeExhibitorRows([]).map(publicRow);
 }
@@ -695,6 +792,7 @@ function fromRow(row) {
 function toRow(query) {
   return {
     id: query.id,
+    event_id: getActiveEventId(),
     stand: query.stand,
     exhibitor: query.exhibitor,
     contact: query.contact,
@@ -717,6 +815,7 @@ export async function getQueries() {
     const { data, error } = await supabase
       .from('queries')
       .select('*')
+      .eq('event_id', getActiveEventId())
       .order('logged_at', { ascending: true });
     if (error) throw error;
     return (data || []).map(fromRow).map(query => ({ ...query, slaDeadline: query.slaDeadline || deriveSlaDeadline(query, data || []) }));
@@ -763,7 +862,7 @@ export async function addQuery(q) {
     stand: normalizeStand(q.stand),
     category: normalizeCategory(q.category),
   };
-  const existingQueries = await getPublicStatus(normalizedQuery.stand);
+  const existingQueries = supabase ? await getQueries() : await getPublicStatus(normalizedQuery.stand);
   const duplicate = findDuplicateQuery(existingQueries, normalizedQuery);
   if (duplicate) throw duplicateQueryError(duplicate);
 
@@ -799,7 +898,19 @@ export async function submitClientQuery(query) {
   const stand = normalizeStand(query.stand);
 
   try {
-    const saved = await addQuery({ ...query, stand, sourceTab: 'CLIENT' });
+    let saved;
+    if (supabase) {
+      const { data, error } = await supabase.rpc('submit_public_query', {
+        requested_event_slug:getEventSlug(),
+        requested_code:getActiveEventCode(),
+        query_payload:{ ...query, stand, sourceTab:'CLIENT' },
+      });
+      if (error) throw error;
+      const row = Array.isArray(data) ? data[0] : data;
+      saved = fromRow(row);
+    } else {
+      saved = await addQuery({ ...query, stand, sourceTab:'CLIENT' });
+    }
     return { query: saved, duplicate: false };
   } catch (error) {
     if (error.duplicateQuery) return { query: error.duplicateQuery, duplicate: true };
@@ -863,6 +974,7 @@ export async function updateQuery(id, patch) {
         .from('queries')
         .update(dbPatch)
         .eq('id', id)
+        .eq('event_id', getActiveEventId())
         .select()
         .single();
       if (error) throw error;

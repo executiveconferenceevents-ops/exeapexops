@@ -57,7 +57,7 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
   }
 
   return (
-    <form onSubmit={submit}>
+    <form className="apex-query-form" onSubmit={submit}>
       <div style={introStyle}><ClipboardPlus size={18} color={BLUE} /><span>Capture the request details so the right team can resolve it quickly.</span></div>
       <div style={gridStyle}>
         <Field label="Exhibitor / Stand" required>

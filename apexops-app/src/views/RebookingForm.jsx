@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Send, Sparkles } from 'lucide-react';
 import { getPublicExhibitors, readableError, submitRebookingRequest } from '../lib/mock';
+import { getActiveEvent } from '../lib/eventScope';
 import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, TEAL, CORAL, FONT } from '../theme';
 
 const emptyForm = {
@@ -25,6 +26,8 @@ const boothTypeOptions = ['Shell scheme', 'Custom build', 'Corner stand', 'Islan
 const sponsorshipOptions = ['No', 'Yes, I would like to discuss', 'Maybe / not sure'];
 
 export default function RebookingForm() {
+  const event = getActiveEvent();
+  const nextEventName = event?.next_event_name || 'the next event';
   const [form, setForm] = useState(emptyForm);
   const [exhibitors, setExhibitors] = useState([]);
   const [submitted, setSubmitted] = useState(false);
@@ -65,18 +68,18 @@ export default function RebookingForm() {
   }
 
   return (
-    <div style={pageStyle}>
-      <header style={headerStyle}>
+    <div className="apex-service-screen rebooking-screen" style={pageStyle}>
+      <header className="apex-service-header" style={headerStyle}>
         <div>
           <div style={{ color: GOLD_PALE, fontWeight: 700, fontSize: 20, letterSpacing: 2 }}>APEXOPS™</div>
           <div style={eyebrowStyle}>Exhibitor rebooking</div>
         </div>
-        <div style={{ color: 'rgba(255,255,255,.66)', fontSize: 12 }}>ESG Africa Conference &amp; Expo</div>
+        <div style={{ color: 'rgba(255,255,255,.66)', fontSize: 12 }}>{event?.name || 'Exhibitor rebooking'}</div>
       </header>
 
-      <main style={mainStyle}>
+      <main className="apex-service-main rebooking-main" style={mainStyle}>
         {submitted ? (
-          <section style={cardStyle}>
+          <section className="apex-service-panel" style={cardStyle}>
             <CheckCircle2 size={42} color={TEAL} />
             <div style={eyebrowStyle}>Request received</div>
             <h1 style={headingStyle}>Thank you for your interest.</h1>
@@ -84,20 +87,20 @@ export default function RebookingForm() {
             <p style={finePrintStyle}>Submitting this form does not constitute a binding booking or confirmation of stand allocation.</p>
           </section>
         ) : (
-          <section style={cardStyle}>
+          <section className="apex-service-panel" style={cardStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
               <div>
-                <div style={eyebrowStyle}>ESG Africa 2027</div>
+                <div style={eyebrowStyle}>{nextEventName}</div>
                 <h1 style={headingStyle}>Rebook your stand</h1>
               </div>
               <div style={trustBadge}><Sparkles size={14} /> Expression of interest</div>
             </div>
 
-            <p style={copyStyle}>Secure your preferred position early and let our team know how you would like to participate in the next event.</p>
+            <p style={copyStyle}>Secure your preferred position early and let our team know how you would like to participate in {nextEventName}.</p>
 
             <div style={layoutGrid}>
-              <form onSubmit={submit} style={{ display: 'grid', gap: 18 }}>
-                <div style={panelStyle}>
+              <form className="rebooking-form" onSubmit={submit} style={{ display: 'grid', gap: 18 }}>
+                <div className="rebooking-section" style={panelStyle}>
                   <div style={sectionTitle}>Company &amp; contact details</div>
                   <div style={{ marginBottom: 12 }}>
                     <label style={labelStyle}>Select your company from the exhibitor list
@@ -133,7 +136,7 @@ export default function RebookingForm() {
                   </div>
                 </div>
 
-                <div style={panelStyle}>
+                <div className="rebooking-section" style={panelStyle}>
                   <div style={sectionTitle}>Stand preferences</div>
                   <div style={fieldGrid}>
                     <label style={labelStyle}>Rebooking intent
@@ -163,7 +166,7 @@ export default function RebookingForm() {
                   </div>
                 </div>
 
-                <div style={panelStyle}>
+                <div className="rebooking-section" style={panelStyle}>
                   <div style={sectionTitle}>What would you like to discuss?</div>
                   <fieldset style={fieldsetStyle}>
                     <legend style={labelStyle}>Topics</legend>
@@ -179,7 +182,7 @@ export default function RebookingForm() {
                 <button type="submit" disabled={saving} style={submitButton}><Send size={16} /> {saving ? 'Submitting...' : 'Submit rebooking request'}</button>
               </form>
 
-              <aside style={summaryCard}>
+              <aside className="rebooking-summary" style={summaryCard}>
                 <div style={summaryTitle}>Request summary</div>
                 <div style={summaryItem}><span style={summaryLabel}>Company</span><strong>{form.company || 'Pending'}</strong></div>
                 <div style={summaryItem}><span style={summaryLabel}>Contact</span><strong>{form.contact_person || 'Pending'}</strong></div>

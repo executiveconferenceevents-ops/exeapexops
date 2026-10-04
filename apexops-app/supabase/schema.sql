@@ -21,6 +21,7 @@ create table if not exists public.staff (
   id text primary key,
   name text not null,
   category text not null,
+  departments text[] not null default '{}',
   role text not null default 'staff',
   mobile text,
   photo_url text
@@ -50,6 +51,8 @@ alter table public.staff add column if not exists photo_url text;
 alter table public.staff add column if not exists supplier_name text;
 alter table public.staff add column if not exists email text;
 alter table public.staff add column if not exists supplier_logo_url text;
+alter table public.staff add column if not exists departments text[] not null default '{}';
+update public.staff set departments = array[category] where cardinality(departments) = 0;
 alter table public.exhibitors add column if not exists logo_url text;
 alter table public.exhibitors add column if not exists pack_collected boolean not null default false;
 alter table public.exhibitors add column if not exists pack_collected_by text;

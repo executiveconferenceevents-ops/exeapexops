@@ -1,16 +1,17 @@
--- Replace the old exhibitor seed data with the 25 exhibitors from
--- Delivery sheet (4).xlsx -> Exhibitor deliverables.
+-- Replace exhibitor seed data for one event only. Change the slug before running.
 
 begin;
 
 delete from public.queries
-where id like 'Q-DEMO-%'
-   or id like 'Q-20260921-%';
+where event_id = (select id from public.events where slug = 'esg-africa-2026')
+  and (id like 'Q-DEMO-%' or id like 'Q-20260921-%');
 
-delete from public.exhibitors;
+delete from public.exhibitors where event_id = (select id from public.events where slug = 'esg-africa-2026');
 
-insert into public.exhibitors (stand, name, contact, phone, email)
-values
+insert into public.exhibitors (event_id, stand, name, contact, phone, email)
+select event.id, imported.stand, imported.name, imported.contact, imported.phone, imported.email
+from public.events event
+cross join (values
   ('A01', 'Nedbank', 'Lorna Louw', 'Siphumelele: +27 10 234 3380 / Edith: 083 700 0399 / Lorna: +27 83 325 0283', 'LornaL@Nedbank.co.za; edith@edithventerpromo.com; SiphumeleleS@Nedbank.co.za'),
   ('A02', 'Henley Business', 'Mamodise Mailula', '0118080860', 'mamodisem2henleysa.ac.za'),
   ('A03', 'Compliance Centre', 'Caylin Swanepoel', '+27125432971', 'caylin@rmgirs.com'),
@@ -35,6 +36,8 @@ values
   ('B07', 'Good Governance Academy / ESG Exchange', 'Carolynn Chalmers', '27 83 300 1309', 'carolynn@candorgovernance.co.za'),
   ('B08', 'IAIAsa', 'Sue George', '27 82 961 5750', 'operations@iaiasa.co.za'),
   ('B09', 'Klein Muis', 'Aiden Peters', '+27 67 324 6739', 'aidanjpeters@gmail.com'),
-  ('B10', 'Khumo Morojele', null, null, null);
+  ('B10', 'Khumo Morojele', null, null, null)
+) as imported(stand, name, contact, phone, email)
+where event.slug = 'esg-africa-2026';
 
 commit;

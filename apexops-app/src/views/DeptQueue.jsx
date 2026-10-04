@@ -38,10 +38,10 @@ export default function DeptQueue() {
   }
 
   return (
-    <div style={{ fontFamily:FONT, minHeight:'100vh', background:BG }}>
+    <div className="apex-service-screen dept-queue-screen" style={{ fontFamily:FONT, minHeight:'100vh', background:BG }}>
 
       {/* Header */}
-      <div style={{ background:`linear-gradient(110deg, ${NAVY_DEEP}, ${NAVY})`, padding:'0 32px', display:'flex', alignItems:'center', gap:16, minHeight:76, boxShadow:'0 2px 14px rgba(13,26,50,.16)' }}>
+      <div className="apex-service-header" style={{ background:`linear-gradient(110deg, ${NAVY_DEEP}, ${NAVY})`, padding:'0 32px', display:'flex', alignItems:'center', gap:16, minHeight:76, boxShadow:'0 2px 14px rgba(13,26,50,.16)' }}>
         <div><div style={{ color:GOLD_PALE, fontWeight:700, fontSize:19, letterSpacing:2 }}>APEXOPS™</div><div style={{ color:'rgba(255,255,255,.56)', fontSize:10, letterSpacing:1.8, textTransform:'uppercase', marginTop:3 }}>Personal work queue</div></div>
         <span style={{ color:'rgba(255,255,255,.65)', fontSize:12 }}>My Queue</span>
         <select value={staffId} onChange={e=>setStaffId(e.target.value)} style={{
@@ -54,16 +54,16 @@ export default function DeptQueue() {
       </div>
 
       {!staffId ? (
-        <div style={{ maxWidth:700, margin:'48px auto', background:'#fff', border:'1px dashed #cbd6d8', borderRadius:8, padding:'48px 24px', textAlign:'center', color:'#6f7b82' }}>
+        <div className="apex-service-panel dept-queue-empty" style={{ maxWidth:700, margin:'48px auto', background:'#fff', border:'1px dashed #cbd6d8', borderRadius:8, padding:'48px 24px', textAlign:'center', color:'#6f7b82' }}>
           <CircleUserRound size={34} color={BLUE} strokeWidth={1.6} />
           <div style={{ color:NAVY, fontSize:17, fontWeight:700, marginTop:14 }}>Select your name to view your queue</div>
           <div style={{ fontSize:13, marginTop:6 }}>Your assigned exhibitor requests and current work will appear here.</div>
         </div>
       ) : (
-        <div style={{ padding:'28px 32px 64px', maxWidth:1120, margin:'0 auto' }}>
+        <div className="apex-service-main dept-queue-content" style={{ padding:'28px 32px 64px', maxWidth:1120, margin:'0 auto' }}>
 
           {/* Staff header */}
-          <div style={{ background:'#fff', borderRadius:8, padding:'20px 22px', marginBottom:24, display:'flex', alignItems:'center', gap:16, border:'1px solid #e1e6e5', borderTop:`3px solid ${BLUE}`, boxShadow:'0 4px 16px rgba(13,26,50,.05)' }}>
+          <div className="apex-service-panel dept-staff-summary" style={{ background:'#fff', borderRadius:8, padding:'20px 22px', marginBottom:24, display:'flex', alignItems:'center', gap:16, border:'1px solid #e1e6e5', borderTop:`3px solid ${BLUE}`, boxShadow:'0 4px 16px rgba(13,26,50,.05)' }}>
             {myStaff.supplier_logo_url && <img src={myStaff.supplier_logo_url} alt={`${myStaff.supplier_name || 'Supplier'} logo`} title={myStaff.supplier_name || 'Supplier'} style={{ width:48, height:48, objectFit:'contain', borderRadius:8, border:'1px solid #dfe7eb', background:'#fff', padding:4 }} />}
             <div style={{ width:48,height:48,borderRadius:'50%',background:NAVY,display:'flex',alignItems:'center',justifyContent:'center',color:GOLD_PALE,fontWeight:700,fontSize:16,overflow:'hidden' }}>
               {myStaff.photo_url ? <img src={myStaff.photo_url} alt={`${myStaff.name} profile`} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : myStaff.name.split(' ').map(n=>n[0]).join('').slice(0,2)}
@@ -71,7 +71,7 @@ export default function DeptQueue() {
             <div>
               <div style={{ fontWeight:700, fontSize:17, color:NAVY }}>{myStaff.name}</div>
               <div style={{ fontSize:12, color:'#687780', marginTop:3 }}>{myStaff.supplier_name || 'Supplier not assigned'}</div>
-              <div style={{ fontSize:11, color:'#536b79', marginTop:3 }}>Department: {myStaff.category}</div>
+              <div style={{ fontSize:11, color:'#536b79', marginTop:3 }}>Departments: {(myStaff.departments || [myStaff.category]).filter(Boolean).join(', ')}</div>
               <div style={{ fontSize:12, marginTop:5, display:'flex', gap:12 }}>
                 {myStaff.email ? <a href={`mailto:${firstContact(myStaff.email)}`} style={contactLink}>Email: {myStaff.email}</a> : <span style={{ color:'#8a97a0' }}>Email not recorded</span>}
                 {myStaff.mobile ? <a href={whatsappLink(myStaff.mobile)} target="_blank" rel="noreferrer" style={contactLink}>WhatsApp: {myStaff.mobile}</a> : <span style={{ color:'#8a97a0' }}>Mobile not recorded</span>}
@@ -102,8 +102,8 @@ export default function DeptQueue() {
 
       {/* Detail modal */}
       {selected && (
-        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center' }}>
-          <div style={{ background:'#fff',borderRadius:10,width:480,maxWidth:'95vw',boxShadow:'0 8px 32px rgba(0,0,0,.2)' }}>
+          <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center' }}>
+          <div className="apex-service-panel dept-query-modal" style={{ background:'#fff',borderRadius:10,width:480,maxWidth:'95vw',boxShadow:'0 8px 32px rgba(0,0,0,.2)' }}>
               <div style={{ background:NAVY,padding:'14px 20px',borderRadius:'10px 10px 0 0',display:'flex',alignItems:'center',justifyContent:'space-between' }}>
               <span style={{ color:'#fff',fontWeight:700 }}>{selected.id} — {selected.exhibitor}</span>
               <button onClick={()=>setSelected(null)} style={{ background:'none',border:'none',color:'#aaa',fontSize:20,cursor:'pointer' }}>×</button>
@@ -144,7 +144,7 @@ function DeptRow({ q, exhibitors, pos, done, onSelect, onMarkDone }) {
   const c = STATUS_COLORS[q.status] || STATUS_COLORS['LOGGED'];
   const exhibitor = exhibitors.find(item => normalizeStand(item.stand) === normalizeStand(q.stand));
   return (
-    <div style={{
+    <div className={`dept-queue-row${done ? ' is-done' : ''}`} style={{
       background:'#fff',
       borderRadius:7, marginBottom:9,
       border:`1px solid ${done ? '#e1e6e5' : c.bg}`,

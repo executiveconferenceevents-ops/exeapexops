@@ -1,9 +1,11 @@
--- Add exhibitor phone and email details from the supplied exhibitor list
+-- Add exhibitor phone and email details to one event. Change the event slug before running.
 alter table public.exhibitors add column if not exists phone text;
 alter table public.exhibitors add column if not exists email text;
 
-insert into public.exhibitors (stand, name, contact, phone, email)
-values
+insert into public.exhibitors (event_id, stand, name, contact, phone, email)
+select event.id, imported.stand, imported.name, imported.contact, imported.phone, imported.email
+from public.events event
+cross join (values
   ('A01', 'Nedbank', 'Lorna Louw', '+27 83 325 0283', 'LornaL@Nedbank.co.za'),
   ('A02', 'Henley Business School', 'Mamodise Mailula', '011 808 0860', 'mamodisem@henleysa.ac.za'),
   ('A03', 'Compliance Centre', 'Caylin Swanepoel', '+27 12 543 2971', 'caylin@rmgirs.com'),
@@ -27,7 +29,9 @@ values
   ('B07', 'Good Governance Academy / ESG Exchange', 'Carolynn Chalmers', '+27 83 300 1309', 'carolynn@candorgovernance.co.za'),
   ('B08', 'IAIAsa', 'Sue George', '+27 82 961 5750', 'operations@iaiasa.co.za'),
   ('B09', 'Klein Muis', 'Aiden Peters', '+27 67 324 6739', 'aidanjpeters@gmail.com')
-on conflict (stand) do update set
+) as imported(stand, name, contact, phone, email)
+where event.slug = 'esg-africa-2026'
+on conflict (event_id, stand) do update set
   name = excluded.name,
   contact = excluded.contact,
   phone = excluded.phone,

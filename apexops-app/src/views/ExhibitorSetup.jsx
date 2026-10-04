@@ -85,7 +85,7 @@ export default function ExhibitorSetup({ onBack }) {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setForm(current => ({ ...current, logo_url: String(reader.result || '') }));
+    reader.onload = () => setForm(current => ({ ...current, logo_url: String(reader.result || ''), logo_file: file }));
     reader.readAsDataURL(file);
     event.target.value = '';
   }
@@ -100,6 +100,7 @@ export default function ExhibitorSetup({ onBack }) {
         phone: [form.phone1, form.phone2, form.phone3, form.phone4].map(value => value.trim()).filter(Boolean).join('; '),
         email: [form.email1, form.email2, form.email3, form.email4].map(value => value.trim()).filter(Boolean).join('; '),
         logo_url: form.logo_url || null,
+        logo_file: form.logo_file || null,
       };
       if (editing) await updateExhibitor(editing, payload);
       else await addExhibitor(payload);
@@ -116,15 +117,15 @@ export default function ExhibitorSetup({ onBack }) {
   }
 
   return (
-    <div style={{ fontFamily: FONT, minHeight: '100vh', background: BG, color:NAVY }}>
-      <header style={{ background:`linear-gradient(110deg, ${NAVY_DEEP}, ${NAVY})`, color:'#fff', padding:'18px 32px', display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow:'0 2px 14px rgba(13,26,50,.16)' }}>
+    <div className="apex-service-screen exhibitor-directory-screen" style={{ fontFamily: FONT, minHeight: '100vh', background: BG, color:NAVY }}>
+      <header className="apex-service-header" style={{ background:`linear-gradient(110deg, ${NAVY_DEEP}, ${NAVY})`, color:'#fff', padding:'18px 32px', display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow:'0 2px 14px rgba(13,26,50,.16)' }}>
         <div><div style={{ color:GOLD_PALE, fontWeight:700, fontSize:18, letterSpacing:2 }}>APEXOPS™</div><div style={{ color:'rgba(255,255,255,.58)', fontSize:10, letterSpacing:1.6, textTransform:'uppercase', marginTop:4 }}>Exhibitor directory</div></div>
         <div style={{ fontSize:12, color:'rgba(255,255,255,.72)' }}>Stand &amp; contact management</div>
         <button onClick={onBack} style={secondaryButton}>Back</button>
       </header>
-      <main style={{ maxWidth: 1500, width:'calc(100% - 48px)', margin: '0 auto', padding:'34px 0 64px' }}>
+      <main className="apex-service-main directory-main" style={{ maxWidth: 1500, width:'calc(100% - 48px)', margin: '0 auto', padding:'34px 0 64px' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'end', gap:20, marginBottom:22 }}><div><div style={eyebrow}>Event directory</div><h2 style={{ color: NAVY, margin:'6px 0 0', fontSize:28 }}>Exhibitors <span style={{ color:'#718089', fontSize:16, fontWeight:600 }}>({exhibitors.length})</span></h2><div style={{ color:'#687780', fontSize:13, marginTop:6 }}>The master stand list used by Ops and Check My Status.</div></div><div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}><button type="button" onClick={downloadReport} style={secondaryButton}>Export exhibitor report</button><button type="button" onClick={downloadTemplate} style={secondaryButton}>Download Excel template</button><label style={{ ...primaryButton, cursor:'pointer', whiteSpace:'nowrap' }}>Import CSV / Excel<input type="file" accept=".csv,.xlsx,.xls" onChange={importWorkbook} style={{ display:'none' }} /></label></div></div>
-        <form onSubmit={save} style={{ background:'#fff', padding:20, borderRadius:8, marginBottom:22, border:'1px solid #e1e6e5', borderTop:`3px solid ${BLUE}`, boxShadow:'0 4px 16px rgba(13,26,50,.05)' }}>
+        <form className="directory-form" onSubmit={save} style={{ background:'#fff', padding:20, borderRadius:8, marginBottom:22, border:'1px solid #e1e6e5', borderTop:`3px solid ${BLUE}`, boxShadow:'0 4px 16px rgba(13,26,50,.05)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
             <input required disabled={Boolean(editing)} placeholder="Stand (e.g. A09/A10)" value={form.stand} onChange={e => setForm({ ...form, stand: e.target.value })} />
             <input required placeholder="Exhibitor name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
@@ -145,7 +146,7 @@ export default function ExhibitorSetup({ onBack }) {
           <div style={{ marginTop: 12, display: 'flex', gap: 8 }}><button type="submit" style={primaryButton}>{editing ? 'Save changes' : 'Add exhibitor'}</button>{editing && <button type="button" onClick={() => { setEditing(null); setForm(createExhibitorForm()); }} style={secondaryButton}>Cancel</button>}</div>
           {error && <div style={{ color: '#C0392B', marginTop: 10, fontSize: 13 }}>{error}</div>}
         </form>
-        <div style={directorySearchStyle}>
+        <div className="directory-search" style={directorySearchStyle}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, marginBottom:8 }}>
             <label htmlFor="exhibitor-directory-search" style={{ color:NAVY, fontSize:12, fontWeight:800 }}>Find an exhibitor or stand</label>
             <span style={{ color:'#718089', fontSize:11 }}>{searchNeedle ? `${filteredExhibitors.length} match${filteredExhibitors.length === 1 ? '' : 'es'}` : `${exhibitors.length} stands`}</span>
@@ -153,7 +154,7 @@ export default function ExhibitorSetup({ onBack }) {
           <input id="exhibitor-directory-search" value={exhibitorSearch} onChange={event => setExhibitorSearch(event.target.value)} placeholder="Type a company name or stand number, e.g. Nedbank or A01" style={directorySearchInputStyle} />
         </div>
         {message && <div style={{ color:'#1E8449', marginBottom:12 }}>{message}</div>}
-        {filteredExhibitors.map(exhibitor => <div key={exhibitor.stand} ref={element => { exhibitorRefs.current[exhibitor.stand] = element; }} className="exhibitor-card" style={rowStyle}>
+        {filteredExhibitors.map(exhibitor => <div key={exhibitor.stand} ref={element => { exhibitorRefs.current[exhibitor.stand] = element; }} className="exhibitor-card directory-row" style={rowStyle}>
           <div style={{ width: 86, fontWeight: 800, color: BLUE, fontSize:14, letterSpacing:.6 }}>{exhibitor.stand}</div>
           <LogoTile exhibitor={exhibitor} onSaved={refresh} onError={setError} />
           <div style={{ flex:'0 0 260px', minWidth:0, overflowWrap:'anywhere' }}><strong style={{ display:'block', color:NAVY, fontSize:14 }}>{exhibitor.name}</strong><div style={{ color: '#596a73', fontSize: 12, marginTop:5 }}>{exhibitor.contact || 'No contact recorded'}</div><div style={{ marginTop:3, display:'grid', gap:2 }}>{splitEmailAddresses(exhibitor.email).length ? splitEmailAddresses(exhibitor.email).slice(0, 4).map((email, index) => <a key={`${email}-${index}`} href={`mailto:${email}`} style={{ ...contactLink, fontSize:12, fontWeight:600 }}>Email {index + 1}: {email}</a>) : <span style={{ color:'#78858b', fontSize:12 }}>Email not recorded</span>}</div><div style={{ marginTop:3, display:'grid', gap:2 }}>{splitPhoneNumbers(exhibitor.phone).length ? splitPhoneNumbers(exhibitor.phone).slice(0, 4).map((phone, index) => <a key={`${phone}-${index}`} href={whatsappLink(phone)} target="_blank" rel="noreferrer" style={{ ...contactLink, fontSize:12, fontWeight:600 }}>WhatsApp {index + 1}: {phone}</a>) : <span style={{ color:'#78858b', fontSize:12 }}>Mobile not recorded</span>}</div></div>
@@ -266,9 +267,7 @@ function LogoTile({ exhibitor, onSaved, onError }) {
   function upload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => updateExhibitor(exhibitor.stand, { logo_url: String(reader.result || '') }).then(onSaved).catch(error => onError(readableError(error, 'Could not upload the logo.')));
-    reader.readAsDataURL(file);
+    updateExhibitor(exhibitor.stand, { logo_file: file }).then(onSaved).catch(error => onError(readableError(error, 'Could not upload the logo.')));
     event.target.value = '';
   }
 
@@ -306,7 +305,7 @@ const scannerColumnsStyle = { display:'grid', gridTemplateColumns:'1fr 1fr', gap
 const scannerDayFieldsStyle = { display:'grid', gap:6, marginTop:10, paddingTop:9, borderTop:'1px solid #e8eef0' };
 const scannerInputStyle = { minWidth:0, padding:'6px 7px', fontSize:10, borderRadius:5 };
 const contactLink = { color:BLUE, textDecoration:'none' };
-function createExhibitorForm() { return { stand:'', name:'', contact:'', phone1:'', phone2:'', phone3:'', phone4:'', email1:'', email2:'', email3:'', email4:'', logo_url:'' }; }
+function createExhibitorForm() { return { stand:'', name:'', contact:'', phone1:'', phone2:'', phone3:'', phone4:'', email1:'', email2:'', email3:'', email4:'', logo_url:'', logo_file:null }; }
 function splitPhoneNumbers(value) { return String(value || '').split(/\s*;\s*|\s*,\s*|\s+\/\s+/).map(phone => phone.trim()).filter(Boolean); }
 function splitEmailAddresses(value) { return String(value || '').split(/\s*;\s*|\s*,\s*/).map(email => email.trim()).filter(Boolean); }
 function phoneFields(value) {
