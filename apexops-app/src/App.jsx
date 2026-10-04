@@ -14,6 +14,8 @@ import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventSlug, get
 import { ArrowLeft, Building2, ClipboardPlus, HardHat, LogIn, LogOut, Monitor } from 'lucide-react';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, FONT, DISPLAY_FONT } from './theme';
 
+const PRIVACY_NOTICE_VERSION = '2026-10-04-v1';
+
 // ── Role selector / login screen ──────────────────────────────────────────────
 // In production this becomes a real Supabase auth login.
 // For now: pick your role to enter the right view.
@@ -29,6 +31,8 @@ export default function App() {
   const [publicEventSlug, setPublicEventSlug] = useState('');
   const [publicAccessCode, setPublicAccessCode] = useState('');
   const [verifyingPublicEvent, setVerifyingPublicEvent] = useState(false);
+  const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
+  const [privacyNoticeChecked, setPrivacyNoticeChecked] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [eventLoading, setEventLoading] = useState(true);
   const [eventError, setEventError] = useState('');
@@ -93,6 +97,8 @@ export default function App() {
           setPublicEventSlug(availablePublicEvents.some(event => event.slug === linkedSlug) ? linkedSlug : '');
           setPublicAccessCode('');
           setSelectedEvent(null);
+          setPrivacyAcknowledged(false);
+          setPrivacyNoticeChecked(false);
         }
       } catch (eventLoadError) {
         if (!cancelled) setEventError(eventLoadError?.message || 'Could not load events for this account.');
@@ -123,6 +129,8 @@ export default function App() {
     setPublicEventSlug(slug);
     setPublicAccessCode('');
     setSelectedEvent(null);
+    setPrivacyAcknowledged(false);
+    setPrivacyNoticeChecked(false);
     setEventError('');
     clearActiveEvent();
   }
@@ -137,6 +145,12 @@ export default function App() {
       setSelectedEvent(publicEvent);
       setActiveEvent(publicEvent);
       setPublicAccessCode('');
+      let alreadyAcknowledged = false;
+      try {
+        alreadyAcknowledged = window.localStorage.getItem(`apexops-privacy-ack:${publicEvent.slug}`) === PRIVACY_NOTICE_VERSION;
+      } catch { /* acknowledge for this page when local storage is unavailable */ }
+      setPrivacyAcknowledged(alreadyAcknowledged);
+      setPrivacyNoticeChecked(false);
     } catch (verificationError) {
       setEventError(verificationError?.message || 'Could not verify this event code.');
     } finally {
@@ -149,7 +163,19 @@ export default function App() {
       setEventError('Select an event and enter its organiser-issued code to continue.');
       return;
     }
+    if (!privacyAcknowledged) {
+      setEventError('Read and acknowledge the privacy notice before continuing.');
+      return;
+    }
     setRole(nextRole);
+  }
+
+  function acknowledgePrivacyNotice() {
+    if (!selectedEvent?.slug || !privacyNoticeChecked) return;
+    try { window.localStorage.setItem(`apexops-privacy-ack:${selectedEvent.slug}`, PRIVACY_NOTICE_VERSION); }
+    catch { /* keep the acknowledgement active for this page if storage is unavailable */ }
+    setPrivacyAcknowledged(true);
+    setEventError('');
   }
 
   if (!authReady) return null;
@@ -193,9 +219,19 @@ export default function App() {
           {!eventLoading && !events.length && <p>No event access is assigned to this account.</p>}
         </div>}
         {!session && <div className="public-event-gate">
-          {selectedEvent?.accessCode ? <div className="public-event-unlocked">
-            <div><span>Event access verified</span><strong>{selectedEvent.clients?.name ? `${selectedEvent.clients.name} · ` : ''}{selectedEvent.name}</strong></div>
-            <button type="button" onClick={()=>selectPublicEvent('')}>Change event</button>
+          {selectedEvent?.accessCode ? <div className="public-event-verified">
+            <div className="public-event-unlocked">
+              <div><span>Event access verified</span><strong>{selectedEvent.clients?.name ? `${selectedEvent.clients.name} · ` : ''}{selectedEvent.name}</strong></div>
+              {privacyAcknowledged && <button type="button" onClick={()=>selectPublicEvent('')}>Change event</button>}
+            </div>
+            {!privacyAcknowledged && <section className="privacy-notice-panel" aria-labelledby="privacy-notice-title">
+              <h2 id="privacy-notice-title">Privacy notice</h2>
+              <p>The event organiser and Executive Conference Events use the company, stand, contact details, issue details, and rebooking preferences you provide to administer this event, route requests, and contact you about them.</p>
+              <p>Your request may be shared with authorised event operations staff and service providers assigned to respond. Information is retained for event delivery and applicable legal record-keeping, then deleted when no longer needed. Do not enter identity numbers, payment details, medical information, or other sensitive personal information in these forms.</p>
+              <p>For access, correction, deletion, or privacy questions, contact your event organiser using the contact details on your event invitation.</p>
+              <label><input type="checkbox" checked={privacyNoticeChecked} onChange={event=>setPrivacyNoticeChecked(event.target.checked)} /> <span>I have read and acknowledge this privacy notice.</span></label>
+              <button type="button" onClick={acknowledgePrivacyNotice} disabled={!privacyNoticeChecked}>Continue to event services</button>
+            </section>}
           </div> : <>
             <label htmlFor="public-event">Client event</label>
             <select id="public-event" value={publicEventSlug} onChange={event=>selectPublicEvent(event.target.value)} disabled={eventLoading || verifyingPublicEvent}>
@@ -228,7 +264,7 @@ export default function App() {
           sub="Exhibitors — see your queue position and estimated wait time"
           onClick={()=>openPublicRole('exhibitor')}
           light
-          disabled={eventLoading || (!session && !selectedEvent?.accessCode)}
+          disabled={eventLoading || (!session && (!selectedEvent?.accessCode || !privacyAcknowledged))}
         />
         <RoleCard
           icon={<ClipboardPlus size={24} strokeWidth={1.8} />}
@@ -236,7 +272,7 @@ export default function App() {
           sub="Tell the Ops Desk about an issue at your stand"
           onClick={()=>openPublicRole('client-query')}
           light
-          disabled={eventLoading || (!session && !selectedEvent?.accessCode)}
+          disabled={eventLoading || (!session && (!selectedEvent?.accessCode || !privacyAcknowledged))}
         />
         <RoleCard
           icon={<Building2 size={24} strokeWidth={1.8} />}
@@ -244,7 +280,7 @@ export default function App() {
           sub={`Tell us how you would like to participate at ${selectedEvent?.next_event_name || 'the next event'}`}
           onClick={()=>openPublicRole('rebooking')}
           light
-          disabled={eventLoading || (!session && !selectedEvent?.accessCode)}
+          disabled={eventLoading || (!session && (!selectedEvent?.accessCode || !privacyAcknowledged))}
         />
       </div>
 

@@ -348,6 +348,12 @@ textarea { resize: vertical; min-height: 60px; }
 .public-event-unlocked div { display:grid; gap:3px; min-width:0; text-align:left; }
 .public-event-unlocked span { color:rgba(255,255,255,.64); font-size:9px; text-transform:uppercase; }
 .public-event-unlocked strong { color:#fff; font-size:12px; }
+.privacy-notice-panel { display:grid; gap:8px; padding-top:8px; text-align:left; }
+.privacy-notice-panel h2 { color:#fff; font:600 15px/1.2 'Playfair Display',Georgia,serif; }
+.privacy-notice-panel p { color:rgba(255,255,255,.78); font-size:10px; line-height:1.5; }
+.privacy-notice-panel label { display:flex; align-items:flex-start; gap:8px; margin-top:4px; color:#fff; font-size:10px; font-weight:600; line-height:1.4; text-align:left; text-transform:none; }
+.privacy-notice-panel label input { margin-top:1px; }
+.privacy-notice-panel button { justify-self:start; }
 .public-event-gate > p { color:#f3d7d0; font-size:11px; text-align:left; }
 .tenant-admin-page { width:min(1120px,100%); margin:0 auto; padding:28px 24px 48px; color:#1c2b3a; }
 .tenant-admin-heading { position:relative; margin:0 0 20px; padding:0 150px 16px 0; border-bottom:1px solid #d5dae0; }
