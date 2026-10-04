@@ -290,6 +290,20 @@ textarea { resize: vertical; min-height: 60px; }
 .ops-loading-spinner { width:22px; height:22px; flex:0 0 22px; border:2px solid #e6e1d8; border-top-color:#c4ad82; border-radius:50%; animation:ops-loading-spin .8s linear infinite; }
 @keyframes ops-loading-spin { to { transform:rotate(360deg); } }
 .access-login .access-hub-content { grid-column:1; grid-row:1; align-self:center; max-width:560px !important; }
+.access-login {
+  grid-template-columns:minmax(0,1fr) !important;
+  grid-template-rows:auto auto;
+  align-content:start;
+  justify-items:stretch;
+  gap:20px;
+  padding:38px clamp(24px,5vw,72px) 24px !important;
+  background:linear-gradient(120deg,#1c2b3a 0%,#273958 100%) !important;
+}
+.access-login .access-hub-content { grid-column:1; grid-row:1; align-self:start; width:100%; max-width:none !important; }
+.access-login .access-hub-intro { max-width:540px !important; }
+.access-login .public-event-gate { width:100%; max-width:none; }
+.access-login .public-event-cards { grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); max-height:none; overflow:visible; }
+.access-login .access-hub-footer { grid-column:1; grid-row:2; }
 .access-login .access-hub-eyebrow { margin-bottom:25px !important; color:#d5c292 !important; font-size:9px !important; letter-spacing:2.2px !important; }
 .access-login .access-hub-intro { max-width:540px !important; margin-bottom:30px !important; }
 .access-login .access-hub-headline { color:#fff; font:500 54px/1.08 'Playfair Display', Georgia, serif !important; letter-spacing:0 !important; }
@@ -437,7 +451,7 @@ textarea { resize: vertical; min-height: 60px; }
 .access-hub-footer { grid-column:1; grid-row:2; justify-self:start; margin-top:0 !important; color:rgba(255,255,255,.6) !important; font-size:9px !important; text-align:left; }
 
 @media (max-width: 850px) {
-  .access-login { grid-template-columns:minmax(0,1fr) minmax(330px,1fr); gap:24px; padding:70px 26px 24px !important; }
+  .access-login { grid-template-columns:minmax(0,1fr) !important; gap:20px; padding:70px 26px 24px !important; }
   .access-login .access-hub-headline { font-size:42px !important; }
   .access-login .access-card-stack { padding:12px; }
   .access-hub { grid-template-columns:minmax(0,1fr) minmax(330px,1fr); gap:24px; padding:76px 26px 24px !important; }
@@ -445,10 +459,10 @@ textarea { resize: vertical; min-height: 60px; }
   .access-hub .access-option { min-height:88px; padding:12px !important; gap:10px !important; }
 }
 @media (max-width: 620px) {
-  .public-event-cards { grid-template-columns:1fr; max-height:190px; }
+  .access-login .public-event-cards { grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr)); }
   .public-event-gate { max-width:none; }
-  .access-login { display:flex !important; flex-direction:column; align-items:stretch !important; justify-content:flex-start !important; gap:0; padding:36px 16px 20px !important; background:linear-gradient(180deg,var(--ops-navy) 0%,var(--ops-navy-deep) 43%,#e5e1d8 43%,#e5e1d8 100%) !important; }
-  .access-login .access-hub-content { width:100%; margin:0 0 16px; }
+  .access-login { display:flex !important; flex-direction:column; align-items:stretch !important; justify-content:flex-start !important; gap:0; padding:36px 16px 20px !important; background:linear-gradient(120deg,#1c2b3a 0%,#273958 100%) !important; }
+  .access-login .access-hub-content { width:100%; max-width:none !important; margin:0 0 16px; }
   .access-login .access-hub-eyebrow { margin-bottom:17px !important; }
   .access-login .access-hub-intro { margin-bottom:18px !important; }
   .access-login .access-hub-headline { font-size:38px !important; line-height:1.06 !important; }

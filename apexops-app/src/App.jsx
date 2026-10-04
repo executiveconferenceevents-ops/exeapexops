@@ -30,6 +30,7 @@ export default function App() {
   const [eventMemberships, setEventMemberships] = useState([]);
   const [publicEvents, setPublicEvents] = useState([]);
   const [publicEventSlug, setPublicEventSlug] = useState('');
+  const [publicAccessView, setPublicAccessView] = useState('events');
   const [publicEventSearch, setPublicEventSearch] = useState('');
   const [publicEventMonth, setPublicEventMonth] = useState('');
   const [publicAccessCode, setPublicAccessCode] = useState('');
@@ -231,7 +232,7 @@ export default function App() {
         </div>
         <div className="access-hub-intro" style={{ maxWidth:620, marginBottom:42 }}>
           <div className="access-hub-headline" style={{ fontFamily:DISPLAY_FONT, fontWeight:600, fontSize:'clamp(48px, 8vw, 88px)', lineHeight:.84, letterSpacing:-1.5 }}>
-            {session ? <>Choose your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>workspace.</em></> : <>Welcome to<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>APEXOPS<sup className="access-brand-trademark">™</sup>.</em></>}
+            {session ? <>Choose your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>workspace.</em></> : publicAccessView !== 'events' ? <>Team<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>access.</em></> : selectedEvent?.accessCode ? <>Your event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>services.</em></> : publicEventSlug ? <>Enter your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event code.</em></> : <>Welcome to<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>APEXOPS<sup className="access-brand-trademark">™</sup>.</em></>}
           </div>
           <div style={{ width:54, height:3, background:GOLD, marginTop:30, marginBottom:18 }} />
           <div className="access-hub-subtitle" style={{ fontFamily:DISPLAY_FONT, fontStyle:'italic', color:'rgba(255,255,255,.72)', fontSize:19 }}>
@@ -247,7 +248,11 @@ export default function App() {
           </select>
           {!eventLoading && !events.length && <p>No event access is assigned to this account.</p>}
         </div>}
-        {!session && <div className="public-event-gate">
+        {!session && <>
+          <nav className="public-access-tabs" aria-label="Access options" style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:24 }}>
+            {[['events','Events'],['team','Team sign in'],['clients','Organisers']].map(([view,label])=><button key={view} type="button" aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)} style={{ background:publicAccessView === view ? GOLD_PALE : 'rgba(255,255,255,.07)', color:publicAccessView === view ? NAVY : '#fff', border:'1px solid rgba(255,255,255,.28)', borderRadius:4, padding:'10px 14px', fontWeight:700, cursor:'pointer' }}>{label}</button>)}
+          </nav>
+          {publicAccessView === 'events' ? <div className="public-event-gate">
           {selectedEvent?.accessCode ? <div className="public-event-verified">
             <div className="public-event-unlocked">
               <div><span>Event access verified</span><strong>{selectedEvent.clients?.name ? `${selectedEvent.clients.name} · ` : ''}{selectedEvent.name}</strong></div>
@@ -261,6 +266,13 @@ export default function App() {
               <label><input type="checkbox" checked={privacyNoticeChecked} onChange={event=>setPrivacyNoticeChecked(event.target.checked)} /> <span>I have read and acknowledge this privacy notice.</span></label>
               <button type="button" onClick={acknowledgePrivacyNotice} disabled={!privacyNoticeChecked}>Continue to event services</button>
             </section>}
+            {privacyAcknowledged && <div className="access-card-stack" style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1, marginTop:20 }}>
+              <h2 style={{ color:GOLD_PALE, fontSize:13, margin:'0 0 2px' }}>Suppliers &amp; exhibitors</h2>
+              <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Suppliers and exhibitors can report an event issue" onClick={()=>openPublicRole('client-query')} light />
+              <h2 style={{ color:GOLD_PALE, fontSize:13, margin:'14px 0 2px' }}>Exhibitors</h2>
+              <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Check My Status" sub="Find your stand’s live service requests" onClick={()=>openPublicRole('exhibitor')} light />
+              <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Rebook Your Stand" sub={`Register interest in ${selectedEvent?.next_event_name || 'the next event'}`} onClick={()=>openPublicRole('rebooking')} light />
+            </div>}
           </div> : publicEventSlug ? <div className="public-event-code-step">
             <div className="public-event-selected-card">
               <div><span>{selectedPublicEvent?.client_name || 'Selected client'}</span><strong>{selectedPublicEvent?.event_name || publicEventSlug}</strong><small>{selectedPublicEvent?.event_start_date} to {selectedPublicEvent?.event_end_date}</small></div>
@@ -291,26 +303,24 @@ export default function App() {
             </div>}
           </>}
           {!eventLoading && !publicEvents.length && <p>No public events are available yet.</p>}
-        </div>}
+          </div> : <div className="team-access-panel">
+            <TeamLogin onSignedIn={setSession} initiallyOpen title={publicAccessView === 'clients' ? 'Organiser sign in' : 'Team sign in'} />
+            <button type="button" onClick={()=>setPublicAccessView('events')} style={{ marginTop:12, background:'transparent', color:'rgba(255,255,255,.75)', border:0, cursor:'pointer' }}><ArrowLeft size={14} /> Back to events</button>
+          </div>}
+        </>}
         {eventError && <div className="event-context-error" role="alert">{eventError}</div>}
 
-        <div className="access-hub-choice-heading" style={{ textAlign:'left', marginBottom:20 }}>
+        {(session || (!session && selectedEvent?.accessCode && privacyAcknowledged)) && <div className="access-hub-choice-heading" style={{ textAlign:'left', marginBottom:20 }}>
           <div style={{ color:'rgba(255,255,255,.48)', fontSize:10, letterSpacing:2.2, textTransform:'uppercase' }}>{session ? 'Operations access' : 'Choose your access point'}</div>
-        </div>
+        </div>}
       </div>
 
-      <div className={`access-card-stack${session ? ' access-card-grid' : ''}`} style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1 }}>
-        {!session && <TeamLogin onSignedIn={setSession} />}
+      {(session || (!session && selectedEvent?.accessCode && privacyAcknowledged)) && <div className={`access-card-stack${session ? ' access-card-grid' : ''}`} style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1 }}>
         {session && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Ops Portal" sub="Manage requests and event operations" onClick={()=>setRole('ops')} primary disabled={!selectedEvent || eventLoading} />}
         {session && canOpenQueue && <RoleCard icon={<HardHat size={24} strokeWidth={1.8} />} title="My Queue" sub="See your event assignments and update status" onClick={()=>setRole('dept')} light disabled={!selectedEvent || eventLoading} />}
-        {session && canManageTenants && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title={isPlatformAdmin ? 'Clients & Events' : 'Event management'} sub={isPlatformAdmin ? 'Manage paid client organizations, events and invitations' : 'Create events and manage your organization’s team'} onClick={()=>setRole('tenant-admin')} light />}
+        {session && canManageTenants && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title={isPlatformAdmin ? 'Organisers' : 'Organiser tools'} sub={isPlatformAdmin ? 'Manage paid client organisations, events and invitations' : 'Create events and manage your organisation’s team'} onClick={()=>setRole('tenant-admin')} light />}
         {session && selectedEvent && !canOpenOps && !canOpenQueue && <p className="event-access-help">No staff access is assigned to this event. Contact your organizer.</p>}
-        {!session && <>
-          <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Check My Status" sub="Find your stand’s live service requests" onClick={()=>openPublicRole('exhibitor')} light disabled={eventLoading || !selectedEvent?.accessCode || !privacyAcknowledged} />
-          <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Report an issue at your event stand" onClick={()=>openPublicRole('client-query')} light disabled={eventLoading || !selectedEvent?.accessCode || !privacyAcknowledged} />
-          <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Rebook Your Stand" sub={`Register interest in ${selectedEvent?.next_event_name || 'the next event'}`} onClick={()=>openPublicRole('rebooking')} light disabled={eventLoading || !selectedEvent?.accessCode || !privacyAcknowledged} />
-        </>}
-      </div>
+      </div>}
 
       <div className="access-hub-footer" style={{ color:'rgba(255,255,255,.32)', fontSize:10, letterSpacing:.4, marginTop:48, position:'relative', zIndex:1 }}>
         APEXOPS™ © 2026 Executive Conference Events (Pty) Ltd · All rights reserved
@@ -318,8 +328,8 @@ export default function App() {
     </div>
   );
 }
-function TeamLogin({ onSignedIn }) {
-  const [open, setOpen] = useState(false);
+function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in' }) {
+  const [open, setOpen] = useState(initiallyOpen);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -341,7 +351,7 @@ function TeamLogin({ onSignedIn }) {
 
   if (!open) return <button className="team-sign-in-link" onClick={()=>setOpen(true)} style={{ background:'transparent', color:'rgba(255,255,255,.7)', border:'1px solid rgba(255,255,255,.25)', borderRadius:8, padding:11, cursor:'pointer' }}><LogIn size={14} /> Team sign in</button>;
   return <form className="team-login-form" onSubmit={signIn} style={{ background:'#fff', borderRadius:8, padding:16, display:'grid', gap:8 }}>
-    <strong style={{ color:NAVY, fontSize:13 }}>Team sign in</strong>
+    <strong style={{ color:NAVY, fontSize:13 }}>{title}</strong>
     <input required type="email" placeholder="Work email" value={email} onChange={e=>setEmail(e.target.value)} />
     <input required type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />
     {error && <span style={{ color:'#C0392B', fontSize:11 }}>{error}</span>}

@@ -14,6 +14,7 @@
   "scripts": {
     "start": "react-scripts start",
     "start:demo": "node scripts/start-demo.js",
+    "start:demo:secure": "node scripts/start-demo.js --https",
     "build": "react-scripts build"
   },
   "browserslist": {

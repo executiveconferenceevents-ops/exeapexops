@@ -32,6 +32,8 @@ npm run start:demo
 
 Open **http://localhost:3001**. Demo mode disables Supabase even when the live app has `.env` credentials, uses fictional sample records, and saves changes only in that browser tab's session storage. Closing the demo tab clears its changes; the live app on port 3000 is not modified.
 
+For a local HTTPS demo, run `npm run start:demo:secure` and open **https://localhost:3003**. Your browser may show a certificate warning because the development certificate is self-signed; this is for local testing, not public deployment.
+
 ---
 
 ## Three views
