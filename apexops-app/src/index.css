@@ -303,6 +303,11 @@ textarea { resize: vertical; min-height: 60px; }
 .access-login .access-hub-intro { max-width:540px !important; }
 .access-login .public-event-gate { width:100%; max-width:none; }
 .access-login .public-event-cards { grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); max-height:none; overflow:visible; }
+.access-login .public-event-services { display:grid; grid-template-columns:minmax(260px,.8fr) minmax(0,1.2fr); gap:14px; width:100%; margin-top:14px; }
+.access-login .public-event-service-group { display:grid; align-content:start; gap:10px; min-width:0; padding:18px; border:1px solid #d5dae0; border-top:2px solid #c4ad82; background:#f9f7f1; }
+.access-login .public-event-service-group h2 { color:#1c2b3a; font:600 16px/1.2 'Playfair Display',Georgia,serif; }
+.access-login .public-event-exhibitor-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.access-login .public-event-services .access-option { min-height:92px; }
 .access-login .access-hub-footer { grid-column:1; grid-row:2; }
 .access-login .access-hub-eyebrow { margin-bottom:25px !important; color:#d5c292 !important; font-size:9px !important; letter-spacing:2.2px !important; }
 .access-login .access-hub-intro { max-width:540px !important; margin-bottom:30px !important; }
@@ -460,6 +465,8 @@ textarea { resize: vertical; min-height: 60px; }
 }
 @media (max-width: 620px) {
   .access-login .public-event-cards { grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr)); }
+  .access-login .public-event-services { grid-template-columns:1fr; }
+  .access-login .public-event-exhibitor-options { grid-template-columns:1fr; }
   .public-event-gate { max-width:none; }
   .access-login { display:flex !important; flex-direction:column; align-items:stretch !important; justify-content:flex-start !important; gap:0; padding:36px 16px 20px !important; background:linear-gradient(120deg,#1c2b3a 0%,#273958 100%) !important; }
   .access-login .access-hub-content { width:100%; max-width:none !important; margin:0 0 16px; }

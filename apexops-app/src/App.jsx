@@ -266,12 +266,18 @@ export default function App() {
               <label><input type="checkbox" checked={privacyNoticeChecked} onChange={event=>setPrivacyNoticeChecked(event.target.checked)} /> <span>I have read and acknowledge this privacy notice.</span></label>
               <button type="button" onClick={acknowledgePrivacyNotice} disabled={!privacyNoticeChecked}>Continue to event services</button>
             </section>}
-            {privacyAcknowledged && <div className="access-card-stack" style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1, marginTop:20 }}>
-              <h2 style={{ color:GOLD_PALE, fontSize:13, margin:'0 0 2px' }}>Suppliers &amp; exhibitors</h2>
-              <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Suppliers and exhibitors can report an event issue" onClick={()=>openPublicRole('client-query')} light />
-              <h2 style={{ color:GOLD_PALE, fontSize:13, margin:'14px 0 2px' }}>Exhibitors</h2>
-              <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Check My Status" sub="Find your stand’s live service requests" onClick={()=>openPublicRole('exhibitor')} light />
-              <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Rebook Your Stand" sub={`Register interest in ${selectedEvent?.next_event_name || 'the next event'}`} onClick={()=>openPublicRole('rebooking')} light />
+            {privacyAcknowledged && <div className="public-event-services">
+              <section className="public-event-service-group">
+                <h2>Suppliers &amp; exhibitors</h2>
+                <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Suppliers and exhibitors can report an event issue" onClick={()=>openPublicRole('client-query')} light />
+              </section>
+              <section className="public-event-service-group public-event-exhibitor-group">
+                <h2>Exhibitors</h2>
+                <div className="public-event-exhibitor-options">
+                  <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Check My Status" sub="Find your stand’s live service requests" onClick={()=>openPublicRole('exhibitor')} light />
+                  <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Rebook Your Stand" sub={`Register interest in ${selectedEvent?.next_event_name || 'the next event'}`} onClick={()=>openPublicRole('rebooking')} light />
+                </div>
+              </section>
             </div>}
           </div> : publicEventSlug ? <div className="public-event-code-step">
             <div className="public-event-selected-card">
@@ -310,12 +316,12 @@ export default function App() {
         </>}
         {eventError && <div className="event-context-error" role="alert">{eventError}</div>}
 
-        {(session || (!session && selectedEvent?.accessCode && privacyAcknowledged)) && <div className="access-hub-choice-heading" style={{ textAlign:'left', marginBottom:20 }}>
-          <div style={{ color:'rgba(255,255,255,.48)', fontSize:10, letterSpacing:2.2, textTransform:'uppercase' }}>{session ? 'Operations access' : 'Choose your access point'}</div>
+        {session && <div className="access-hub-choice-heading" style={{ textAlign:'left', marginBottom:20 }}>
+          <div style={{ color:'rgba(255,255,255,.48)', fontSize:10, letterSpacing:2.2, textTransform:'uppercase' }}>Operations access</div>
         </div>}
       </div>
 
-      {(session || (!session && selectedEvent?.accessCode && privacyAcknowledged)) && <div className={`access-card-stack${session ? ' access-card-grid' : ''}`} style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1 }}>
+      {session && <div className="access-card-stack access-card-grid" style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1 }}>
         {session && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Ops Portal" sub="Manage requests and event operations" onClick={()=>setRole('ops')} primary disabled={!selectedEvent || eventLoading} />}
         {session && canOpenQueue && <RoleCard icon={<HardHat size={24} strokeWidth={1.8} />} title="My Queue" sub="See your event assignments and update status" onClick={()=>setRole('dept')} light disabled={!selectedEvent || eventLoading} />}
         {session && canManageTenants && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title={isPlatformAdmin ? 'Organisers' : 'Organiser tools'} sub={isPlatformAdmin ? 'Manage paid client organisations, events and invitations' : 'Create events and manage your organisation’s team'} onClick={()=>setRole('tenant-admin')} light />}
