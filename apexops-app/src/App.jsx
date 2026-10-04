@@ -255,7 +255,7 @@ export default function App() {
           {publicAccessView === 'events' ? <div className="public-event-gate">
           {selectedEvent?.accessCode ? <div className="public-event-verified">
             <div className="public-event-unlocked">
-              <div><span>Event access verified</span><strong>{selectedEvent.clients?.name ? `${selectedEvent.clients.name} · ` : ''}{selectedEvent.name}</strong></div>
+              <div><span>Event access verified</span><strong>{selectedEvent.name}</strong></div>
               {privacyAcknowledged && <button type="button" onClick={()=>selectPublicEvent('')}>Change event</button>}
             </div>
             {!privacyAcknowledged && <section className="privacy-notice-panel" aria-labelledby="privacy-notice-title">
@@ -281,7 +281,7 @@ export default function App() {
             </div>}
           </div> : publicEventSlug ? <div className="public-event-code-step">
             <div className="public-event-selected-card">
-              <div><span>{selectedPublicEvent?.client_name || 'Selected client'}</span><strong>{selectedPublicEvent?.event_name || publicEventSlug}</strong><small>{selectedPublicEvent?.event_start_date} to {selectedPublicEvent?.event_end_date}</small></div>
+              <div><strong>{selectedPublicEvent?.event_name || publicEventSlug}</strong><small>{formatEventDateRange(selectedPublicEvent?.event_start_date, selectedPublicEvent?.event_end_date)}</small></div>
               <button type="button" onClick={()=>selectPublicEvent('')} disabled={verifyingPublicEvent}>Change</button>
             </div>
             <label htmlFor="public-event-code">Event code</label>
@@ -302,7 +302,6 @@ export default function App() {
               {filteredPublicEvents.map(event => <button className="public-event-card" key={event.slug} type="button" onClick={()=>selectPublicEvent(event.slug)}>
                 <div className="public-event-card-heading">
                   <span className="public-event-logo" aria-hidden="true">{event.logo_url ? <img src={event.logo_url} alt="" /> : <b>{getEventInitials(event.event_name)}</b>}</span>
-                  <span className="public-event-client">{event.client_name}</span>
                 </div>
                 <strong>{event.event_name}</strong>
                 <div className="public-event-schedule" aria-label="Event schedule">
