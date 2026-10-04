@@ -232,11 +232,11 @@ export default function App() {
         </div>
         <div className="access-hub-intro" style={{ maxWidth:620, marginBottom:42 }}>
           <div className="access-hub-headline" style={{ fontFamily:DISPLAY_FONT, fontWeight:600, fontSize:'clamp(48px, 8vw, 88px)', lineHeight:.84, letterSpacing:-1.5 }}>
-            {session ? <>Choose your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>workspace.</em></> : publicAccessView === 'clients' ? <>Organiser<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>admin.</em></> : publicAccessView === 'team' ? <>Suppliers &amp;<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>staff.</em></> : selectedEvent?.accessCode ? <>Your event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>services.</em></> : publicEventSlug ? <>Enter your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event code.</em></> : <>Welcome to<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>APEXOPS<sup className="access-brand-trademark">™</sup>.</em></>}
+            {session ? <>Choose your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>workspace.</em></> : publicAccessView === 'clients' ? <>Organiser<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>admin.</em></> : publicAccessView === 'team' ? <>Suppliers &amp;<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>staff.</em></> : selectedEvent?.accessCode ? <>Your event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>services.</em></> : publicEventSlug ? <>Enter your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event code.</em></> : <>Find your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event.</em></>}
           </div>
           <div style={{ width:54, height:3, background:GOLD, marginTop:30, marginBottom:18 }} />
           <div className="access-hub-subtitle" style={{ fontFamily:DISPLAY_FONT, fontStyle:'italic', color:'rgba(255,255,255,.72)', fontSize:19 }}>
-            {session ? 'APEXOPS™ by Executive Conference Events' : 'Operations for exhibitors, event teams and partners.'}
+            {session ? 'APEXOPS™ by Executive Conference Events' : publicAccessView === 'clients' ? 'Sign in to manage your events, team and suppliers.' : publicAccessView === 'team' ? 'Sign in for supplier and event-team access.' : selectedEvent?.accessCode ? 'Choose a service for this event.' : publicEventSlug ? 'Enter the code provided by your organiser to continue.' : 'Select an event, then enter your organiser-issued code to access services.'}
           </div>
         </div>
 
@@ -290,9 +290,9 @@ export default function App() {
               <button type="button" onClick={verifyPublicEvent} disabled={eventLoading || verifyingPublicEvent || !publicEventSlug || !publicAccessCode.trim()}>{verifyingPublicEvent ? 'Checking...' : 'Continue'}</button>
             </div>
           </div> : <>
-            <div className="public-event-list-heading">Upcoming events</div>
+            <div className="public-event-list-heading">All events</div>
             <div className="public-event-filters">
-              <input type="search" aria-label="Search events" placeholder="Search events or organizers" value={publicEventSearch} onChange={event=>setPublicEventSearch(event.target.value)} disabled={eventLoading} />
+              <input type="search" aria-label="Search events" placeholder="Search events or organisers" value={publicEventSearch} onChange={event=>setPublicEventSearch(event.target.value)} disabled={eventLoading} />
               <select aria-label="Filter events by month" value={publicEventMonth} onChange={event=>setPublicEventMonth(event.target.value)} disabled={eventLoading}>
                 <option value="">All months</option>
                 {publicEventMonths.map(month=><option key={month} value={month}>{new Date(`${month}-01T12:00:00`).toLocaleDateString('en-GB',{month:'long',year:'numeric'})}</option>)}
@@ -302,7 +302,11 @@ export default function App() {
               {filteredPublicEvents.map(event => <button className="public-event-card" key={event.slug} type="button" onClick={()=>selectPublicEvent(event.slug)}>
                 <span>{event.client_name}</span>
                 <strong>{event.event_name}</strong>
-                <small>{event.event_start_date} to {event.event_end_date}</small>
+                <div className="public-event-schedule" aria-label="Event schedule">
+                  <span><b>Build-up</b><time>{formatEventDateRange(event.build_up_start_date, event.build_up_end_date)}</time></span>
+                  <span><b>Event</b><time>{formatEventDateRange(event.event_start_date, event.event_end_date)}</time></span>
+                  <span><b>Breakdown</b><time>{formatEventDateRange(event.breakdown_start_date, event.breakdown_end_date)}</time></span>
+                </div>
                 <b>Choose event <span aria-hidden="true">›</span></b>
               </button>)}
               {!filteredPublicEvents.length && <p className="public-events-empty">No events match this search or month.</p>}
@@ -334,6 +338,16 @@ export default function App() {
     </div>
   );
 }
+function formatEventDateRange(startDate, endDate) {
+  const formatDate = value => value
+    ? new Date(`${value}T12:00:00`).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
+    : '';
+  const start = formatDate(startDate);
+  const end = formatDate(endDate);
+  if (start && end && start !== end) return `${start} - ${end}`;
+  return start || end || 'To be confirmed';
+}
+
 function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in' }) {
   const [open, setOpen] = useState(initiallyOpen);
   const [email, setEmail] = useState('');

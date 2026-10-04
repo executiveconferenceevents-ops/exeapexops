@@ -76,7 +76,9 @@ export async function getAvailableEvents() {
 export async function getPublicEvents() {
   if (DEMO_MODE) return (await getAvailableEvents()).filter(event => event.is_public).map(event => ({
     client_name:event.clients?.name || 'Organizer', event_name:event.name, event_start_date:event.event_start_date,
-    event_end_date:event.event_end_date, slug:event.slug, next_event_name:event.next_event_name,
+    event_end_date:event.event_end_date, build_up_start_date:event.build_up_start_date, build_up_end_date:event.build_up_end_date,
+    breakdown_start_date:event.breakdown_start_date, breakdown_end_date:event.breakdown_end_date,
+    slug:event.slug, next_event_name:event.next_event_name,
   }));
   if (!supabase) return [];
   const { data, error } = await supabase.rpc('list_public_events');
