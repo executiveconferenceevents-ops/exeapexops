@@ -352,7 +352,9 @@ function formatEventDateRange(startDate, endDate) {
 }
 
 function getEventInitials(name) {
-  return String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join('').toUpperCase() || 'EV';
+  const words = String(name || '').split(/\s+/).filter(Boolean);
+  if (/^[A-Z0-9]{3,}$/.test(words[0] || '')) return words[0].slice(0, 3);
+  return words.slice(0, 2).map(word => word[0]).join('').toUpperCase() || 'EV';
 }
 
 function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in' }) {
