@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { DEMO_MODE } from './demoStore';
+import { DEMO_MODE, getDemoCollection } from './demoStore';
 
 const DEFAULT_EVENT_SLUG = process.env.REACT_APP_DEFAULT_EVENT_SLUG || 'esg-africa-2026';
 const ACTIVE_EVENT_KEY = 'apexops-active-event-v1';
@@ -56,7 +56,13 @@ export function clearActiveEvent() {
 
 export async function getAvailableEvents() {
   if (DEMO_MODE) {
-    return [{ id:'demo-event-esg-africa-2026', client_id:'demo-client-ece', name:'ESG Africa 2026', event_start_date:'2026-09-30', event_end_date:'2026-10-01', build_up_start_date:'2026-09-29', build_up_end_date:'2026-09-29', breakdown_start_date:'2026-10-01', breakdown_end_date:'2026-10-01', next_event_name:'ESG Africa 2027', slug:DEFAULT_EVENT_SLUG, exhibitor_code:'ESGAF-20260930', is_public:true }];
+    const clients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events' }]);
+    return getDemoCollection('events', [{
+      id:'demo-event-esg-africa-2026', client_id:clients[0]?.id || 'demo-client-ece', clients:clients[0], name:'ESG Africa 2026',
+      event_start_date:'2026-09-30', event_end_date:'2026-10-01', build_up_start_date:'2026-09-29', build_up_end_date:'2026-09-29',
+      breakdown_start_date:'2026-10-01', breakdown_end_date:'2026-10-01', next_event_name:'ESG Africa 2027',
+      slug:DEFAULT_EVENT_SLUG, exhibitor_code:'ESGAF-20260930', is_public:true,
+    }]).map(event => ({ ...event, clients:clients.find(client => client.id === event.client_id) || event.clients }));
   }
   if (!supabase) return [];
   const { data, error } = await supabase
@@ -68,7 +74,10 @@ export async function getAvailableEvents() {
 }
 
 export async function getPublicEvents() {
-  if (DEMO_MODE) return [{ client_name:'Executive Conference Events', event_name:'ESG Africa 2026', event_start_date:'2026-09-30', event_end_date:'2026-10-01', slug:DEFAULT_EVENT_SLUG, next_event_name:'ESG Africa 2027' }];
+  if (DEMO_MODE) return (await getAvailableEvents()).filter(event => event.is_public).map(event => ({
+    client_name:event.clients?.name || 'Organizer', event_name:event.name, event_start_date:event.event_start_date,
+    event_end_date:event.event_end_date, slug:event.slug, next_event_name:event.next_event_name,
+  }));
   if (!supabase) return [];
   const { data, error } = await supabase.rpc('list_public_events');
   if (error) throw error;
@@ -78,12 +87,19 @@ export async function getPublicEvents() {
 export async function resolvePublicEvent(slug = getEventSlug(), accessCode) {
   const requestedSlug = String(slug || DEFAULT_EVENT_SLUG).trim().toLowerCase();
   if (DEMO_MODE) {
-    if (String(accessCode || '').trim().toUpperCase() !== 'ESGAF-20260930') return null;
-    return { id:'demo-event-esg-africa-2026', client_id:'demo-client-ece', name:'ESG Africa 2026', event_start_date:'2026-09-30', event_end_date:'2026-10-01', build_up_start_date:'2026-09-29', build_up_end_date:'2026-09-29', breakdown_start_date:'2026-10-01', breakdown_end_date:'2026-10-01', next_event_name:'ESG Africa 2027', slug:requestedSlug, accessCode:'ESGAF-20260930', is_public:true };
+    const event = (await getAvailableEvents()).find(item => item.slug === requestedSlug && item.is_public);
+    if (!event || String(accessCode || '').trim().toUpperCase() !== event.exhibitor_code) return null;
+    return { ...event, accessCode:event.exhibitor_code };
   }
   if (!supabase) return null;
   const { data, error } = await supabase.rpc('get_public_event', { requested_slug:requestedSlug, requested_code:String(accessCode || '').trim().toUpperCase() });
   if (error) throw error;
   const event = Array.isArray(data) ? data[0] || null : data;
   return event ? { ...event, accessCode:String(accessCode).trim().toUpperCase() } : null;
+}
+
+export function getActiveClientId() {
+  const clientId = getActiveEvent()?.client_id;
+  if (!clientId) throw new Error('Choose an organizer event before opening its supplier directory.');
+  return clientId;
 }

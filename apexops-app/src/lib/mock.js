@@ -1,7 +1,7 @@
 // ─── Data catalog and query store ────────────────────────────────────────────
 import { supabase } from './supabase';
 import { DEMO_MODE, getAppStorage, getDemoCollection, setDemoCollection } from './demoStore';
-import { getActiveEventCode, getActiveEventId, getEventSlug } from './eventScope';
+import { getActiveClientId, getActiveEventCode, getActiveEventId, getEventSlug } from './eventScope';
 
 function eventCacheKey(key) {
   return `${key}:${getEventSlug()}`;
@@ -38,8 +38,8 @@ const DEMO_STAFF = [
   { id:'demo-staff-organiser', name:'Jamie Quinn', supplier_name:'APEXOPS Demo Team', email:'jamie@example.test', category:'Organiser', mobile:'555-0103', role:'staff' },
 ];
 const DEMO_SUPPLIERS = [
-  { id:'demo-supplier-stand', name:'Summit Stand Services', category:'Stand Builder', contact:'Taylor Reed', mobile:'555-0101', email:'taylor@example.test' },
-  { id:'demo-supplier-electrical', name:'Brightline Electrical', category:'Electrical', contact:'Morgan Vale', mobile:'555-0102', email:'morgan@example.test' },
+  { id:'demo-supplier-stand', client_id:'demo-client-ece', name:'Summit Stand Services', category:'Stand Builder', contact:'Taylor Reed', mobile:'555-0101', email:'taylor@example.test' },
+  { id:'demo-supplier-electrical', client_id:'demo-client-ece', name:'Brightline Electrical', category:'Electrical', contact:'Morgan Vale', mobile:'555-0102', email:'morgan@example.test' },
 ];
 const STAFF_CONTACT_CACHE_KEY = 'apexops.staff-contact-overrides';
 const SUPPLIER_LOGO_CACHE_KEY = 'apexops.supplier-logo-overrides';
@@ -385,24 +385,24 @@ export async function upsertStaffRecords(records) {
   return rows;
 }
 
-export async function getSuppliers() {
+export async function getSuppliers(clientId = getActiveClientId()) {
   if (supabase) {
-    const { data, error } = await supabase.from('suppliers').select('*').eq('event_id', getActiveEventId()).order('name');
+    const { data, error } = await supabase.from('suppliers').select('*').eq('client_id', clientId).order('name');
     if (error) throw error;
     return data || [];
   }
-  return DEMO_MODE ? getDemoCollection('suppliers', DEMO_SUPPLIERS) : [];
+  return DEMO_MODE ? getDemoCollection('suppliers', DEMO_SUPPLIERS).filter(supplier => supplier.client_id === clientId).sort((first, second) => first.name.localeCompare(second.name)) : [];
 }
 
-export async function upsertSuppliers(records) {
+export async function upsertSuppliers(records, clientId = getActiveClientId()) {
   const rows = records.map((record, index) => ({
     id: record.id || `supplier-${Date.now()}-${index}`,
+    client_id:clientId,
     name: record.name,
     contact: record.contact || null,
     mobile: record.mobile || null,
     email: record.email || null,
     category: record.category || 'Other',
-    ...(supabase && { event_id:getActiveEventId() }),
   }));
   if (supabase) {
     const { data, error } = await supabase.from('suppliers').upsert(rows, { onConflict:'id' }).select();
@@ -421,6 +421,18 @@ export async function upsertSuppliers(records) {
     return merged;
   }
   return rows;
+}
+
+export async function removeSupplier(id, clientId = getActiveClientId()) {
+  if (supabase) {
+    const { error } = await supabase.from('suppliers').delete().eq('id', id).eq('client_id', clientId);
+    if (error) throw error;
+    return;
+  }
+  if (DEMO_MODE) {
+    const remaining = getDemoCollection('suppliers', DEMO_SUPPLIERS).filter(supplier => String(supplier.id) !== String(id));
+    setDemoCollection('suppliers', remaining);
+  }
 }
 
 export async function upsertExhibitorRecords(records) {

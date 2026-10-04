@@ -27,8 +27,11 @@ export default function App() {
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [canManageTenants, setCanManageTenants] = useState(false);
   const [events, setEvents] = useState([]);
+  const [eventMemberships, setEventMemberships] = useState([]);
   const [publicEvents, setPublicEvents] = useState([]);
   const [publicEventSlug, setPublicEventSlug] = useState('');
+  const [publicEventSearch, setPublicEventSearch] = useState('');
+  const [publicEventMonth, setPublicEventMonth] = useState('');
   const [publicAccessCode, setPublicAccessCode] = useState('');
   const [verifyingPublicEvent, setVerifyingPublicEvent] = useState(false);
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
@@ -65,6 +68,7 @@ export default function App() {
           if (cancelled) return;
           let platformAdmin = false;
           let organizationAdmin = false;
+          let currentMemberships = [];
           if (supabase) {
             const [adminResult, membershipResult] = await Promise.all([
               supabase.rpc('is_platform_admin'),
@@ -74,10 +78,16 @@ export default function App() {
             if (adminResult.error) throw adminResult.error;
             if (membershipResult.error) throw membershipResult.error;
             platformAdmin = Boolean(adminResult.data);
-            organizationAdmin = (membershipResult.data || []).some(membership => membership.role === 'client_admin' && !membership.event_id);
+            currentMemberships = membershipResult.data || [];
+            organizationAdmin = currentMemberships.some(membership => membership.role === 'client_admin' && !membership.event_id);
+          } else if (DEMO_MODE) {
+            platformAdmin = true;
+            organizationAdmin = true;
+            currentMemberships = [{ client_id:availableEvents[0]?.client_id || 'demo-client-ece', event_id:null, role:'client_admin' }];
           }
           setIsPlatformAdmin(platformAdmin);
           setCanManageTenants(platformAdmin || organizationAdmin);
+          setEventMemberships(currentMemberships);
           setEvents(availableEvents);
           const currentEvent = getActiveEvent();
           const nextEvent = availableEvents.find(event => event.slug === getEventSlug())
@@ -87,6 +97,7 @@ export default function App() {
           setActiveEvent(nextEvent);
         } else {
           setEvents([]);
+          setEventMemberships([]);
           setIsPlatformAdmin(false);
           setCanManageTenants(false);
           clearActiveEvent();
@@ -115,6 +126,7 @@ export default function App() {
     setSession(null);
     setRole(null);
     setSelectedEvent(null);
+    setEventMemberships([]);
     clearActiveEvent();
   }
 
@@ -133,6 +145,10 @@ export default function App() {
     setPrivacyNoticeChecked(false);
     setEventError('');
     clearActiveEvent();
+    const url = new URL(window.location.href);
+    if (slug) url.searchParams.set('event', slug);
+    else url.searchParams.delete('event');
+    window.history.replaceState(window.history.state, '', url);
   }
 
   async function verifyPublicEvent() {
@@ -177,6 +193,19 @@ export default function App() {
     setPrivacyAcknowledged(true);
     setEventError('');
   }
+
+  const selectedPublicEvent = publicEvents.find(event => event.slug === publicEventSlug);
+  const publicEventMonths = [...new Set(publicEvents.map(event => event.event_start_date?.slice(0, 7)).filter(Boolean))].sort();
+  const filteredPublicEvents = publicEvents.filter(event => {
+    const searchableText = `${event.client_name} ${event.event_name}`.toLowerCase();
+    return (!publicEventSearch.trim() || searchableText.includes(publicEventSearch.trim().toLowerCase()))
+      && (!publicEventMonth || event.event_start_date?.slice(0, 7) === publicEventMonth);
+  });
+  const activeEventMemberships = eventMemberships.filter(membership => selectedEvent
+    && membership.client_id === selectedEvent.client_id
+    && (!membership.event_id || membership.event_id === selectedEvent.id));
+  const canOpenOps = Boolean(selectedEvent && (isPlatformAdmin || activeEventMemberships.some(membership => ['client_admin','event_admin','ops'].includes(membership.role))));
+  const canOpenQueue = Boolean(selectedEvent && (isPlatformAdmin || activeEventMemberships.some(membership => ['client_admin','event_admin','ops','staff'].includes(membership.role))));
 
   if (!authReady) return null;
   if (role === 'exhibitor') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ExhibitorStatus /></WithBack>;
@@ -232,17 +261,34 @@ export default function App() {
               <label><input type="checkbox" checked={privacyNoticeChecked} onChange={event=>setPrivacyNoticeChecked(event.target.checked)} /> <span>I have read and acknowledge this privacy notice.</span></label>
               <button type="button" onClick={acknowledgePrivacyNotice} disabled={!privacyNoticeChecked}>Continue to event services</button>
             </section>}
-          </div> : <>
-            <label htmlFor="public-event">Client event</label>
-            <select id="public-event" value={publicEventSlug} onChange={event=>selectPublicEvent(event.target.value)} disabled={eventLoading || verifyingPublicEvent}>
-              <option value="">{eventLoading ? 'Loading events...' : 'Select your event'}</option>
-              {publicEvents.map(event => <option key={event.slug} value={event.slug}>{event.client_name} · {event.event_name} · {event.event_start_date} to {event.event_end_date}</option>)}
-            </select>
+          </div> : publicEventSlug ? <div className="public-event-code-step">
+            <div className="public-event-selected-card">
+              <div><span>{selectedPublicEvent?.client_name || 'Selected client'}</span><strong>{selectedPublicEvent?.event_name || publicEventSlug}</strong><small>{selectedPublicEvent?.event_start_date} to {selectedPublicEvent?.event_end_date}</small></div>
+              <button type="button" onClick={()=>selectPublicEvent('')} disabled={verifyingPublicEvent}>Change</button>
+            </div>
             <label htmlFor="public-event-code">Event code</label>
             <div className="public-event-code-row">
               <input id="public-event-code" autoComplete="off" value={publicAccessCode} onChange={event=>setPublicAccessCode(event.target.value.toUpperCase())} placeholder="Enter the code from your organiser" disabled={eventLoading || verifyingPublicEvent} />
               <button type="button" onClick={verifyPublicEvent} disabled={eventLoading || verifyingPublicEvent || !publicEventSlug || !publicAccessCode.trim()}>{verifyingPublicEvent ? 'Checking...' : 'Continue'}</button>
             </div>
+          </div> : <>
+            <div className="public-event-list-heading">Upcoming events</div>
+            <div className="public-event-filters">
+              <input type="search" aria-label="Search events" placeholder="Search events or organizers" value={publicEventSearch} onChange={event=>setPublicEventSearch(event.target.value)} disabled={eventLoading} />
+              <select aria-label="Filter events by month" value={publicEventMonth} onChange={event=>setPublicEventMonth(event.target.value)} disabled={eventLoading}>
+                <option value="">All months</option>
+                {publicEventMonths.map(month=><option key={month} value={month}>{new Date(`${month}-01T12:00:00`).toLocaleDateString('en-GB',{month:'long',year:'numeric'})}</option>)}
+              </select>
+            </div>
+            {eventLoading ? <p>Loading events...</p> : <div className="public-event-cards">
+              {filteredPublicEvents.map(event => <button className="public-event-card" key={event.slug} type="button" onClick={()=>selectPublicEvent(event.slug)}>
+                <span>{event.client_name}</span>
+                <strong>{event.event_name}</strong>
+                <small>{event.event_start_date} to {event.event_end_date}</small>
+                <b>Choose event <span aria-hidden="true">›</span></b>
+              </button>)}
+              {!filteredPublicEvents.length && <p className="public-events-empty">No events match this search or month.</p>}
+            </div>}
           </>}
           {!eventLoading && !publicEvents.length && <p>No public events are available yet.</p>}
         </div>}
@@ -255,33 +301,15 @@ export default function App() {
 
       <div className={`access-card-stack${session ? ' access-card-grid' : ''}`} style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1 }}>
         {!session && <TeamLogin onSignedIn={setSession} />}
-        {session && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Ops Portal" sub="Internal team — manage queries and assignments" onClick={()=>setRole('ops')} primary disabled={!selectedEvent || eventLoading} />}
-        {session && <RoleCard icon={<HardHat size={24} strokeWidth={1.8} />} title="My Queue" sub="Internal staff — see assigned tasks and update status" onClick={()=>setRole('dept')} light disabled={!selectedEvent || eventLoading} />}
+        {session && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Ops Portal" sub="Manage requests and event operations" onClick={()=>setRole('ops')} primary disabled={!selectedEvent || eventLoading} />}
+        {session && canOpenQueue && <RoleCard icon={<HardHat size={24} strokeWidth={1.8} />} title="My Queue" sub="See your event assignments and update status" onClick={()=>setRole('dept')} light disabled={!selectedEvent || eventLoading} />}
         {session && canManageTenants && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title={isPlatformAdmin ? 'Clients & Events' : 'Event management'} sub={isPlatformAdmin ? 'Manage paid client organizations, events and invitations' : 'Create events and manage your organization’s team'} onClick={()=>setRole('tenant-admin')} light />}
-        <RoleCard
-          icon={<Building2 size={24} strokeWidth={1.8} />}
-          title="Check My Status"
-          sub="Exhibitors — see your queue position and estimated wait time"
-          onClick={()=>openPublicRole('exhibitor')}
-          light
-          disabled={eventLoading || (!session && (!selectedEvent?.accessCode || !privacyAcknowledged))}
-        />
-        <RoleCard
-          icon={<ClipboardPlus size={24} strokeWidth={1.8} />}
-          title="Log a Query"
-          sub="Tell the Ops Desk about an issue at your stand"
-          onClick={()=>openPublicRole('client-query')}
-          light
-          disabled={eventLoading || (!session && (!selectedEvent?.accessCode || !privacyAcknowledged))}
-        />
-        <RoleCard
-          icon={<Building2 size={24} strokeWidth={1.8} />}
-          title="Rebook Your Stand"
-          sub={`Tell us how you would like to participate at ${selectedEvent?.next_event_name || 'the next event'}`}
-          onClick={()=>openPublicRole('rebooking')}
-          light
-          disabled={eventLoading || (!session && (!selectedEvent?.accessCode || !privacyAcknowledged))}
-        />
+        {session && selectedEvent && !canOpenOps && !canOpenQueue && <p className="event-access-help">No staff access is assigned to this event. Contact your organizer.</p>}
+        {!session && <>
+          <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Check My Status" sub="Find your stand’s live service requests" onClick={()=>openPublicRole('exhibitor')} light disabled={eventLoading || !selectedEvent?.accessCode || !privacyAcknowledged} />
+          <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Report an issue at your event stand" onClick={()=>openPublicRole('client-query')} light disabled={eventLoading || !selectedEvent?.accessCode || !privacyAcknowledged} />
+          <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Rebook Your Stand" sub={`Register interest in ${selectedEvent?.next_event_name || 'the next event'}`} onClick={()=>openPublicRole('rebooking')} light disabled={eventLoading || !selectedEvent?.accessCode || !privacyAcknowledged} />
+        </>}
       </div>
 
       <div className="access-hub-footer" style={{ color:'rgba(255,255,255,.32)', fontSize:10, letterSpacing:.4, marginTop:48, position:'relative', zIndex:1 }}>

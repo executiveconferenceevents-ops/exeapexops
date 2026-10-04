@@ -1,27 +1,33 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getAvailableEvents, setActiveEvent } from '../lib/eventScope';
-import { Building2, CalendarDays, MailPlus, Plus, RefreshCw } from 'lucide-react';
+import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
+import { getSuppliers, removeSupplier, upsertSuppliers } from '../lib/mock';
+import { Building2, CalendarDays, MailPlus, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 const emptyClient = { name:'', slug:'' };
 const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'' };
 const emptyInvite = { client_id:'', event_id:'', email:'', role:'staff' };
+const emptySupplier = { name:'', contact:'', email:'', mobile:'', category:'Other' };
 
 export default function ClientEventAdmin() {
   const [clients, setClients] = useState([]);
   const [events, setEvents] = useState([]);
   const [memberships, setMemberships] = useState([]);
+  const [privateSuppliers, setPrivateSuppliers] = useState([]);
+  const [supplierClientId, setSupplierClientId] = useState('');
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [clientForm, setClientForm] = useState(emptyClient);
   const [eventForm, setEventForm] = useState(emptyEvent);
   const [inviteForm, setInviteForm] = useState(emptyInvite);
+  const [supplierForm, setSupplierForm] = useState(emptySupplier);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   async function refresh() {
-    if (!supabase) {
+    if (!supabase && !DEMO_MODE) {
       setError('Client and event administration requires a connected Supabase project.');
       setLoading(false);
       return;
@@ -29,28 +35,39 @@ export default function ClientEventAdmin() {
     setLoading(true);
     setError('');
     try {
-      const [availableEvents, membershipResult, adminResult] = await Promise.all([
-        getAvailableEvents(),
-        supabase.from('client_event_memberships').select('client_id, event_id, role'),
-        supabase.rpc('is_platform_admin'),
-      ]);
-      if (membershipResult.error) throw membershipResult.error;
-      if (adminResult.error) throw adminResult.error;
-      const platformAdmin = Boolean(adminResult.data);
-      const currentMemberships = membershipResult.data || [];
-      const managedClientId = currentMemberships.find(membership => membership.role === 'client_admin' && !membership.event_id)?.client_id || '';
+      const availableEvents = await getAvailableEvents();
+      let currentMemberships = [];
+      let platformAdmin = false;
       let visibleClients = [];
-      if (platformAdmin) {
-        const { data, error: clientsError } = await supabase.from('clients').select('id, name, slug').order('name');
-        if (clientsError) throw clientsError;
-        visibleClients = data || [];
+      if (DEMO_MODE) {
+        platformAdmin = true;
+        currentMemberships = getDemoCollection('memberships', [{ client_id:'demo-client-ece', event_id:null, role:'client_admin' }]);
+        visibleClients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events' }]);
+      } else {
+        const [membershipResult, adminResult] = await Promise.all([
+          supabase.from('client_event_memberships').select('client_id, event_id, role'),
+          supabase.rpc('is_platform_admin'),
+        ]);
+        if (membershipResult.error) throw membershipResult.error;
+        if (adminResult.error) throw adminResult.error;
+        platformAdmin = Boolean(adminResult.data);
+        currentMemberships = membershipResult.data || [];
+        if (platformAdmin) {
+          const { data, error: clientsError } = await supabase.from('clients').select('id, name, slug').order('name');
+          if (clientsError) throw clientsError;
+          visibleClients = data || [];
+        }
       }
+      const managedClientId = currentMemberships.find(membership => membership.role === 'client_admin' && !membership.event_id)?.client_id || '';
       setClients(visibleClients);
       setEvents(availableEvents);
       setMemberships(currentMemberships);
       setIsPlatformAdmin(platformAdmin);
       setEventForm(current => ({ ...current, client_id:platformAdmin ? current.client_id || visibleClients[0]?.id || '' : managedClientId }));
       setInviteForm(current => ({ ...current, client_id:platformAdmin ? current.client_id || visibleClients[0]?.id || '' : managedClientId }));
+      const supplierScope = platformAdmin ? supplierClientId || visibleClients[0]?.id || '' : managedClientId;
+      setSupplierClientId(supplierScope);
+      setPrivateSuppliers(supplierScope ? await getSuppliers(supplierScope) : []);
     } catch (loadError) {
       setError(loadError?.message || 'Could not load client and event access.');
     } finally {
@@ -62,6 +79,7 @@ export default function ClientEventAdmin() {
 
   const canManageClient = clientId => isPlatformAdmin || memberships.some(membership =>
     membership.client_id === clientId && membership.role === 'client_admin' && !membership.event_id);
+  const canManageSuppliers = clientId => canManageClient(clientId);
   const canInviteToScope = (clientId, eventId) => isPlatformAdmin || memberships.some(membership =>
     membership.client_id === clientId && membership.role === 'client_admin'
       && (!membership.event_id || membership.event_id === eventId)
@@ -69,18 +87,53 @@ export default function ClientEventAdmin() {
   const selectedEvent = events.find(event => event.id === inviteForm.event_id);
   const inviteClientEvents = events.filter(event => event.client_id === inviteForm.client_id);
 
-  async function createClient(event) {
+  async function addPrivateSupplier(event) {
     event.preventDefault();
-    if (!supabase) return;
+    if (!supplierClientId || !canManageSuppliers(supplierClientId)) return;
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      const { error: createError } = await supabase.rpc('create_client', {
-        requested_name:clientForm.name.trim(),
-        requested_slug:clientForm.slug.trim().toLowerCase(),
-      });
-      if (createError) throw createError;
+      await upsertSuppliers([{ ...supplierForm, id:`supplier-${crypto.randomUUID()}` }], supplierClientId);
+      setSupplierForm(emptySupplier);
+      setPrivateSuppliers(await getSuppliers(supplierClientId));
+      setNotice('Private organizer supplier added. It is available across this organizer’s events.');
+    } catch (saveError) {
+      setError(saveError?.message || 'Could not add the organizer supplier.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deletePrivateSupplier(supplier) {
+    if (!window.confirm(`Remove ${supplier.name} from this organizer’s private supplier list?`)) return;
+    try {
+      await removeSupplier(supplier.id, supplierClientId);
+      setPrivateSuppliers(await getSuppliers(supplierClientId));
+    } catch (deleteError) {
+      setError(deleteError?.message || 'Could not remove the supplier.');
+    }
+  }
+
+  async function createClient(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const name = clientForm.name.trim();
+      const slug = clientForm.slug.trim().toLowerCase();
+      if (DEMO_MODE) {
+        const clients = getDemoCollection('clients', []);
+        if (clients.some(client => client.slug === slug)) throw new Error('That organization URL slug is already in use.');
+        setDemoCollection('clients', [...clients, { id:`demo-client-${crypto.randomUUID()}`, name, slug }]);
+      } else {
+        const { error: createError } = await supabase.rpc('create_client', {
+          requested_name:name,
+          requested_slug:slug,
+        });
+        if (createError) throw createError;
+      }
       setClientForm(emptyClient);
       setNotice('Client organization created. Create an event and invite its first client admin.');
       await refresh();
@@ -93,12 +146,11 @@ export default function ClientEventAdmin() {
 
   async function createEvent(event) {
     event.preventDefault();
-    if (!supabase) return;
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      const { data, error: createError } = await supabase.from('events').insert({
+      const eventValues = {
         client_id:eventForm.client_id,
         name:eventForm.name.trim(),
         slug:eventForm.slug.trim().toLowerCase(),
@@ -110,8 +162,20 @@ export default function ClientEventAdmin() {
         breakdown_end_date:eventForm.breakdown_end_date,
         next_event_name:eventForm.next_event_name.trim() || null,
         is_public:true,
-      }).select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, exhibitor_code, is_public').single();
-      if (createError) throw createError;
+      };
+      let data;
+      if (DEMO_MODE) {
+        const currentEvents = getDemoCollection('events', []);
+        if (currentEvents.some(item => item.slug === eventValues.slug)) throw new Error('That event URL slug is already in use.');
+        const prefix = eventValues.name.replace(/[^A-Za-z]/g, '').slice(0, 5).toUpperCase() || 'EVENT';
+        data = { ...eventValues, id:`demo-event-${crypto.randomUUID()}`, exhibitor_code:`${prefix}-${eventValues.event_start_date.replace(/-/g, '')}` };
+        setDemoCollection('events', [...currentEvents, data]);
+      } else {
+        const { data:createdEvent, error: createError } = await supabase.from('events').insert(eventValues)
+          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, exhibitor_code, is_public').single();
+        if (createError) throw createError;
+        data = createdEvent;
+      }
       setEventForm(current => ({ ...emptyEvent, client_id:current.client_id }));
       await refresh();
       setActiveEvent(data);
@@ -125,7 +189,6 @@ export default function ClientEventAdmin() {
 
   async function inviteMember(event) {
     event.preventDefault();
-    if (!supabase) return;
     if (!inviteForm.event_id && inviteForm.role !== 'client_admin') {
       setError('Choose an event for event administrators, operations, or staff invitations.');
       return;
@@ -134,16 +197,27 @@ export default function ClientEventAdmin() {
     setError('');
     setNotice('');
     try {
-      const { data, error: inviteError } = await supabase.functions.invoke('invite-event-member', {
-        body: {
-          clientId:inviteForm.client_id,
-          eventId:inviteForm.event_id || null,
-          email:inviteForm.email.trim(),
-          role:inviteForm.role,
-        },
-      });
-      if (inviteError) throw inviteError;
-      setNotice(data?.message || `Invitation sent to ${inviteForm.email.trim()}.`);
+      const invitation = {
+        client_id:inviteForm.client_id,
+        event_id:inviteForm.event_id || null,
+        email:inviteForm.email.trim(),
+        role:inviteForm.role,
+        created_at:new Date().toISOString(),
+      };
+      if (DEMO_MODE) {
+        const invitations = getDemoCollection('invitations', []);
+        setDemoCollection('invitations', [...invitations, invitation]);
+        setNotice(`Demo invitation recorded for ${invitation.email}.`);
+      } else {
+        const { data, error: inviteError } = await supabase.functions.invoke('invite-event-member', { body: {
+          clientId:invitation.client_id,
+          eventId:invitation.event_id,
+          email:invitation.email,
+          role:invitation.role,
+        } });
+        if (inviteError) throw inviteError;
+        setNotice(data?.message || `Invitation sent to ${invitation.email}.`);
+      }
       setInviteForm(current => ({ ...current, email:'' }));
     } catch (inviteError) {
       const serverMessage = inviteError?.context?.body?.message;
@@ -199,6 +273,24 @@ export default function ClientEventAdmin() {
             <label>Next event name<input maxLength="160" value={eventForm.next_event_name} onChange={event=>setEventForm({ ...eventForm, next_event_name:event.target.value })} placeholder="Optional rebooking destination" /></label>
             <button type="submit" disabled={saving || !eventForm.client_id || !canManageClient(eventForm.client_id)}><Plus size={15} /> Create event</button>
           </form>
+        </section>
+
+        <section className="tenant-section">
+          <div className="tenant-section-heading"><Building2 size={17} /><div><h2>Private suppliers</h2><p>Visible only to this organizer and reusable across its events.</p></div></div>
+          {isPlatformAdmin && <label className="tenant-supplier-owner">Organizer<select value={supplierClientId} onChange={async event=>{setSupplierClientId(event.target.value);setPrivateSuppliers(await getSuppliers(event.target.value));}}><option value="">Select organization</option>{clients.map(client=><option key={client.id} value={client.id}>{client.name}</option>)}</select></label>}
+          {canManageSuppliers(supplierClientId) && <form className="tenant-form tenant-inline-form" onSubmit={addPrivateSupplier}>
+            <h3>Add a private supplier</h3>
+            <label>Supplier name<input required value={supplierForm.name} onChange={event=>setSupplierForm({ ...supplierForm, name:event.target.value })} /></label>
+            <label>Contact person<input value={supplierForm.contact} onChange={event=>setSupplierForm({ ...supplierForm, contact:event.target.value })} /></label>
+            <label>Email<input type="email" value={supplierForm.email} onChange={event=>setSupplierForm({ ...supplierForm, email:event.target.value })} /></label>
+            <label>Mobile<input value={supplierForm.mobile} onChange={event=>setSupplierForm({ ...supplierForm, mobile:event.target.value })} /></label>
+            <label>Service category<input value={supplierForm.category} onChange={event=>setSupplierForm({ ...supplierForm, category:event.target.value })} /></label>
+            <button type="submit" disabled={saving || !supplierClientId}><Plus size={15} /> Add supplier</button>
+          </form>}
+          <div className="tenant-list">
+            {privateSuppliers.map(supplier=><div className="tenant-list-row" key={supplier.id}><div className="tenant-event-details"><strong>{supplier.name}</strong><span>{[supplier.category, supplier.contact, supplier.email, supplier.mobile].filter(Boolean).join(' · ')}</span></div>{canManageSuppliers(supplierClientId) && <button className="tenant-remove-supplier" type="button" onClick={()=>deletePrivateSupplier(supplier)} title={`Remove ${supplier.name}`}><Trash2 size={14} /><span>Remove</span></button>}</div>)}
+            {!privateSuppliers.length && <p className="tenant-empty">No private suppliers have been added for this organizer.</p>}
+          </div>
         </section>
 
         <section className="tenant-section">

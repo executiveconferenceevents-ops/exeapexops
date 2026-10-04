@@ -19,6 +19,7 @@ begin
       'team can read staff','team can insert staff','team can update staff','team can delete staff','read staff','allow_all',
       'public can read exhibitors','team can read exhibitors','team can insert exhibitors','team can update exhibitors','team can delete exhibitors','allow_all',
       'team can read suppliers','team can insert suppliers','team can update suppliers','team can delete suppliers','allow_all',
+      'event members read suppliers','event admins manage suppliers','client members read suppliers','client admins manage suppliers',
       'public can submit rebooking requests','team can read rebooking requests','team can update rebooking requests',
       'team can read ops notifications','team can update ops notifications',
       'members can read clients','platform admins manage clients','public can resolve public events','members read assigned events',
@@ -213,6 +214,7 @@ create table if not exists public.ops_notifications (
 alter table public.queries add column if not exists event_id uuid references public.events(id);
 alter table public.staff add column if not exists event_id uuid references public.events(id);
 alter table public.exhibitors add column if not exists event_id uuid references public.events(id);
+alter table public.suppliers add column if not exists client_id uuid references public.clients(id);
 alter table public.suppliers add column if not exists event_id uuid references public.events(id);
 alter table public.rebooking_requests add column if not exists event_id uuid references public.events(id);
 alter table public.ops_notifications add column if not exists event_id uuid references public.events(id);
@@ -225,7 +227,13 @@ begin
   update public.queries set event_id = starter_event_id where event_id is null;
   update public.staff set event_id = starter_event_id where event_id is null;
   update public.exhibitors set event_id = starter_event_id where event_id is null;
-  update public.suppliers set event_id = starter_event_id where event_id is null;
+  update public.suppliers supplier
+  set client_id = event.client_id
+  from public.events event
+  where supplier.event_id = event.id and supplier.client_id is null;
+  update public.suppliers
+  set client_id = (select id from public.clients where slug = 'executive-conference-events')
+  where client_id is null;
   update public.rebooking_requests set event_id = starter_event_id where event_id is null;
   update public.ops_notifications set event_id = starter_event_id where event_id is null;
 end;
@@ -234,14 +242,15 @@ $$;
 alter table public.queries alter column event_id set not null;
 alter table public.staff alter column event_id set not null;
 alter table public.exhibitors alter column event_id set not null;
-alter table public.suppliers alter column event_id set not null;
+alter table public.suppliers alter column client_id set not null;
+alter table public.suppliers alter column event_id drop not null;
 alter table public.rebooking_requests alter column event_id set not null;
 alter table public.ops_notifications alter column event_id set not null;
 
 create index if not exists queries_event_logged_idx on public.queries (event_id, logged_at desc);
 create index if not exists staff_event_name_idx on public.staff (event_id, name);
 create index if not exists exhibitors_event_stand_idx on public.exhibitors (event_id, stand);
-create index if not exists suppliers_event_name_idx on public.suppliers (event_id, name);
+create index if not exists suppliers_client_name_idx on public.suppliers (client_id, name);
 create index if not exists rebooking_event_created_idx on public.rebooking_requests (event_id, created_at desc);
 create index if not exists notifications_event_created_idx on public.ops_notifications (event_id, created_at desc);
 create index if not exists memberships_user_event_idx on public.client_event_memberships (user_id, event_id);
@@ -382,6 +391,10 @@ drop policy if exists "team can insert suppliers" on public.suppliers;
 drop policy if exists "team can update suppliers" on public.suppliers;
 drop policy if exists "team can delete suppliers" on public.suppliers;
 drop policy if exists "allow_all" on public.suppliers;
+drop policy if exists "event members read suppliers" on public.suppliers;
+drop policy if exists "event admins manage suppliers" on public.suppliers;
+drop policy if exists "client members read suppliers" on public.suppliers;
+drop policy if exists "client admins manage suppliers" on public.suppliers;
 drop policy if exists "public can submit rebooking requests" on public.rebooking_requests;
 drop policy if exists "team can read rebooking requests" on public.rebooking_requests;
 drop policy if exists "team can update rebooking requests" on public.rebooking_requests;
@@ -468,11 +481,11 @@ create policy "event admins manage exhibitors" on public.exhibitors
 for all to authenticated using (public.has_event_access(event_id, array['client_admin','event_admin','ops']))
 with check (public.has_event_access(event_id, array['client_admin','event_admin','ops']));
 
-create policy "event members read suppliers" on public.suppliers
-for select to authenticated using (public.has_event_access(event_id, array['client_admin','event_admin','ops','staff']));
-create policy "event admins manage suppliers" on public.suppliers
-for all to authenticated using (public.has_event_access(event_id, array['client_admin','event_admin','ops']))
-with check (public.has_event_access(event_id, array['client_admin','event_admin','ops']));
+create policy "client members read suppliers" on public.suppliers
+for select to authenticated using (public.has_client_membership(client_id));
+create policy "client admins manage suppliers" on public.suppliers
+for all to authenticated using (public.has_client_access(client_id, null, array['client_admin']))
+with check (public.has_client_access(client_id, null, array['client_admin']));
 
 drop policy if exists "public submit rebooking requests" on public.rebooking_requests;
 create policy "event members read rebooking requests" on public.rebooking_requests
