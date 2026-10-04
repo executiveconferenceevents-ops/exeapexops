@@ -61,13 +61,13 @@ export async function getAvailableEvents() {
       id:'demo-event-esg-africa-2026', client_id:clients[0]?.id || 'demo-client-ece', clients:clients[0], name:'ESG Africa 2026',
       event_start_date:'2026-09-30', event_end_date:'2026-10-01', build_up_start_date:'2026-09-29', build_up_end_date:'2026-09-29',
       breakdown_start_date:'2026-10-01', breakdown_end_date:'2026-10-01', next_event_name:'ESG Africa 2027',
-      slug:DEFAULT_EVENT_SLUG, exhibitor_code:'ESGAF-20260930', is_public:true,
+      slug:DEFAULT_EVENT_SLUG, exhibitor_code:'ESGAF-20260930', is_public:true, logo_url:'',
     }]).map(event => ({ ...event, clients:clients.find(client => client.id === event.client_id) || event.clients }));
   }
   if (!supabase) return [];
   const { data, error } = await supabase
     .from('events')
-    .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, exhibitor_code, is_public, clients(name)')
+    .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, exhibitor_code, is_public, logo_url, clients(name)')
     .order('name');
   if (error) throw error;
   return data || [];
@@ -78,7 +78,7 @@ export async function getPublicEvents() {
     client_name:event.clients?.name || 'Organizer', event_name:event.name, event_start_date:event.event_start_date,
     event_end_date:event.event_end_date, build_up_start_date:event.build_up_start_date, build_up_end_date:event.build_up_end_date,
     breakdown_start_date:event.breakdown_start_date, breakdown_end_date:event.breakdown_end_date,
-    slug:event.slug, next_event_name:event.next_event_name,
+    slug:event.slug, next_event_name:event.next_event_name, logo_url:event.logo_url || '',
   }));
   if (!supabase) return [];
   const { data, error } = await supabase.rpc('list_public_events');

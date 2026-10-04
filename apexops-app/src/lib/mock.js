@@ -115,7 +115,7 @@ function isUploadFile(value) {
   return typeof Blob !== 'undefined' && value instanceof Blob;
 }
 
-async function uploadPublicImage(bucket, prefix, file) {
+export async function uploadPublicImage(bucket, prefix, file, scopeId = getActiveEventId()) {
   if (file.size > 2 * 1024 * 1024) throw new Error('Please choose an image smaller than 2 MB.');
   if (file.type && !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
     throw new Error('Please choose a PNG, JPG, or WebP image.');
@@ -129,7 +129,7 @@ async function uploadPublicImage(bucket, prefix, file) {
     });
   }
   const fileName = String(file.name || 'image').replace(/[^a-zA-Z0-9._-]/g, '-');
-  const path = `${getActiveEventId()}/${prefix}/${Date.now()}-${fileName}`;
+  const path = `${scopeId}/${prefix}/${Date.now()}-${fileName}`;
   const { error } = await supabase.storage.from(bucket).upload(path, file, {
     upsert: false,
     contentType: file.type || 'application/octet-stream',

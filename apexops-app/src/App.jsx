@@ -300,7 +300,10 @@ export default function App() {
             </div>
             {eventLoading ? <p>Loading events...</p> : <div className="public-event-cards">
               {filteredPublicEvents.map(event => <button className="public-event-card" key={event.slug} type="button" onClick={()=>selectPublicEvent(event.slug)}>
-                <span>{event.client_name}</span>
+                <div className="public-event-card-heading">
+                  <span className="public-event-logo" aria-hidden="true">{event.logo_url ? <img src={event.logo_url} alt="" /> : <b>{getEventInitials(event.event_name)}</b>}</span>
+                  <span className="public-event-client">{event.client_name}</span>
+                </div>
                 <strong>{event.event_name}</strong>
                 <div className="public-event-schedule" aria-label="Event schedule">
                   <span><b>Build-up</b><time>{formatEventDateRange(event.build_up_start_date, event.build_up_end_date)}</time></span>
@@ -346,6 +349,10 @@ function formatEventDateRange(startDate, endDate) {
   const end = formatDate(endDate);
   if (start && end && start !== end) return `${start} - ${end}`;
   return start || end || 'To be confirmed';
+}
+
+function getEventInitials(name) {
+  return String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join('').toUpperCase() || 'EV';
 }
 
 function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in' }) {

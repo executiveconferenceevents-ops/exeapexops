@@ -58,6 +58,7 @@ In your Supabase project, open **SQL Editor** and run the current `supabase/sche
 - `supabase/exhibitor-logo-migration.sql`
 - `supabase/exhibitor-scanner-migration.sql`
 - `supabase/supplier-logo-migration.sql`
+- `supabase/media-buckets.sql`
 - `supabase/staff-photos-bucket.sql`
 - `supabase/client-ops-notifications-migration.sql`
 
@@ -68,6 +69,8 @@ The client/Ops migration enables anonymous clients to submit unassigned queries 
 ### Step 2A — Enable multiple clients and events
 
 Run `supabase/multi-client-events-migration.sql` after the existing schema and feature migrations, and before any event-scoped seed/import scripts. It creates client organizations, events, user memberships, event-scoped RLS, public event RPCs, and storage folders. It backfills existing rows to **Executive Conference Events / ESG Africa 2026** (`esg-africa-2026`): build-up 2026-09-29, event 2026-09-30 to 2026-10-01, breakdown 2026-10-01. The generated exhibitor code is `ESGAF-20260930`. Review these dates before applying the migration to live data. Do not run this migration against production until you have a backup. If the migration stops on an unrecognized RLS policy, review that policy before adding its exact name to the migration's legacy-policy cleanup list; do not ignore an unrecognized permissive policy.
+
+After the multi-client migration, run `supabase/event-logo-migration.sql` on existing projects to add event logo URLs to the public event RPCs. `supabase/media-buckets.sql` creates the public event-logo bucket used by organiser logo uploads.
 
 The migration automatically grants platform-admin access to `didi@executiveconferenceevents.com` if that user already exists in Supabase Auth. If the account is created later, run this once in the Supabase SQL Editor:
 

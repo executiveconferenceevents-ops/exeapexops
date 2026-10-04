@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getAvailableEvents, setActiveEvent } from '../lib/eventScope';
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
-import { getSuppliers, removeSupplier, upsertSuppliers } from '../lib/mock';
-import { Building2, CalendarDays, MailPlus, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
+import { Building2, CalendarDays, MailPlus, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
 
 const emptyClient = { name:'', slug:'' };
-const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'' };
+const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'', logo_file:null };
 const emptyInvite = { client_id:'', event_id:'', email:'', role:'staff' };
 const emptySupplier = { name:'', contact:'', email:'', mobile:'', category:'Other' };
 
@@ -163,16 +163,20 @@ export default function ClientEventAdmin() {
         next_event_name:eventForm.next_event_name.trim() || null,
         is_public:true,
       };
+      const existingEvents = DEMO_MODE ? getDemoCollection('events', []) : await getAvailableEvents();
+      if (existingEvents.some(item => item.slug === eventValues.slug)) throw new Error('That event URL slug is already in use.');
+      eventValues.logo_url = eventForm.logo_file
+        ? await uploadPublicImage('event-logos', 'logo', eventForm.logo_file, eventValues.slug)
+        : null;
       let data;
       if (DEMO_MODE) {
         const currentEvents = getDemoCollection('events', []);
-        if (currentEvents.some(item => item.slug === eventValues.slug)) throw new Error('That event URL slug is already in use.');
         const prefix = eventValues.name.replace(/[^A-Za-z]/g, '').slice(0, 5).toUpperCase() || 'EVENT';
         data = { ...eventValues, id:`demo-event-${crypto.randomUUID()}`, exhibitor_code:`${prefix}-${eventValues.event_start_date.replace(/-/g, '')}` };
         setDemoCollection('events', [...currentEvents, data]);
       } else {
         const { data:createdEvent, error: createError } = await supabase.from('events').insert(eventValues)
-          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, exhibitor_code, is_public').single();
+          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, exhibitor_code, is_public, logo_url').single();
         if (createError) throw createError;
         data = createdEvent;
       }
@@ -182,6 +186,29 @@ export default function ClientEventAdmin() {
       setNotice(`Event created. Public links can use ?event=${data.slug}.`);
     } catch (saveError) {
       setError(saveError?.message || 'Could not create the event.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateEventLogo(event, file) {
+    if (!file) return;
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const logo_url = await uploadPublicImage('event-logos', 'logo', file, event.id);
+      if (DEMO_MODE) {
+        const currentEvents = getDemoCollection('events', []);
+        setDemoCollection('events', currentEvents.map(item => item.id === event.id ? { ...item, logo_url } : item));
+      } else {
+        const { error: updateError } = await supabase.from('events').update({ logo_url }).eq('id', event.id);
+        if (updateError) throw updateError;
+      }
+      await refresh();
+      setNotice(`${event.name} logo updated. It will appear in the Exhibitors event list.`);
+    } catch (saveError) {
+      setError(saveError?.message || 'Could not update the event logo.');
     } finally {
       setSaving(false);
     }
@@ -256,7 +283,7 @@ export default function ClientEventAdmin() {
         <section className="tenant-section">
           <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Event workspaces</h2><p>Each event has isolated staff, exhibitors, requests and reports.</p></div></div>
           <div className="tenant-list">
-            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span></div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code></span></div>)}
+            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span></div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code></span><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div>)}
             {!events.length && <p className="tenant-empty">No events are assigned to your account.</p>}
           </div>
           <form className="tenant-form tenant-inline-form" onSubmit={createEvent}>
@@ -264,6 +291,7 @@ export default function ClientEventAdmin() {
             {isPlatformAdmin ? <label>Client<select required value={eventForm.client_id} onChange={event=>setEventForm({ ...eventForm, client_id:event.target.value })}><option value="">Select client</option>{clients.map(client=><option key={client.id} value={client.id}>{client.name}</option>)}</select></label> : <p className="tenant-scope-note">New events will be created within your assigned organization.</p>}
             <label>Event name<input required maxLength="160" value={eventForm.name} onChange={event=>setEventForm({ ...eventForm, name:event.target.value })} /></label>
             <label>URL slug<input required pattern="[a-z0-9]+(-[a-z0-9]+)*" value={eventForm.slug} onChange={event=>setEventForm({ ...eventForm, slug:event.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'') })} /></label>
+            <label>Event logo (optional)<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>setEventForm({ ...eventForm, logo_file:event.target.files?.[0] || null })} /><small>PNG, JPG, or WebP; maximum 2 MB.</small></label>
             <label>Event start date<input type="date" required value={eventForm.event_start_date} onChange={event=>setEventForm({ ...eventForm, event_start_date:event.target.value })} /></label>
             <label>Event end date<input type="date" required min={eventForm.event_start_date || undefined} value={eventForm.event_end_date} onChange={event=>setEventForm({ ...eventForm, event_end_date:event.target.value })} /></label>
             <label>Build-up start<input type="date" required max={eventForm.event_start_date || undefined} value={eventForm.build_up_start_date} onChange={event=>setEventForm({ ...eventForm, build_up_start_date:event.target.value })} /></label>
