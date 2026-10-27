@@ -249,6 +249,7 @@ export default function App() {
           {!eventLoading && !events.length && <p>No event access is assigned to this account.</p>}
         </div>}
         {!session && <>
+          <div className="public-access-panel">
           <nav className="public-access-tabs" aria-label="Access options" style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:24 }}>
             {[['events','Exhibitors'],['team','Suppliers / Staff'],['clients','Organiser Admin']].map(([view,label])=><button key={view} type="button" aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)} style={{ background:publicAccessView === view ? GOLD_PALE : 'rgba(255,255,255,.07)', color:publicAccessView === view ? NAVY : '#fff', border:'1px solid rgba(255,255,255,.28)', borderRadius:4, padding:'10px 14px', fontWeight:700, cursor:'pointer' }}>{label}</button>)}
           </nav>
@@ -319,8 +320,10 @@ export default function App() {
             <TeamLogin onSignedIn={setSession} initiallyOpen title={publicAccessView === 'clients' ? 'Organiser Admin sign in' : 'Suppliers / Staff sign in'} />
             <button type="button" onClick={()=>setPublicAccessView('events')} style={{ marginTop:12, background:'transparent', color:'rgba(255,255,255,.75)', border:0, cursor:'pointer' }}><ArrowLeft size={14} /> Back to events</button>
           </div>}
+          {eventError && <div className="event-context-error" role="alert">{eventError}</div>}
+          </div>
         </>}
-        {eventError && <div className="event-context-error" role="alert">{eventError}</div>}
+        {session && eventError && <div className="event-context-error" role="alert">{eventError}</div>}
 
         {session && <div className="access-hub-choice-heading" style={{ textAlign:'left', marginBottom:20 }}>
           <div style={{ color:'rgba(255,255,255,.48)', fontSize:10, letterSpacing:2.2, textTransform:'uppercase' }}>Operations access</div>

@@ -291,15 +291,30 @@ textarea { resize: vertical; min-height: 60px; }
 @keyframes ops-loading-spin { to { transform:rotate(360deg); } }
 .access-login .access-hub-content { grid-column:1; grid-row:1; align-self:center; max-width:560px !important; }
 .access-login {
-  grid-template-columns:minmax(0,1fr) !important;
   grid-template-rows:auto auto;
   align-content:start;
   justify-items:stretch;
   gap:20px;
   padding:38px clamp(24px,5vw,72px) 24px !important;
-  background:linear-gradient(120deg,#1c2b3a 0%,#273958 100%) !important;
+  background:linear-gradient(90deg,var(--ops-navy) 0%,var(--ops-navy-deep) 51%,var(--ops-cream) 51%,#e5e1d8 100%) !important;
 }
-.access-login .access-hub-content { grid-column:1; grid-row:1; align-self:start; width:100%; max-width:none !important; }
+.access-login .access-hub-content {
+  display:grid;
+  grid-column:1 / -1;
+  grid-row:1;
+  grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);
+  grid-template-rows:auto 1fr;
+  column-gap:clamp(28px,6vw,72px);
+  align-self:stretch;
+  width:100%;
+  max-width:none !important;
+}
+.access-login .access-hub-eyebrow { grid-column:1 / -1; grid-row:1; }
+.access-login .access-hub-intro { grid-column:1; grid-row:2; align-self:center; }
+.access-login .public-access-panel { grid-column:2; grid-row:2; align-self:center; width:100%; min-width:0; }
+.access-login .public-access-tabs { margin-bottom:16px !important; }
+.access-login .public-access-tabs button { border-color:#d5dae0 !important; background:#fff !important; color:var(--ops-navy) !important; }
+.access-login .public-access-tabs button[aria-current="page"] { border-color:var(--ops-navy) !important; background:var(--ops-navy) !important; color:#fff !important; }
 .access-login .access-hub-intro { max-width:540px !important; }
 .access-login .public-event-gate { width:100%; max-width:none; }
 .access-login .public-event-cards { grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); max-height:none; overflow:visible; }
@@ -469,6 +484,10 @@ textarea { resize: vertical; min-height: 60px; }
 
 @media (max-width: 850px) {
   .access-login { grid-template-columns:minmax(0,1fr) !important; gap:20px; padding:70px 26px 24px !important; }
+  .access-login .access-hub-content { grid-column:1; grid-template-columns:minmax(0,1fr); grid-template-rows:auto auto auto; column-gap:0; }
+  .access-login .access-hub-eyebrow { grid-column:1; grid-row:1; }
+  .access-login .access-hub-intro { grid-column:1; grid-row:2; align-self:start; }
+  .access-login .public-access-panel { grid-column:1; grid-row:3; }
   .access-login .access-hub-headline { font-size:42px !important; }
   .access-login .access-card-stack { padding:12px; }
   .access-hub { grid-template-columns:minmax(0,1fr) minmax(330px,1fr); gap:24px; padding:76px 26px 24px !important; }
