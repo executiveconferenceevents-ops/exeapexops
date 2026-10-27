@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   getQueries, addQuery, updateQuery,
   CATEGORIES, getExhibitors, getStaff, getRebookingRequests, getOpsNotifications, markOpsNotificationRead, readableError, STATUS_FLOW, STATUS_COLORS,
@@ -152,16 +152,24 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
   const [showForm, setShowForm] = useState(false);
   const [selected, setSelected] = useState(null);
   const [error, setError] = useState('');
+  const refreshingQueries = useRef(false);
+  const refreshingNotifications = useRef(false);
 
   const refresh = async () => {
+    if (document.hidden || refreshingQueries.current) return;
+    refreshingQueries.current = true;
     try {
       setQueries(await getQueries());
     } catch (queryError) {
       setError(readableError(queryError, 'Could not refresh live query status.'));
+    } finally {
+      refreshingQueries.current = false;
     }
   };
 
   const refreshNotifications = async () => {
+    if (document.hidden || refreshingNotifications.current) return;
+    refreshingNotifications.current = true;
     try {
       setNotifications(await getOpsNotifications());
     } catch (notificationError) {
@@ -169,6 +177,8 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
       setError(/ops_notifications.*(schema cache|could not find|does not exist)/i.test(details)
         ? 'Ops notifications are not set up in Supabase yet. Run supabase/client-ops-notifications-migration.sql in the Supabase SQL Editor, then refresh the Ops app.'
         : details);
+    } finally {
+      refreshingNotifications.current = false;
     }
   };
 
@@ -193,9 +203,24 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
       setInitialLoading(false);
     };
 
+    let timer;
+    const scheduleRefresh = () => {
+      window.clearTimeout(timer);
+      if (cancelled || document.hidden) return;
+      timer = window.setTimeout(async () => {
+        await refresh();
+        scheduleRefresh();
+      }, 15000);
+    };
+    const handleVisibilityChange = () => {
+      window.clearTimeout(timer);
+      if (!document.hidden) void refresh().finally(scheduleRefresh);
+    };
+
     loadInitialData();
     refreshNotifications();
-    const timer = window.setInterval(refresh, 15000);
+    scheduleRefresh();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     let toastTimeout;
     const channel = supabase?.channel('live-query-status')
       .on('postgres_changes', { event:'*', schema:'public', table:'queries' }, refresh)
@@ -208,7 +233,8 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
       .subscribe();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.clearTimeout(toastTimeout);
       if (channel) supabase.removeChannel(channel);
     };

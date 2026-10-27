@@ -25,6 +25,8 @@ export default function ExhibitorStatus() {
   useEffect(() => {
     if (!searched || !resolvedStand) return undefined;
     let cancelled = false;
+    let refreshing = false;
+    let timer;
     const refreshStatus = async () => {
       try {
         const nextQueries = await getPublicStatus(resolvedStand);
@@ -33,8 +35,27 @@ export default function ExhibitorStatus() {
         if (!cancelled) setError(readableError(statusError, 'Status is temporarily unavailable.'));
       }
     };
-    const timer = window.setInterval(refreshStatus, 10000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+
+    const poll = async () => {
+      if (cancelled || document.hidden || refreshing) return;
+      refreshing = true;
+      await refreshStatus();
+      refreshing = false;
+      if (!cancelled && !document.hidden) timer = window.setTimeout(poll, 10000);
+    };
+
+    const handleVisibilityChange = () => {
+      window.clearTimeout(timer);
+      if (!document.hidden) void poll();
+    };
+
+    timer = window.setTimeout(poll, 10000);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [searched, resolvedStand]);
 
   const normalizedStand = resolvedStand || normalizeStand(stand);
