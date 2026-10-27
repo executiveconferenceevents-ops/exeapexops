@@ -1,5 +1,5 @@
-export const NAVY = '#172746';
-export const NAVY_DEEP = '#0D1A32';
+export const NAVY = '#14243D';
+export const NAVY_DEEP = '#101D33';
 export const GOLD = '#B49A6A';
 export const GOLD_PALE = '#D7C5A0';
 export const BG = '#F3F4F2';
