@@ -23,6 +23,7 @@ const PRIVACY_NOTICE_VERSION = '2026-10-04-v1';
 export default function App() {
   const [role, setRole] = useState(null);
   const [session, setSession] = useState(null);
+  const [loginDestination, setLoginDestination] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [canManageTenants, setCanManageTenants] = useState(false);
@@ -30,7 +31,7 @@ export default function App() {
   const [eventMemberships, setEventMemberships] = useState([]);
   const [publicEvents, setPublicEvents] = useState([]);
   const [publicEventSlug, setPublicEventSlug] = useState('');
-  const [publicAccessView, setPublicAccessView] = useState('events');
+  const [publicAccessView, setPublicAccessView] = useState(() => new URLSearchParams(window.location.search).has('admin') ? 'clients' : 'events');
   const [publicEventSearch, setPublicEventSearch] = useState('');
   const [publicEventMonth, setPublicEventMonth] = useState('');
   const [publicAccessCode, setPublicAccessCode] = useState('');
@@ -187,6 +188,12 @@ export default function App() {
     setRole(nextRole);
   }
 
+  function openStaffExhibitorView(nextRole) {
+    if (!selectedEvent?.exhibitor_code) return;
+    setActiveEvent({ ...selectedEvent, accessCode: selectedEvent.exhibitor_code });
+    setRole(nextRole);
+  }
+
   function acknowledgePrivacyNotice() {
     if (!selectedEvent?.slug || !privacyNoticeChecked) return;
     try { window.localStorage.setItem(`apexops-privacy-ack:${selectedEvent.slug}`, PRIVACY_NOTICE_VERSION); }
@@ -208,11 +215,42 @@ export default function App() {
   const canOpenOps = Boolean(selectedEvent && (isPlatformAdmin || activeEventMemberships.some(membership => ['client_admin','event_admin','ops'].includes(membership.role))));
   const canOpenQueue = Boolean(selectedEvent && (isPlatformAdmin || activeEventMemberships.some(membership => ['client_admin','event_admin','ops','staff'].includes(membership.role))));
 
+  useEffect(() => {
+    if (!session || !loginDestination || eventLoading) return;
+
+    if (loginDestination === 'clients') {
+      if (canManageTenants) setRole('tenant-admin');
+      else setEventError('This account does not have Admin access. Ask the platform owner to assign it.');
+    } else if (loginDestination === 'organiser') {
+      if (!selectedEvent) {
+        setEventError(events.length
+          ? 'Choose an event from Event workspace to continue.'
+          : 'No event access is assigned to this account. Ask the platform owner to invite this email.');
+      } else if (canOpenOps) {
+        setRole('ops');
+      } else {
+        setEventError('This account does not have Operations access for the selected event.');
+      }
+    } else if (loginDestination === 'team') {
+      if (!selectedEvent) {
+        setEventError(events.length
+          ? 'Choose an event from Event workspace to continue.'
+          : 'No event access is assigned to this account. Ask the client to invite this email.');
+      } else if (canOpenQueue) {
+        setRole('dept');
+      } else {
+        setEventError('This account has no supplier access for the selected event. Ask the client to update its invitation.');
+      }
+    }
+
+    setLoginDestination(null);
+  }, [session, loginDestination, eventLoading, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue]);
+
   if (!authReady) return null;
   if (role === 'exhibitor') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ExhibitorStatus /></WithBack>;
   if (role === 'client-query') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ClientQuery /></WithBack>;
   if (role === 'rebooking') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><RebookingForm /></WithBack>;
-  if (session && role === 'tenant-admin') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><ClientEventAdmin /></WithBack>;
+  if (session && role === 'tenant-admin') return <WithBack onBack={()=>setRole(canOpenOps ? 'ops' : null)} onSignOut={signOut}><ClientEventAdmin /></WithBack>;
   if (session && role === 'ops') return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><OpsPortal onOpenStaff={()=>setRole('staff')} onOpenExhibitors={()=>setRole('exhibitors')} /></WithBack>;
   if (session && role === 'staff') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><StaffSetup /></WithBack>;
     if (session && role === 'people') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><PeopleSetup onBack={()=>setRole('ops')} /></WithBack>;
@@ -232,11 +270,11 @@ export default function App() {
         </div>
         <div className="access-hub-intro" style={{ maxWidth:620, marginBottom:42 }}>
           <div className="access-hub-headline" style={{ fontFamily:DISPLAY_FONT, fontWeight:600, fontSize:'clamp(48px, 8vw, 88px)', lineHeight:.84, letterSpacing:-1.5 }}>
-            {session ? <>Choose your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>workspace.</em></> : publicAccessView === 'clients' ? <>Organiser<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>admin.</em></> : publicAccessView === 'team' ? <>Suppliers &amp;<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>staff.</em></> : selectedEvent?.accessCode ? <>Your event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>services.</em></> : publicEventSlug ? <>Enter your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event code.</em></> : <>Find your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event.</em></>}
+            {session ? <>Choose your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>workspace.</em></> : publicAccessView === 'clients' ? <>Admin<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>portal.</em></> : publicAccessView === 'organiser' ? <>Event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>operations.</em></> : publicAccessView === 'team' ? <>Supplier<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>queue.</em></> : selectedEvent?.accessCode ? <>Your event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>services.</em></> : publicEventSlug ? <>Enter your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event code.</em></> : <>Find your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event.</em></>}
           </div>
           <div style={{ width:54, height:3, background:GOLD, marginTop:30, marginBottom:18 }} />
           <div className="access-hub-subtitle" style={{ fontFamily:DISPLAY_FONT, fontStyle:'italic', color:'rgba(255,255,255,.72)', fontSize:19 }}>
-            {session ? 'APEXOPS™ by Executive Conference Events' : publicAccessView === 'clients' ? 'Sign in to manage your events, team and suppliers.' : publicAccessView === 'team' ? 'Sign in for supplier and event-team access.' : selectedEvent?.accessCode ? 'Choose a service for this event.' : publicEventSlug ? 'Enter the code provided by your organiser to continue.' : 'Select an event, then enter your organiser-issued code to access services.'}
+            {session ? 'APEXOPS™ by Executive Conference Events' : publicAccessView === 'clients' ? 'Sign in to manage clients, events, teams and suppliers.' : publicAccessView === 'organiser' ? 'Sign in to run requests and operations for your event.' : publicAccessView === 'team' ? 'Sign in to see and update the jobs assigned to you.' : selectedEvent?.accessCode ? 'Choose a service for this event.' : publicEventSlug ? 'Enter the code provided by your organiser to continue.' : 'Select an event, then enter your organiser-issued code to access services.'}
           </div>
         </div>
 
@@ -251,7 +289,7 @@ export default function App() {
         {!session && <>
           <div className="public-access-panel">
           <nav className="public-access-tabs" aria-label="Access options" style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:24 }}>
-            {[['events','Exhibitors'],['team','Suppliers / Staff'],['clients','Organiser Admin']].map(([view,label])=><button key={view} type="button" aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)} style={{ background:publicAccessView === view ? GOLD_PALE : 'rgba(255,255,255,.07)', color:publicAccessView === view ? NAVY : '#fff', border:'1px solid rgba(255,255,255,.28)', borderRadius:4, padding:'10px 14px', fontWeight:700, cursor:'pointer' }}>{label}</button>)}
+            {[['events','Exhibitors'],['team','Suppliers'],['organiser','Operations']].map(([view,label])=><button key={view} type="button" aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)} style={{ background:publicAccessView === view ? GOLD_PALE : 'rgba(255,255,255,.07)', color:publicAccessView === view ? NAVY : '#fff', border:'1px solid rgba(255,255,255,.28)', borderRadius:4, padding:'10px 14px', fontWeight:700, cursor:'pointer' }}>{label}</button>)}
           </nav>
           {publicAccessView === 'events' ? <div className="public-event-gate">
           {selectedEvent?.accessCode ? <div className="public-event-verified">
@@ -269,8 +307,8 @@ export default function App() {
             </section>}
             {privacyAcknowledged && <div className="public-event-services">
               <section className="public-event-service-group">
-                <h2>Suppliers &amp; exhibitors</h2>
-                <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Suppliers and exhibitors can report an event issue" onClick={()=>openPublicRole('client-query')} light />
+                <h2>Report an issue</h2>
+                <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Report an event issue for your stand" onClick={()=>openPublicRole('client-query')} light />
               </section>
               <section className="public-event-service-group public-event-exhibitor-group">
                 <h2>Exhibitors</h2>
@@ -317,7 +355,7 @@ export default function App() {
           </>}
           {!eventLoading && !publicEvents.length && <p>No public events are available yet.</p>}
           </div> : <div className="team-access-panel">
-            <TeamLogin onSignedIn={setSession} initiallyOpen title={publicAccessView === 'clients' ? 'Organiser Admin sign in' : 'Suppliers / Staff sign in'} />
+            <TeamLogin onSignedIn={nextSession=>{ setLoginDestination(publicAccessView); setSession(nextSession); }} initiallyOpen title={{ clients:'Admin sign in', organiser:'Operations sign in', team:'Supplier sign in' }[publicAccessView]} />
             <button type="button" onClick={()=>setPublicAccessView('events')} style={{ marginTop:12, background:'transparent', color:'rgba(255,255,255,.75)', border:0, cursor:'pointer' }}><ArrowLeft size={14} /> Back to events</button>
           </div>}
           {eventError && <div className="event-context-error" role="alert">{eventError}</div>}
@@ -331,12 +369,15 @@ export default function App() {
       </div>
 
       {session && <div className="access-card-stack access-card-grid" style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1 }}>
-        {session && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Ops Portal" sub="Manage requests and event operations" onClick={()=>setRole('ops')} primary disabled={!selectedEvent || eventLoading} />}
-        {session && canOpenQueue && <RoleCard icon={<HardHat size={24} strokeWidth={1.8} />} title="My Queue" sub="See your event assignments and update status" onClick={()=>setRole('dept')} light disabled={!selectedEvent || eventLoading} />}
-        {session && canManageTenants && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Organiser Admin" sub={isPlatformAdmin ? 'Manage paid client organisations, events and invitations' : 'Create events and manage your organisation’s team'} onClick={()=>setRole('tenant-admin')} light />}
-        {session && selectedEvent && !canOpenOps && !canOpenQueue && <p className="event-access-help">No staff access is assigned to this event. Contact your organizer.</p>}
+        {session && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Ops Portal" sub="Operations: manage requests and event operations" onClick={()=>setRole('ops')} primary disabled={!selectedEvent || eventLoading} />}
+        {session && canOpenQueue && <RoleCard icon={<HardHat size={24} strokeWidth={1.8} />} title="My Queue" sub="Supplier: see your assignments and update status" onClick={()=>setRole('dept')} light disabled={!selectedEvent || eventLoading} />}
+        {session && canManageTenants && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Admin Portal" sub={isPlatformAdmin ? 'Manage clients, events, invitations and suppliers' : 'Create events and manage your organisation’s team'} onClick={()=>setRole('tenant-admin')} light />}
+        {session && selectedEvent && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Exhibitor Status" sub="See what exhibitors see for this event" onClick={()=>openStaffExhibitorView('exhibitor')} light />}
+        {session && selectedEvent && canOpenOps && <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Log a query on behalf of an exhibitor" onClick={()=>openStaffExhibitorView('client-query')} light />}
+        {session && selectedEvent && !canOpenOps && !canOpenQueue && <p className="event-access-help">No staff access is assigned to this event. Contact your client administrator.</p>}
       </div>}
 
+      {!session && publicAccessView !== 'clients' && <button type="button" onClick={()=>setPublicAccessView('clients')} style={{ position:'absolute', right:16, bottom:12, zIndex:2, background:'transparent', border:0, color:'rgba(27,42,74,.45)', fontSize:10, letterSpacing:1, cursor:'pointer' }}>Admin</button>}
       <div className="access-hub-footer" style={{ color:'rgba(255,255,255,.32)', fontSize:10, letterSpacing:.4, marginTop:48, position:'relative', zIndex:1 }}>
         APEXOPS™ © 2026 Executive Conference Events (Pty) Ltd · All rights reserved
       </div>

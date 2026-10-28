@@ -2,6 +2,9 @@
   "name": "apexops",
   "version": "1.0.0",
   "private": true,
+  "description": "APEXOPS event operations by Executive Conference Events",
+  "author": "Executive Conference Events (Pty) Ltd",
+  "main": "desktop/main.js",
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
     "@vercel/analytics": "^2.0.1",
@@ -15,7 +18,29 @@
     "start": "react-scripts start",
     "start:demo": "node scripts/start-demo.js",
     "start:demo:secure": "node scripts/start-demo.js --https",
-    "build": "react-scripts build"
+    "build": "react-scripts build",
+    "desktop": "electron .",
+    "desktop:dist": "react-scripts build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.executiveconferenceevents.apexops",
+    "productName": "APEXOPS",
+    "extraMetadata": {
+      "main": "desktop/main.js"
+    },
+    "files": [
+      "build/**",
+      "desktop/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist-desktop",
+      "buildResources": "desktop"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "desktop/icon.png"
+    }
   },
   "browserslist": {
     "production": [
@@ -28,5 +53,9 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0"
   }
 }

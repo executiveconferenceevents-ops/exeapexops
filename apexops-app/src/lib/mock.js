@@ -2,6 +2,7 @@
 import { supabase } from './supabase';
 import { DEMO_MODE, getAppStorage, getDemoCollection, setDemoCollection } from './demoStore';
 import { getActiveClientId, getActiveEventCode, getActiveEventId, getEventSlug } from './eventScope';
+import { applyPendingDb, cacheGet, cacheWrite, cachedRead, enqueue, isNetworkError, pendingOps } from './offline';
 
 function eventCacheKey(key) {
   return `${key}:${getEventSlug()}`;
@@ -188,6 +189,12 @@ export function saveEventBanner(bannerUrl) {
 export const STAFF = STAFF_FALLBACK;
 
 export async function getStaff() {
+  if (!supabase) return loadStaff();
+  const eventId = getActiveEventId();
+  return applyPendingDb('staff', await cachedRead(eventCacheKey('staff'), loadStaff), 'id', eventId);
+}
+
+async function loadStaff() {
   const supplierLogoOverrides = readSupplierLogoOverrides();
   const withSupplierLogos = rows => (rows || []).map(member => ({
     ...member,
@@ -371,6 +378,10 @@ export async function upsertStaffRecords(records) {
   if (supabase) {
     const { data, error } = await supabase.from('staff').upsert(rows, { onConflict:'id' }).select();
     if (!error) return data || [];
+    if (isNetworkError(error)) {
+      enqueue('db.upsert', { table:'staff', rows, onConflict:'id', eventId:getActiveEventId() });
+      return rows;
+    }
     const legacyRows = rows.map(({ supplier_name, email, ...legacy }) => legacy);
     const legacy = await supabase.from('staff').upsert(legacyRows, { onConflict:'id' }).select();
     if (legacy.error) throw error;
@@ -446,6 +457,10 @@ export async function upsertExhibitorRecords(records) {
   })).filter(record => record.stand && record.name);
   if (supabase) {
     const { data, error } = await supabase.from('exhibitors').upsert(rows, { onConflict:'event_id,stand' }).select();
+    if (error && isNetworkError(error)) {
+      enqueue('db.upsert', { table:'exhibitors', rows, onConflict:'event_id,stand', eventId:getActiveEventId() });
+      return rows;
+    }
     if (error) throw error;
     return data || [];
   }
@@ -464,6 +479,11 @@ export async function addStaff({ name, supplier_name, email, category, departmen
   const member = { id: `s-${Date.now()}`, name: name.trim(), supplier_name: supplier_name?.trim() || null, email: email?.trim() || null, category: normalizedDepartments[0] || normalizeCategory(category), departments: normalizedDepartments, mobile: mobile || null, role: 'staff', ...(supabase && { event_id:getActiveEventId() }) };
   if (supabase) {
     const { data, error } = await supabase.from('staff').insert(member).select().single();
+    if (error && isNetworkError(error)) {
+      if (photo) throw new Error('Photos can only be uploaded while online. Add the photo once the connection returns.');
+      enqueue('db.insert', { table:'staff', row:member, eventId:getActiveEventId() });
+      return member;
+    }
     if (!error) {
       cacheStaffContact(data);
       if (photo) return uploadStaffPhoto(data, photo);
@@ -498,6 +518,11 @@ export async function updateStaff(id, patch) {
   }
   if (supabase) {
     const { data, error } = await supabase.from('staff').update(dbPatch).eq('id', id).eq('event_id', getActiveEventId()).select().single();
+    if (error && isNetworkError(error)) {
+      if (photo) throw new Error('Photos can only be uploaded while online. Add the photo once the connection returns.');
+      enqueue('db.update', { table:'staff', match:{ id, event_id:getActiveEventId() }, patch:dbPatch, eventId:getActiveEventId() });
+      return { id, ...dbPatch };
+    }
     if (!error) {
       cacheStaffContact(data);
       if (photo) return uploadStaffPhoto(data, photo);
@@ -546,6 +571,10 @@ async function uploadStaffPhoto(member, photo) {
 export async function removeStaff(id) {
   if (supabase) {
     const { error } = await supabase.from('staff').delete().eq('id', id).eq('event_id', getActiveEventId());
+    if (error && isNetworkError(error)) {
+      enqueue('db.delete', { table:'staff', match:{ id, event_id:getActiveEventId() }, eventId:getActiveEventId() });
+      return;
+    }
     if (error) throw error;
     return;
   }
@@ -661,7 +690,14 @@ export async function getExhibitors() {
         .select('stand, name, contact, phone, email, logo_url, pack_collected, pack_collected_by, pack_collected_at, scanner_booked_out, scanner_booked_out_at, scanner_due_at, scanner_booked_in, scanner_booked_in_at, scanner_day1_booked_out, scanner_day1_booked_out_at, scanner_day1_booked_in, scanner_day1_booked_in_at, scanner_day2_booked_out, scanner_day2_booked_out_at, scanner_day2_booked_in, scanner_day2_booked_in_at, scanner_staff_name, scanner_staff_contact, scanner_out_staff_name, scanner_out_staff_contact, scanner_in_staff_name, scanner_in_staff_contact')
         .eq('event_id', getActiveEventId())
         .order('stand');
-      if (!error) return withOverrides(mergeExhibitorRows(data));
+      if (!error) {
+        cacheWrite(eventCacheKey('exhibitors'), data);
+        return withOverrides(mergeExhibitorRows(applyPendingDb('exhibitors', data, 'stand', getActiveEventId())));
+      }
+      if (isNetworkError(error)) {
+        const cached = cacheGet(eventCacheKey('exhibitors'));
+        if (cached) return withOverrides(mergeExhibitorRows(applyPendingDb('exhibitors', cached, 'stand', getActiveEventId())));
+      }
       if (error.message?.includes('logo_url') || error.message?.includes('scanner_') || error.message?.includes('Could not find the')) {
         const { data: fallbackData, error: fallbackError } = await supabase
           .from('exhibitors')
@@ -689,6 +725,10 @@ export async function addExhibitor(exhibitor) {
     try {
       const { data, error } = await supabase.from('exhibitors').insert({ ...scopedExhibitor, logo_url: persistedLogoUrl || null }).select().single();
       if (!error) return data;
+      if (isNetworkError(error)) {
+        enqueue('db.insert', { table:'exhibitors', row:scopedExhibitor, eventId:getActiveEventId() });
+        return scopedExhibitor;
+      }
       if (error.message?.includes('logo_url') || error.message?.includes('Could not find the')) {
         const { data: fallbackData, error: fallbackError } = await supabase.from('exhibitors').insert(scopedExhibitor).select().single();
         if (!fallbackError) return fallbackData;
@@ -722,6 +762,11 @@ export async function updateExhibitor(stand, patch) {
     try {
       const { data, error } = await supabase.from('exhibitors').update({ ...safePatch, ...(persistedLogoUrl !== undefined && { logo_url: persistedLogoUrl || null }) }).eq('stand', stand).eq('event_id', getActiveEventId()).select().single();
       if (!error) return data;
+      if (isNetworkError(error)) {
+        const offlinePatch = { ...safePatch, ...(persistedLogoUrl !== undefined && { logo_url: persistedLogoUrl || null }) };
+        enqueue('db.update', { table:'exhibitors', match:{ stand, event_id:getActiveEventId() }, patch:offlinePatch, eventId:getActiveEventId() });
+        return { stand, ...offlinePatch };
+      }
       if (error.message?.includes('logo_url') || error.message?.includes('Could not find the')) {
         const { data: fallbackData, error: fallbackError } = await supabase.from('exhibitors').update(safePatch).eq('stand', stand).eq('event_id', getActiveEventId()).select().single();
         if (!fallbackError) return fallbackData;
@@ -746,6 +791,10 @@ export async function updateExhibitor(stand, patch) {
 export async function removeExhibitor(stand) {
   if (supabase) {
     const { error } = await supabase.from('exhibitors').delete().eq('stand', stand).eq('event_id', getActiveEventId());
+    if (error && isNetworkError(error)) {
+      enqueue('db.delete', { table:'exhibitors', match:{ stand, event_id:getActiveEventId() }, eventId:getActiveEventId() });
+      return;
+    }
     if (error) throw error;
     return;
   }
@@ -824,16 +873,32 @@ function toRow(query) {
 
 export async function getQueries() {
   if (supabase) {
-    const { data, error } = await supabase
-      .from('queries')
-      .select('*')
-      .eq('event_id', getActiveEventId())
-      .order('logged_at', { ascending: true });
-    if (error) throw error;
+    const eventId = getActiveEventId();
+    const baseRows = await cachedRead(eventCacheKey('queries'), async () => {
+      const { data: fetched, error } = await supabase
+        .from('queries')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('logged_at', { ascending: true });
+      if (error) throw error;
+      return fetched || [];
+    });
+    const data = applyPendingQueryOps(baseRows, eventId);
     return (data || []).map(fromRow).map(query => ({ ...query, slaDeadline: query.slaDeadline || deriveSlaDeadline(query, data || []) }));
   }
   const queries = DEMO_MODE ? getDemoCollection('queries', DEMO_QUERIES) : _queries;
   return recalculateSlaDeadlines(queries.map(query => ({ ...query, category: normalizeCategory(query.category) })));
+}
+
+function applyPendingQueryOps(rows, eventId) {
+  let result = [...rows];
+  pendingOps('query.insert').forEach(({ payload }) => {
+    if (payload.row.event_id === eventId && !result.some(row => row.id === payload.row.id)) result.push(payload.row);
+  });
+  pendingOps('query.update').forEach(({ payload }) => {
+    if (payload.eventId === eventId) result = result.map(row => row.id === payload.id ? { ...row, ...payload.dbPatch } : row);
+  });
+  return result;
 }
 
 export function deriveSlaDeadline(query, allQueries) {
@@ -893,8 +958,10 @@ export async function addQuery(q) {
   const queue = recalculateSlaDeadlines([...existingRows, { ...baseQuery, est: q.est || '1 hour' }]);
   const entry = { ...baseQuery, slaDeadline: queue.find(item => item.id === id)?.slaDeadline || new Date(loggedAt.getTime() + estMinutes(q.est || '1 hour') * 60000) };
   if (supabase) {
-    const { error } = await supabase.from('queries').insert(toRow(entry));
-    if (error) throw error;
+    const row = toRow(entry);
+    const { error } = await supabase.from('queries').insert(row);
+    if (error && isNetworkError(error)) enqueue('query.insert', { row });
+    else if (error) throw error;
     return entry;
   }
   if (DEMO_MODE) {
@@ -917,6 +984,11 @@ export async function submitClientQuery(query) {
         requested_code:getActiveEventCode(),
         query_payload:{ ...query, stand, sourceTab:'CLIENT' },
       });
+      if (error && isNetworkError(error)) {
+        const payload = { ...query, stand, sourceTab:'CLIENT' };
+        enqueue('public.query', { slug:getEventSlug(), code:getActiveEventCode(), payload });
+        return { query: { ...payload, id:'Pending sync', status:'LOGGED', loggedAt:new Date() }, duplicate: false, queued: true };
+      }
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : data;
       saved = fromRow(row);
@@ -989,6 +1061,10 @@ export async function updateQuery(id, patch) {
         .eq('event_id', getActiveEventId())
         .select()
         .single();
+      if (error && isNetworkError(error)) {
+        enqueue('query.update', { id, eventId:getActiveEventId(), dbPatch });
+        return updated;
+      }
       if (error) throw error;
       return fromRow(data);
     }

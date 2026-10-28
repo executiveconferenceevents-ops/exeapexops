@@ -3,9 +3,10 @@ import { supabase } from '../lib/supabase';
 import { getAvailableEvents, setActiveEvent } from '../lib/eventScope';
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
 import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
+import { enqueue, isNetworkError } from '../lib/offline';
 import { Building2, CalendarDays, MailPlus, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
 
-const emptyClient = { name:'', slug:'' };
+const emptyClient = { name:'', slug:'', adminEmail:'' };
 const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'', logo_file:null };
 const emptyInvite = { client_id:'', event_id:'', email:'', role:'staff' };
 const emptySupplier = { name:'', contact:'', email:'', mobile:'', category:'Other' };
@@ -128,11 +129,19 @@ export default function ClientEventAdmin() {
         if (clients.some(client => client.slug === slug)) throw new Error('That organization URL slug is already in use.');
         setDemoCollection('clients', [...clients, { id:`demo-client-${crypto.randomUUID()}`, name, slug }]);
       } else {
-        const { error: createError } = await supabase.rpc('create_client', {
-          requested_name:name,
-          requested_slug:slug,
-        });
-        if (createError) throw createError;
+        const input = { id:crypto.randomUUID(), name, slug, adminEmail:clientForm.adminEmail.trim() };
+        const { error: createError } = await supabase.functions.invoke('create-client', { body:input });
+        if (createError && isNetworkError(createError)) {
+          enqueue('client.create', input);
+          setClientForm(emptyClient);
+          setNotice('You are offline. The client will be created automatically when the connection returns.');
+          return;
+        }
+        if (createError) {
+          let message = createError.message;
+          try { message = (await createError.context.json()).message || message; } catch { /* keep generic message */ }
+          throw new Error(message);
+        }
       }
       setClientForm(emptyClient);
       setNotice('Client organization created. Create an event and invite its first client admin.');
@@ -276,6 +285,7 @@ export default function ClientEventAdmin() {
             <h3>Create organization after payment confirmation</h3>
             <label>Organization name<input required maxLength="160" value={clientForm.name} onChange={event=>setClientForm({ ...clientForm, name:event.target.value })} /></label>
             <label>URL slug<input required pattern="[a-z0-9]+(-[a-z0-9]+)*" value={clientForm.slug} onChange={event=>setClientForm({ ...clientForm, slug:event.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'') })} /></label>
+            <label>First admin email (optional)<input type="email" value={clientForm.adminEmail} onChange={event=>setClientForm({ ...clientForm, adminEmail:event.target.value })} /></label>
             <button type="submit" disabled={saving}><Plus size={15} /> Create client</button>
           </form>}
         </section>}
