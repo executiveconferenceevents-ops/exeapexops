@@ -13,6 +13,7 @@ import { DEMO_MODE } from './lib/demoStore';
 import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventSlug, getPublicEvents, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
 import { ArrowLeft, Building2, CheckCircle2, ClipboardPlus, HardHat, LayoutDashboard, LogIn, LogOut, Monitor } from 'lucide-react';
 import { AppShell, PageHeader, ServiceCard, StatusBadge } from './components/AppShell';
+import LoginLayout from './components/LoginLayout';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, FONT, DISPLAY_FONT } from './theme';
 
 const PRIVACY_NOTICE_VERSION = '2026-10-04-v1';
@@ -348,95 +349,78 @@ export default function App() {
   }
 
   if (!session && publicAccessView === 'clients') return (
-    <div style={{ fontFamily:FONT, minHeight:'100vh', display:'grid', placeItems:'center', padding:24, background:`linear-gradient(135deg, ${NAVY_DEEP} 0%, ${NAVY} 100%)` }}>
-      <div style={{ width:'100%', maxWidth:400 }}>
-        <div style={{ textAlign:'center', marginBottom:24, color:'#fff' }}>
-          <div style={{ fontFamily:DISPLAY_FONT, fontSize:30, fontWeight:700, letterSpacing:1 }}>APEXOPS™</div>
-          <div style={{ marginTop:6, color:GOLD_PALE, fontSize:11, letterSpacing:2.4, textTransform:'uppercase' }}>Platform admin</div>
-        </div>
-        <TeamLogin onSignedIn={nextSession=>{ setLoginDestination('clients'); setSession(nextSession); }} initiallyOpen title="Admin sign in" />
-        {eventError && <div className="event-context-error" role="alert" style={{ marginTop:12 }}>{eventError}</div>}
-        <button type="button" onClick={()=>setPublicAccessView('events')} style={{ display:'block', margin:'18px auto 0', background:'transparent', color:'rgba(255,255,255,.7)', border:0, cursor:'pointer', fontSize:12 }}><ArrowLeft size={14} /> Back to events</button>
-      </div>
-    </div>
+    <LoginLayout title="Admin" accent="portal." subtitle="Sign in to manage clients, events, teams and suppliers.">
+      <TeamLogin onSignedIn={nextSession=>{ setLoginDestination('clients'); setSession(nextSession); }} initiallyOpen title="Admin sign in" />
+      {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
+      <button type="button" className="lg-link" onClick={()=>setPublicAccessView('events')}><ArrowLeft size={14} /> Back to events</button>
+    </LoginLayout>
   );
 
+  const loginCopy = {
+    organiser: ['Operations', 'sign in.', 'Sign in to run requests and operations for your event.'],
+    team: ['Staff', 'sign in.', 'Sign in to see and update the jobs assigned to you.'],
+  };
+  const [headTitle, headAccent, headSubtitle] = publicAccessView === 'events'
+    ? (publicEventSlug
+      ? ['Enter your', 'event code.', 'Enter the code provided by your organiser to continue.']
+      : ['Find your', 'event.', 'Select an event, then enter your organiser-issued code to access services.'])
+    : loginCopy[publicAccessView];
+
   return (
-    <div className="access-page access-login" style={{
-      fontFamily:FONT, minHeight:'100vh', color:'#fff', position:'relative', overflow:'hidden',
-      background:`radial-gradient(circle at 90% 12%, rgba(180,154,106,.14), transparent 28%), linear-gradient(120deg, ${NAVY_DEEP} 0%, ${NAVY} 58%, #273958 100%)`,
-      display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'56px 24px 32px',
-    }}>
-      <div className="access-hub-content" style={{ width:'100%', maxWidth:980, position:'relative', zIndex:1 }}>
-        <div className="access-hub-eyebrow" style={{ color:GOLD_PALE, fontSize:11, letterSpacing:3.2, textTransform:'uppercase', marginBottom:24 }}>
-          Executive Conference Events · APEXOPS™
-        </div>
-        <div className="access-hub-intro" style={{ maxWidth:620, marginBottom:42 }}>
-          <div className="access-hub-headline" style={{ fontFamily:DISPLAY_FONT, fontWeight:600, fontSize:'clamp(48px, 8vw, 88px)', lineHeight:.84, letterSpacing:-1.5 }}>
-            {publicAccessView === 'clients' ? <>Admin<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>portal.</em></> : publicAccessView === 'organiser' ? <>Event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>operations.</em></> : publicAccessView === 'team' ? <>Staff<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>queue.</em></> : publicEventSlug ? <>Enter your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event code.</em></> : <>Find your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event.</em></>}
-          </div>
-          <div style={{ width:54, height:3, background:GOLD, marginTop:30, marginBottom:18 }} />
-          <div className="access-hub-subtitle" style={{ fontFamily:DISPLAY_FONT, fontStyle:'italic', color:'rgba(255,255,255,.72)', fontSize:19 }}>
-            {publicAccessView === 'clients' ? 'Sign in to manage clients, events, teams and suppliers.' : publicAccessView === 'organiser' ? 'Sign in to run requests and operations for your event.' : publicAccessView === 'team' ? 'Sign in to see and update the jobs assigned to you.' : publicEventSlug ? 'Enter the code provided by your organiser to continue.' : 'Select an event, then enter your organiser-issued code to access services.'}
-          </div>
-        </div>
+    <LoginLayout
+      title={headTitle}
+      accent={headAccent}
+      subtitle={headSubtitle}
+      bullets={publicAccessView === 'events' && !publicEventSlug ? ['Report and track issues at your stand', 'See which requests are resolved', 'Plan your next event'] : null}
+      onAdmin={()=>setPublicAccessView('clients')}
+    >
+      <nav className="lg-tabs" aria-label="Access options">
+        {[['events','Exhibitors'],['team','Staff'],['organiser','Operations']].map(([view,label]) => (
+          <button key={view} type="button" className={publicAccessView === view ? 'active' : ''} aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)}>{label}</button>
+        ))}
+      </nav>
 
-        {!session && <>
-          <div className="public-access-panel">
-          <nav className="public-access-tabs" aria-label="Access options" style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:24 }}>
-            {[['events','Exhibitors'],['team','Staff'],['organiser','Operations']].map(([view,label])=><button key={view} type="button" aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)} style={{ background:publicAccessView === view ? GOLD_PALE : 'rgba(255,255,255,.07)', color:publicAccessView === view ? NAVY : '#fff', border:'1px solid rgba(255,255,255,.28)', borderRadius:4, padding:'10px 14px', fontWeight:700, cursor:'pointer' }}>{label}</button>)}
-          </nav>
-          {publicAccessView === 'events' ? <div className="public-event-gate">
-          {publicEventSlug ? <div className="public-event-code-step">
-            <div className="public-event-selected-card">
-              <div><strong>{selectedPublicEvent?.event_name || publicEventSlug}</strong><small>{formatEventDateRange(selectedPublicEvent?.event_start_date, selectedPublicEvent?.event_end_date)}</small></div>
-              <button type="button" onClick={()=>selectPublicEvent('')} disabled={verifyingPublicEvent}>Change</button>
-            </div>
-            <label htmlFor="public-event-code">Event code</label>
-            <div className="public-event-code-row">
-              <input id="public-event-code" autoComplete="off" value={publicAccessCode} onChange={event=>setPublicAccessCode(event.target.value.toUpperCase())} placeholder="Enter the code from your organiser" disabled={eventLoading || verifyingPublicEvent} />
-              <button type="button" onClick={verifyPublicEvent} disabled={eventLoading || verifyingPublicEvent || !publicEventSlug || !publicAccessCode.trim()}>{verifyingPublicEvent ? 'Checking...' : 'Continue'}</button>
-            </div>
-          </div> : <>
-            <div className="public-event-list-heading">All events</div>
-            <div className="public-event-filters">
-              <input type="search" aria-label="Search events" placeholder="Search events or organisers" value={publicEventSearch} onChange={event=>setPublicEventSearch(event.target.value)} disabled={eventLoading} />
-              <select aria-label="Filter events by month" value={publicEventMonth} onChange={event=>setPublicEventMonth(event.target.value)} disabled={eventLoading}>
-                <option value="">All months</option>
-                {publicEventMonths.map(month=><option key={month} value={month}>{new Date(`${month}-01T12:00:00`).toLocaleDateString('en-GB',{month:'long',year:'numeric'})}</option>)}
-              </select>
-            </div>
-            {eventLoading ? <p>Loading events...</p> : <div className="public-event-cards">
-              {filteredPublicEvents.map(event => <button className="public-event-card" key={event.slug} type="button" onClick={()=>selectPublicEvent(event.slug)}>
-                <div className="public-event-card-heading">
-                  <span className="public-event-logo" aria-hidden="true">{event.logo_url ? <img src={event.logo_url} alt="" /> : <b>{getEventInitials(event.event_name)}</b>}</span>
-                </div>
-                <strong>{event.event_name}</strong>
-                <div className="public-event-schedule" aria-label="Event schedule">
-                  <span><b>Build-up</b><time>{formatEventDateRange(event.build_up_start_date, event.build_up_end_date)}</time></span>
-                  <span><b>Event</b><time>{formatEventDateRange(event.event_start_date, event.event_end_date)}</time></span>
-                  <span><b>Breakdown</b><time>{formatEventDateRange(event.breakdown_start_date, event.breakdown_end_date)}</time></span>
-                </div>
-                <b>Choose event <span aria-hidden="true">›</span></b>
-              </button>)}
-              {!filteredPublicEvents.length && <p className="public-events-empty">No events match this search or month.</p>}
-            </div>}
-          </>}
-          {!eventLoading && !publicEvents.length && <p>No public events are available yet.</p>}
-          </div> : <div className="team-access-panel">
-            <TeamLogin onSignedIn={nextSession=>{ setLoginDestination(publicAccessView); setSession(nextSession); }} initiallyOpen title={{ clients:'Admin sign in', organiser:'Operations sign in', team:'Staff sign in' }[publicAccessView]} />
-            <button type="button" onClick={()=>setPublicAccessView('events')} style={{ marginTop:12, background:'transparent', color:'rgba(255,255,255,.75)', border:0, cursor:'pointer' }}><ArrowLeft size={14} /> Back to events</button>
+      {publicAccessView === 'events' ? (publicEventSlug ? (
+        <div className="lg-code">
+          <div className="lg-selected">
+            <div><strong>{selectedPublicEvent?.event_name || publicEventSlug}</strong><span>{formatEventDateRange(selectedPublicEvent?.event_start_date, selectedPublicEvent?.event_end_date)}</span></div>
+            <button type="button" className="lg-secondary" onClick={()=>selectPublicEvent('')} disabled={verifyingPublicEvent}>Change</button>
+          </div>
+          <label className="lg-label" htmlFor="public-event-code">Event code</label>
+          <input id="public-event-code" autoComplete="off" value={publicAccessCode} onChange={event=>setPublicAccessCode(event.target.value.toUpperCase())} onKeyDown={event=>{ if (event.key === 'Enter') verifyPublicEvent(); }} placeholder="Enter the code from your organiser" disabled={eventLoading || verifyingPublicEvent} />
+          <button type="button" className="lg-primary" onClick={verifyPublicEvent} disabled={eventLoading || verifyingPublicEvent || !publicEventSlug || !publicAccessCode.trim()}>{verifyingPublicEvent ? 'Checking...' : 'Continue'}</button>
+        </div>
+      ) : (
+        <>
+          <h2 className="lg-title">Choose your event</h2>
+          <p className="lg-sub">Find your event, then enter the code your organiser gave you.</p>
+          <div className="lg-filters">
+            <input type="search" aria-label="Search events" placeholder="Search events or organisers" value={publicEventSearch} onChange={event=>setPublicEventSearch(event.target.value)} disabled={eventLoading} />
+            <select aria-label="Filter events by month" value={publicEventMonth} onChange={event=>setPublicEventMonth(event.target.value)} disabled={eventLoading}>
+              <option value="">All months</option>
+              {publicEventMonths.map(month=><option key={month} value={month}>{new Date(`${month}-01T12:00:00`).toLocaleDateString('en-GB',{month:'long',year:'numeric'})}</option>)}
+            </select>
+          </div>
+          {eventLoading ? <p className="lg-sub">Loading events...</p> : <div className="lg-events">
+            {filteredPublicEvents.map(event => (
+              <button className="lg-event" key={event.slug} type="button" onClick={()=>selectPublicEvent(event.slug)}>
+                <span className="lg-event-logo" aria-hidden="true">{event.logo_url ? <img src={event.logo_url} alt="" /> : getEventInitials(event.event_name)}</span>
+                <span className="lg-event-main">
+                  <strong>{event.event_name}</strong>
+                  <span>{formatEventDateRange(event.event_start_date, event.event_end_date)}</span>
+                  <small>Build-up {formatEventDateRange(event.build_up_start_date, event.build_up_end_date)} · Breakdown {formatEventDateRange(event.breakdown_start_date, event.breakdown_end_date)}</small>
+                </span>
+                <span className="lg-chevron" aria-hidden="true">›</span>
+              </button>
+            ))}
+            {!filteredPublicEvents.length && <p className="lg-empty">{publicEvents.length ? 'No events match this search or month.' : 'No public events are available yet.'}</p>}
           </div>}
-          {eventError && <div className="event-context-error" role="alert">{eventError}</div>}
-          </div>
-        </>}
-      </div>
-
-      {!session && publicAccessView !== 'clients' && <button type="button" onClick={()=>setPublicAccessView('clients')} style={{ position:'absolute', right:16, bottom:12, zIndex:2, background:'transparent', border:0, color:'rgba(27,42,74,.45)', fontSize:10, letterSpacing:1, cursor:'pointer' }}>Admin</button>}
-      <div className="access-hub-footer" style={{ color:'rgba(255,255,255,.32)', fontSize:10, letterSpacing:.4, marginTop:48, position:'relative', zIndex:1 }}>
-        APEXOPS™ © 2026 Executive Conference Events (Pty) Ltd · All rights reserved
-      </div>
-    </div>
+        </>
+      )) : (
+        <TeamLogin onSignedIn={nextSession=>{ setLoginDestination(publicAccessView); setSession(nextSession); }} initiallyOpen title={{ organiser:'Operations sign in', team:'Staff sign in' }[publicAccessView]} />
+      )}
+      {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
+    </LoginLayout>
   );
 }
 function formatEventDateRange(startDate, endDate) {
@@ -492,15 +476,18 @@ function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in' }
     else onSignedIn(data.session);
   }
 
-  if (!open) return <button className="team-sign-in-link" onClick={()=>setOpen(true)} style={{ background:'transparent', color:'rgba(255,255,255,.7)', border:'1px solid rgba(255,255,255,.25)', borderRadius:8, padding:11, cursor:'pointer' }}><LogIn size={14} /> Team sign in</button>;
-  return <form className="team-login-form" onSubmit={resetMode ? sendReset : signIn} style={{ background:'#fff', borderRadius:8, padding:16, display:'grid', gap:8 }}>
-    <strong style={{ color:NAVY, fontSize:13 }}>{resetMode ? 'Reset your password' : title}</strong>
-    <input required type="email" placeholder="Work email" value={email} onChange={e=>setEmail(e.target.value)} />
-    {!resetMode && <input required type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />}
-    {error && <span style={{ color:'#C0392B', fontSize:11 }}>{error}</span>}
-    {notice && <span style={{ color:'#1E8449', fontSize:12 }}>{notice}</span>}
-    <button type="submit" style={{ background:NAVY, color:'#fff', border:'none', borderRadius:6, padding:9, fontWeight:700, cursor:'pointer' }}>{resetMode ? 'Send reset link' : <><LogIn size={14} /> Sign in</>}</button>
-    <button type="button" onClick={()=>{ setResetMode(mode => !mode); setError(''); setNotice(''); }} style={{ background:'transparent', border:0, color:'#64778a', fontSize:12, cursor:'pointer', textDecoration:'underline' }}>{resetMode ? 'Back to sign in' : 'Forgot password?'}</button>
+  if (!open) return <button type="button" className="lg-secondary" onClick={()=>setOpen(true)}><LogIn size={14} /> Team sign in</button>;
+  return <form className="lg-form" onSubmit={resetMode ? sendReset : signIn}>
+    <div>
+      <h2 className="lg-title">{resetMode ? 'Reset your password' : title}</h2>
+      <p className="lg-sub">{resetMode ? 'We will email you a link to choose a new password.' : 'Use the email and password for your account.'}</p>
+    </div>
+    <input required type="email" aria-label="Work email" autoComplete="email" placeholder="Work email" value={email} onChange={e=>setEmail(e.target.value)} />
+    {!resetMode && <input required type="password" aria-label="Password" autoComplete="current-password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />}
+    {error && <span className="lg-error" role="alert">{error}</span>}
+    {notice && <span className="lg-ok" role="status">{notice}</span>}
+    <button type="submit" className="lg-primary">{resetMode ? 'Send reset link' : <><LogIn size={16} /> Sign in</>}</button>
+    <button type="button" className="lg-link" onClick={()=>{ setResetMode(mode => !mode); setError(''); setNotice(''); }}>{resetMode ? 'Back to sign in' : 'Forgot password?'}</button>
   </form>;
 }
 
@@ -522,16 +509,15 @@ function SetPasswordScreen({ onDone }) {
     else onDone();
   }
 
-  return <div style={{ fontFamily:FONT, minHeight:'100vh', display:'grid', placeItems:'center', padding:24, background:`linear-gradient(135deg, ${NAVY_DEEP} 0%, ${NAVY} 100%)` }}>
-    <form className="team-login-form" onSubmit={save} style={{ width:'100%', maxWidth:400, background:'#fff', borderRadius:8, padding:24, display:'grid', gap:10 }}>
-      <strong style={{ color:NAVY, fontSize:16 }}>Set your password</strong>
-      <span style={{ color:'#64778a', fontSize:12 }}>Choose a password to finish setting up your account.</span>
-      <input required type="password" autoComplete="new-password" placeholder="New password" value={password} onChange={e=>setPassword(e.target.value)} />
-      <input required type="password" autoComplete="new-password" placeholder="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)} />
-      {error && <span style={{ color:'#C0392B', fontSize:12 }}>{error}</span>}
-      <button type="submit" disabled={saving} style={{ background:NAVY, color:'#fff', border:'none', borderRadius:6, padding:10, fontWeight:700, cursor:'pointer' }}>{saving ? 'Saving...' : 'Save password'}</button>
+  return <LoginLayout title="Set your" accent="password." subtitle="Choose a password to finish setting up your account.">
+    <form className="lg-form" onSubmit={save}>
+      <div><h2 className="lg-title">Set your password</h2><p className="lg-sub">Use at least 8 characters.</p></div>
+      <input required type="password" aria-label="New password" autoComplete="new-password" placeholder="New password" value={password} onChange={e=>setPassword(e.target.value)} />
+      <input required type="password" aria-label="Confirm new password" autoComplete="new-password" placeholder="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)} />
+      {error && <span className="lg-error" role="alert">{error}</span>}
+      <button type="submit" className="lg-primary" disabled={saving}>{saving ? 'Saving...' : 'Save password'}</button>
     </form>
-  </div>;
+  </LoginLayout>;
 }
 
 function WithBack({ onBack, onSignOut, children }) {
