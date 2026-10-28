@@ -4,8 +4,9 @@ import {
   CATEGORIES, getExhibitors, getStaff, getRebookingRequests, getOpsNotifications, markOpsNotificationRead, readableError, STATUS_FLOW, STATUS_COLORS,
 } from '../lib/mock';
 import StatusBadge from '../components/StatusBadge';
+import PhotoGallery from '../components/PhotoGallery';
 import QueryForm from '../components/QueryForm';
-import { Activity, AlertTriangle, Archive, Bell, Building2, Check, CheckCircle2, ClipboardList, ClipboardPlus, FileText, Hammer, HeartPulse, LayoutDashboard, Monitor, MoreHorizontal, Package, Palette, Plus, Printer, Shield, Sparkles, Truck, Users, Wifi, X, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Archive, Bell, Building2, Camera, Check, CheckCircle2, ClipboardList, ClipboardPlus, FileText, Hammer, HeartPulse, LayoutDashboard, Monitor, MoreHorizontal, Package, Palette, Plus, Printer, Shield, Sparkles, Truck, Users, Wifi, X, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getActiveEvent } from '../lib/eventScope';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, BG, BLUE, TEAL, CORAL, GREEN, FONT, DISPLAY_FONT } from '../theme';
@@ -612,7 +613,7 @@ function QueryRow({ q, staff, onSelect }) {
     onMouseLeave={e=>{ e.currentTarget.style.boxShadow='none'; e.currentTarget.style.transform='translateY(0)'; }}
     >
       <div><div style={{ fontWeight:800, color:NAVY, fontSize:13 }}>{q.id}</div><div style={{ fontSize:12, color:'#6b7d88', marginTop:5 }}>Stand {q.stand}</div><div style={{ fontWeight:700, fontSize:13, color:'#1a1a1a', marginTop:5 }}>{q.exhibitor}</div></div>
-      <div style={{ fontSize:13, color:'#485a64', whiteSpace:'normal', overflowWrap:'anywhere', lineHeight:1.5 }}>{q.description}</div>
+      <div style={{ fontSize:13, color:'#485a64', whiteSpace:'normal', overflowWrap:'anywhere', lineHeight:1.5 }}>{q.description}{q.photo_urls?.length > 0 && <div style={{ display:'inline-flex', alignItems:'center', gap:5, marginTop:6, color:'#2E86C1', fontSize:12, fontWeight:700 }}><Camera size={14} /> {q.photo_urls.length} photo{q.photo_urls.length === 1 ? '' : 's'}</div>}</div>
       <div><div style={{ fontSize:12, color:'#5d6e78', fontWeight:700 }}>{q.category}</div><div style={{ fontSize:12, color:'#556b77', marginTop:7 }}>Assigned: {staffName}</div></div>
       <div><div style={{ fontSize:11, color:'#697d86' }}>Logged {q.loggedAt ? formatDate(q.loggedAt) : '—'}</div><div style={{ fontSize:12, color:'#687a86', marginTop:7 }}>Estimate {eta}</div></div>
       <div><div style={{ fontSize:11, color:overdue ? '#C0392B' : '#687a86', fontWeight:overdue ? 800 : 600 }}>{q.slaDeadline ? `${overdue ? 'OVERDUE' : 'SLA'} ${formatDate(q.slaDeadline)}` : 'No SLA'}</div><div style={{ marginTop:8 }}><StatusBadge status={q.status} /></div>{q.notes && <div title={q.notes} style={{ fontSize:12, color:'#6C3483', marginTop:8 }}>Notes</div>}</div>
@@ -639,6 +640,7 @@ function EditPanel({ q, staff, onSave, onClose }) {
       <Field label="Description">
         <div style={{ background:'#F8F8F8', border:'1px solid #E0E0E0', borderRadius:6, padding:'8px 10px', fontSize:13, color:'#333' }}>{q.description}</div>
       </Field>
+      {q.photo_urls?.length > 0 && <Field label="Photos from exhibitor"><PhotoGallery urls={q.photo_urls} size={110} /></Field>}
       <Field label={`Assign To — ${q.category} department`}>
         <select value={assignedTo} onChange={e=>setAssigned(e.target.value)}>
           <option value="">— Unassigned —</option>

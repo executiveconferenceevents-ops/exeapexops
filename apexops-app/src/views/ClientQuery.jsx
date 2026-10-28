@@ -9,6 +9,7 @@ export default function ClientQuery() {
   const [exhibitors, setExhibitors] = useState([]);
   const [savedQuery, setSavedQuery] = useState(null);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
+  const [photosSkipped, setPhotosSkipped] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -20,6 +21,7 @@ export default function ClientQuery() {
       const result = await submitClientQuery(query);
       setSavedQuery(result.query);
       setAlreadySubmitted(result.duplicate);
+      setPhotosSkipped(Boolean(result.photosSkipped));
     } catch (saveError) {
       throw new Error(readableError(saveError, 'Could not send this query to the Ops Desk.'));
     }
@@ -36,6 +38,7 @@ export default function ClientQuery() {
         <div style={eyebrowStyle}>{alreadySubmitted ? 'Already submitted' : 'Query sent to Ops'}</div>
         <h1 style={headingStyle}>{alreadySubmitted ? 'This issue is already logged.' : 'Your request is in the queue.'}</h1>
         <p style={copyStyle}>{alreadySubmitted ? 'We did not create another query. Use this existing reference if you contact the Ops Desk:' : 'Reference'} <strong>{savedQuery.id}</strong> for Stand {savedQuery.stand}. {!alreadySubmitted && 'The Ops Desk will assign the right team.'}</p>
+        {photosSkipped && <p style={{ color: '#805C16', fontSize: 13 }}>You were offline, so your photos were not attached. Send them to the Ops Desk once you have a connection.</p>}
         {!supabase && <p style={{ color: '#922B21', fontSize: 12 }}>Demo mode: Supabase is not connected, so this query is only saved in this browser.</p>}
       </section> : <section className="apex-service-panel" style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}><div style={iconBox}><ClipboardPlus size={20} /></div><div><div style={eyebrowStyle}>Client request</div><h1 style={headingStyle}>Log a query</h1></div></div>

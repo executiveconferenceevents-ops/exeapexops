@@ -48,6 +48,49 @@ const EXHIBITOR_LOGO_CACHE_KEY = 'apexops.exhibitor-logo-overrides';
 const EXHIBITOR_SCANNER_CACHE_KEY = 'apexops.exhibitor-scanner-overrides';
 const EVENT_BANNER_CACHE_KEY = 'apexops.event-banner';
 
+function readBlobAsDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Could not read the selected photo.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function prepareQueryPhoto(file) {
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error('Photos must be JPG, PNG or WebP images.');
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+    if (blob) return blob;
+  } catch { /* use the original file when it cannot be resized */ }
+  if (file.size > 5 * 1024 * 1024) throw new Error('Each photo must be under 5 MB.');
+  return file;
+}
+
+export const QUERY_PHOTO_LIMIT = 4;
+
+export async function uploadQueryPhotos(files) {
+  const blobs = await Promise.all((files || []).slice(0, QUERY_PHOTO_LIMIT).map(prepareQueryPhoto));
+  if (!supabase) return Promise.all(blobs.map(readBlobAsDataUrl));
+  const eventId = getActiveEventId();
+  return Promise.all(blobs.map(async blob => {
+    const extension = { 'image/png': 'png', 'image/webp': 'webp' }[blob.type] || 'jpg';
+    const path = `${eventId}/${crypto.randomUUID()}.${extension}`;
+    const { error } = await supabase.storage.from('query-photos').upload(path, blob, { contentType: blob.type, upsert: false });
+    if (error) {
+      if (/bucket not found/i.test(error.message || '')) throw new Error('Photo uploads are not switched on yet. Ask the platform admin to run supabase/query-photos-migration.sql.');
+      throw error;
+    }
+    return supabase.storage.from('query-photos').getPublicUrl(path).data.publicUrl;
+  }));
+}
+
 export function normalizeCategory(category) {
   const value = String(category || '').trim();
   const aliases = {
@@ -868,6 +911,7 @@ function toRow(query) {
     source_tab: query.sourceTab || null,
     sla_deadline: query.slaDeadline || null,
     notes: query.notes || null,
+    ...(query.photo_urls?.length && { photo_urls: query.photo_urls }),
   };
 }
 
@@ -975,27 +1019,38 @@ export async function addQuery(q) {
 
 export async function submitClientQuery(query) {
   const stand = normalizeStand(query.stand);
+  const { photos, ...queryFields } = query;
 
   try {
     let saved;
+    let photosSkipped = false;
     if (supabase) {
+      let photo_urls = [];
+      if (photos?.length) {
+        try { photo_urls = await uploadQueryPhotos(photos); }
+        catch (uploadError) {
+          if (!isNetworkError(uploadError)) throw uploadError;
+          photosSkipped = true;
+        }
+      }
+      const payload = { ...queryFields, stand, photo_urls, sourceTab:'CLIENT' };
       const { data, error } = await supabase.rpc('submit_public_query', {
         requested_event_slug:getEventSlug(),
         requested_code:getActiveEventCode(),
-        query_payload:{ ...query, stand, sourceTab:'CLIENT' },
+        query_payload:payload,
       });
       if (error && isNetworkError(error)) {
-        const payload = { ...query, stand, sourceTab:'CLIENT' };
         enqueue('public.query', { slug:getEventSlug(), code:getActiveEventCode(), payload });
-        return { query: { ...payload, id:'Pending sync', status:'LOGGED', loggedAt:new Date() }, duplicate: false, queued: true };
+        return { query: { ...payload, id:'Pending sync', status:'LOGGED', loggedAt:new Date() }, duplicate: false, queued: true, photosSkipped: Boolean(photos?.length) };
       }
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : data;
       saved = fromRow(row);
     } else {
-      saved = await addQuery({ ...query, stand, sourceTab:'CLIENT' });
+      const photo_urls = photos?.length ? await uploadQueryPhotos(photos) : [];
+      saved = await addQuery({ ...queryFields, stand, photo_urls, sourceTab:'CLIENT' });
     }
-    return { query: saved, duplicate: false };
+    return { query: saved, duplicate: false, photosSkipped };
   } catch (error) {
     if (error.duplicateQuery) return { query: error.duplicateQuery, duplicate: true };
     if (!/already been submitted/i.test(readableError(error, ''))) throw error;

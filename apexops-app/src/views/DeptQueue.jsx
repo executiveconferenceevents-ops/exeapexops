@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getExhibitors, getQueries, getStaff, normalizeStand, updateQuery, STATUS_FLOW, STATUS_COLORS } from '../lib/mock';
 import StatusBadge from '../components/StatusBadge';
+import PhotoGallery from '../components/PhotoGallery';
 import { ClipboardList, CheckCircle2, CircleUserRound, Clock3, HardHat } from 'lucide-react';
 import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, TEAL, GREEN, BG, FONT } from '../theme';
 
@@ -111,6 +112,7 @@ export default function DeptQueue() {
             <div style={{ padding:20 }}>
               <p style={{ fontSize:13,color:'#333',marginTop:0 }}><strong>Stand:</strong> {selected.stand}</p>
               <p style={{ fontSize:13,color:'#333' }}><strong>Issue:</strong> {selected.description}</p>
+              {selected.photo_urls?.length > 0 && <div style={{ marginBottom:12 }}><PhotoGallery urls={selected.photo_urls} size={96} /></div>}
               <p style={{ fontSize:13,color:'#333' }}><strong>Est:</strong> {selected.est}</p>
               <p style={{ fontSize:13,color:'#333' }}><strong>Phone:</strong> <a href={`tel:${selected.phone}`}>{selected.phone}</a></p>
               <div style={{ marginTop:16 }}>

@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
-import { ClipboardPlus } from 'lucide-react';
-import { CATEGORIES, EST_OPTIONS } from '../lib/mock';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Camera, ClipboardPlus, X } from 'lucide-react';
+import { CATEGORIES, EST_OPTIONS, QUERY_PHOTO_LIMIT } from '../lib/mock';
 import { BLUE } from '../theme';
 
 const DEPARTMENT_ISSUES = {
@@ -27,12 +27,22 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
   const [customIssue, setCustomIssue] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [photos, setPhotos] = useState([]);
+  const photoPreviews = useMemo(() => photos.map(file => URL.createObjectURL(file)), [photos]);
+  useEffect(() => () => photoPreviews.forEach(url => URL.revokeObjectURL(url)), [photoPreviews]);
   const submissionInProgress = useRef(false);
   const selectedExhibitor = exhibitors.find(item => item.name === form.exhibitor);
 
   function selectExhibitor(name) {
     const exhibitor = exhibitors.find(item => item.name === name);
     setForm(current => ({ ...current, exhibitor: name, stand: exhibitor?.stand || '', contact: exhibitor?.contact || '', phone: exhibitor?.phone || '' }));
+  }
+
+  function addPhotos(fileList) {
+    const incoming = [...fileList];
+    if (photos.length + incoming.length > QUERY_PHOTO_LIMIT) setError(`You can attach up to ${QUERY_PHOTO_LIMIT} photos.`);
+    else setError('');
+    setPhotos(current => [...current, ...incoming].slice(0, QUERY_PHOTO_LIMIT));
   }
 
   async function submit(event) {
@@ -47,7 +57,7 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
     setSaving(true);
     setError('');
     try {
-      await onSubmit({ ...form, description: details, sourceTab: clientMode ? 'CLIENT' : form.category });
+      await onSubmit({ ...form, description: details, sourceTab: clientMode ? 'CLIENT' : form.category, ...(clientMode && photos.length && { photos }) });
     } catch (submitError) {
       setError(submitError?.message || 'Could not save this query. Please try again.');
     } finally {
@@ -90,6 +100,18 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
       <Field label="Issue details / free text">
         <textarea aria-label="Issue details / free text" rows={3} value={customIssue} onChange={event => setCustomIssue(event.target.value)} placeholder="Add details about the problem..." style={{ ...inputStyle, minHeight: 92, resize: 'vertical' }} />
       </Field>
+      {clientMode && <Field label={`Photos of the issue (optional, up to ${QUERY_PHOTO_LIMIT})`}>
+        <div style={photoRowStyle}>
+          {photoPreviews.map((url, index) => <div key={url} style={thumbWrapStyle}>
+            <img src={url} alt={`Attached photo ${index + 1}`} style={thumbStyle} />
+            <button type="button" aria-label={`Remove photo ${index + 1}`} onClick={() => setPhotos(current => current.filter((_, i) => i !== index))} style={thumbRemoveStyle}><X size={12} /></button>
+          </div>)}
+          {photos.length < QUERY_PHOTO_LIMIT && <label style={addPhotoStyle}>
+            <Camera size={20} /><span>Add photo</span>
+            <input type="file" accept="image/*" multiple aria-label="Add photos of the issue" onChange={event => { addPhotos(event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
+          </label>}
+        </div>
+      </Field>}
       {!clientMode && <Field label="Estimated Fix Time">
         <select aria-label="Estimated Fix Time" value={form.est} onChange={event => setForm(current => ({ ...current, est: event.target.value }))} style={inputStyle}>
           {EST_OPTIONS.map(option => <option key={option}>{option}</option>)}
@@ -118,6 +140,11 @@ const issuesStyle = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,
 const issueStyle = { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 9, minHeight: 42, padding: '8px 10px', border: '1px solid', borderRadius: 5, color: '#2d3c44', fontSize: 12, fontWeight: 500, textAlign: 'left', textTransform: 'none', cursor: 'pointer' };
 const issueCheckboxStyle = { width: 16, height: 16, flex: '0 0 16px', margin: 0, padding: 0, accentColor: BLUE };
 const formErrorStyle = { color: '#922B21', fontSize: 13, marginTop: 10 };
+const photoRowStyle = { display: 'flex', flexWrap: 'wrap', gap: 10 };
+const thumbWrapStyle = { position: 'relative', width: 84, height: 84 };
+const thumbStyle = { width: 84, height: 84, objectFit: 'cover', borderRadius: 6, border: '1px solid #cfdadd' };
+const thumbRemoveStyle = { position: 'absolute', top: -6, right: -6, width: 22, height: 22, display: 'grid', placeItems: 'center', border: 'none', borderRadius: '50%', background: '#172746', color: '#fff', cursor: 'pointer', padding: 0 };
+const addPhotoStyle = { width: 84, height: 84, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 4, border: '1px dashed #9fb0b6', borderRadius: 6, color: '#5d6d7a', fontSize: 11, fontWeight: 600, textTransform: 'none', cursor: 'pointer', background: '#f7fafb' };
 const duplicateWarningStyle = { color: '#805C16', fontSize: 13, marginTop: 10, padding: '10px 12px', background: '#FFF7E8', border: '1px solid #F0DCA9', borderRadius: 5 };
 const primaryButton = { border: 'none', borderRadius: 5, padding: '10px 16px', background: '#172746', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' };
 const secondaryButton = { border: '1px solid #d6dfdf', borderRadius: 5, padding: '10px 16px', background: '#fff', color: '#172746', fontSize: 12, fontWeight: 700, cursor: 'pointer' };
