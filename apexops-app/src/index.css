@@ -461,6 +461,56 @@ textarea { resize: vertical; min-height: 60px; }
 .tenant-form button:disabled { opacity:.55; }
 .tenant-invite-form { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .tenant-scope-note { align-self:center; color:#64778a; font-size:10px; }
+
+/* Admin dashboard shell */
+.adm-shell { display:grid; grid-template-columns:232px minmax(0,1fr); min-height:100vh; background:#f3f5f9; font-family:'Inter','Segoe UI',system-ui,sans-serif; }
+.adm-shell [hidden] { display:none !important; }
+.adm-sidebar { position:sticky; top:0; height:100vh; padding:26px 14px; background:linear-gradient(180deg,#16233d,#1b2a4a); color:#fff; }
+.adm-brand { padding:0 10px 24px; font:700 19px/1 'Playfair Display',Georgia,serif; letter-spacing:1px; }
+.adm-brand sup { font-size:9px; }
+.adm-brand small { display:block; margin-top:7px; color:#d5c292; font:600 9px 'Inter',system-ui,sans-serif; letter-spacing:1.6px; text-transform:uppercase; }
+.adm-sidebar nav { display:grid; gap:4px; }
+.adm-sidebar nav button { display:flex; align-items:center; gap:10px; padding:11px 12px; border:0; border-radius:8px; background:transparent; color:rgba(255,255,255,.72); font-size:13px; font-weight:600; text-align:left; cursor:pointer; }
+.adm-sidebar nav button:hover { background:rgba(255,255,255,.08); color:#fff; }
+.adm-sidebar nav button.active { background:rgba(213,194,146,.18); color:#fff; box-shadow:inset 3px 0 0 #d5c292; }
+.adm-main { width:100%; max-width:1100px; margin:0; padding:30px 32px 56px; font-family:inherit; }
+.adm-topbar { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:22px; padding:0 330px 0 0 !important; border-bottom:0 !important; }
+.adm-topbar h1 { font:700 26px/1.2 'Inter','Segoe UI',system-ui,sans-serif; }
+.adm-topbar p { margin-top:6px; font-size:13px; }
+.adm-main .tenant-admin-kicker { font-size:11px; letter-spacing:1.4px; }
+.adm-main .tenant-refresh { position:static; flex:0 0 auto; min-height:38px; padding:8px 14px; border-radius:8px; font-size:13px; font-weight:600; }
+.adm-main .tenant-feedback,.adm-main .tenant-loading { border-radius:8px; font-size:13px; }
+.adm-main .tenant-section { margin-bottom:20px; padding:24px; border:1px solid #e4e8ef; border-radius:12px; background:#fff; box-shadow:0 1px 3px rgba(20,32,60,.06); }
+.adm-main .tenant-section-heading h2 { font:700 17px/1.25 'Inter','Segoe UI',system-ui,sans-serif; }
+.adm-main .tenant-section-heading p { font-size:13px; }
+.adm-main .tenant-list-row { padding:13px 14px; border:1px solid #e9edf3; border-radius:10px; background:#fafbfd; font-size:14px; }
+.adm-main .tenant-event-details > span,.adm-main .tenant-list-row code { font-size:12px; }
+.adm-main .tenant-empty,.adm-main .tenant-scope-note { font-size:13px; }
+.adm-main .tenant-form { gap:14px; padding-top:18px; }
+.adm-main .tenant-form h3 { font-size:14px; }
+.adm-main .tenant-form label { gap:6px; font-size:12px; }
+.adm-main .tenant-form label small { font-size:11px; }
+.adm-main .tenant-form input,.adm-main .tenant-form select { min-height:42px; border-radius:8px; font-size:14px; }
+.adm-main .tenant-form button { min-height:42px; border-radius:8px; font-size:13px; }
+.adm-main .tenant-event-logo-action,.adm-main .tenant-remove-supplier { border-radius:8px; font-size:12px; }
+.adm-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; margin-bottom:20px; }
+.adm-stat { padding:18px 20px; border:1px solid #e4e8ef; border-radius:12px; background:#fff; box-shadow:0 1px 3px rgba(20,32,60,.06); }
+.adm-stat span { display:block; color:#64778a; font-size:12px; font-weight:600; }
+.adm-stat strong { display:block; margin-top:6px; color:#1b2a4a; font-size:32px; line-height:1; }
+.adm-chip { flex:0 0 auto; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:700; }
+.adm-chip-live { background:#e1f5ea; color:#17724a; }
+.adm-chip-upcoming { background:#e6eefb; color:#2552a3; }
+.adm-chip-past { background:#eceef2; color:#5b6878; }
+@media (max-width:860px) {
+  .adm-shell { grid-template-columns:1fr; }
+  .adm-sidebar { position:static; height:auto; padding:14px 12px; }
+  .adm-brand { padding-bottom:12px; }
+  .adm-sidebar nav { grid-auto-flow:column; grid-auto-columns:max-content; overflow-x:auto; }
+  .adm-main { padding:76px 14px 32px; }
+  .adm-topbar { flex-direction:column; padding-right:0 !important; }
+  .adm-main .tenant-section { padding:16px; }
+  .adm-main .tenant-form { grid-template-columns:1fr; }
+}
 @media (max-width:620px) {
   .public-event-filters { grid-template-columns:1fr; }
   .tenant-admin-page { padding:18px 12px 30px; }

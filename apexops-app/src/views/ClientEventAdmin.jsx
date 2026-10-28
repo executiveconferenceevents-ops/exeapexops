@@ -4,14 +4,24 @@ import { getAvailableEvents, setActiveEvent } from '../lib/eventScope';
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
 import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
 import { enqueue, isNetworkError } from '../lib/offline';
-import { Building2, CalendarDays, MailPlus, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { Building2, CalendarDays, LayoutDashboard, MailPlus, Plus, RefreshCw, Trash2, Truck, Upload } from 'lucide-react';
 
 const emptyClient = { name:'', slug:'', adminEmail:'' };
 const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'', logo_file:null };
 const emptyInvite = { client_id:'', event_id:'', email:'', role:'staff' };
 const emptySupplier = { name:'', contact:'', email:'', mobile:'', category:'Other' };
 
+function eventStatus(event) {
+  const today = new Date().toISOString().slice(0, 10);
+  const start = event.build_up_start_date || event.event_start_date;
+  const end = event.breakdown_end_date || event.event_end_date;
+  if (end && end < today) return ['Completed', 'past'];
+  if (start && start <= today) return ['Live', 'live'];
+  return ['Upcoming', 'upcoming'];
+}
+
 export default function ClientEventAdmin() {
+  const [section, setSection] = useState('overview');
   const [clients, setClients] = useState([]);
   const [events, setEvents] = useState([]);
   const [memberships, setMemberships] = useState([]);
@@ -263,19 +273,53 @@ export default function ClientEventAdmin() {
     }
   }
 
+  const navItems = [
+    ['overview', 'Overview', LayoutDashboard],
+    ...(isPlatformAdmin ? [['clients', 'Clients', Building2]] : []),
+    ['events', 'Events', CalendarDays],
+    ['suppliers', 'Suppliers', Truck],
+    ['team', 'Team access', MailPlus],
+  ];
+  const sectionTitle = navItems.find(([key]) => key === section)?.[1] || 'Overview';
+  const liveEvents = events.filter(event => eventStatus(event)[1] === 'live').length;
+
   return (
-    <main className="tenant-admin-page">
-      <header className="tenant-admin-heading">
-        <div className="tenant-admin-kicker">APEXOPS™ · PLATFORM</div>
-        <h1>Clients &amp; Events</h1>
-        <p>{isPlatformAdmin ? 'Create client organizations after payment is confirmed, then provision their events and teams.' : 'Create events and manage team access within your assigned organization.'}</p>
-        <button className="tenant-refresh" type="button" onClick={refresh} disabled={loading || saving} title="Refresh organizations and events"><RefreshCw size={15} /> Refresh</button>
+    <div className="adm-shell">
+      <aside className="adm-sidebar">
+        <div className="adm-brand">APEXOPS<sup>™</sup><small>Platform admin</small></div>
+        <nav aria-label="Admin sections">
+          {navItems.map(([key, label, Icon]) => <button key={key} type="button" className={section === key ? 'active' : ''} aria-current={section === key ? 'page' : undefined} onClick={()=>setSection(key)}><Icon size={16} /> {label}</button>)}
+        </nav>
+      </aside>
+    <main className="tenant-admin-page adm-main">
+      <header className="tenant-admin-heading adm-topbar">
+        <div>
+          <div className="tenant-admin-kicker">{isPlatformAdmin ? 'PLATFORM ADMIN' : 'CLIENT ADMIN'}</div>
+          <h1>{sectionTitle}</h1>
+          <p>{isPlatformAdmin ? 'Create clients after payment is confirmed, then set up their events and teams.' : 'Create events and manage team access for your organisation.'}</p>
+        </div>
+        <button className="tenant-refresh" type="button" onClick={refresh} disabled={loading || saving} title="Refresh"><RefreshCw size={15} /> Refresh</button>
       </header>
 
       {error && <div className="tenant-feedback tenant-error" role="alert">{error}</div>}
       {notice && <div className="tenant-feedback tenant-notice" role="status">{notice}</div>}
       {loading ? <div className="tenant-loading">Loading clients, events and access…</div> : <>
-        {isPlatformAdmin && <section className="tenant-section">
+        <section className="adm-overview" hidden={section !== 'overview'}>
+          <div className="adm-stats">
+            {isPlatformAdmin && <div className="adm-stat"><span>Clients</span><strong>{clients.length}</strong></div>}
+            <div className="adm-stat"><span>Events</span><strong>{events.length}</strong></div>
+            <div className="adm-stat"><span>Live now</span><strong>{liveEvents}</strong></div>
+            <div className="adm-stat"><span>Private suppliers</span><strong>{privateSuppliers.length}</strong></div>
+          </div>
+          <div className="tenant-section">
+            <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Your events</h2><p>Open the Events section to create or manage them.</p></div></div>
+            <div className="tenant-list">
+              {events.map(event => { const [label, tone] = eventStatus(event); return <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}</strong><span>{event.clients?.name ? `${event.clients.name} · ` : ''}{event.event_start_date} to {event.event_end_date}</span></div><span className={`adm-chip adm-chip-${tone}`}>{label}</span></div>; })}
+              {!events.length && <p className="tenant-empty">No events yet. Create your first one in Events.</p>}
+            </div>
+          </div>
+        </section>
+        {isPlatformAdmin && <section className="tenant-section" hidden={section !== 'clients'}>
           <div className="tenant-section-heading"><Building2 size={17} /><div><h2>Client organizations</h2><p>{clients.length} available to your account</p></div></div>
           <div className="tenant-list">
             {clients.map(client => <div className="tenant-list-row" key={client.id}><strong>{client.name}</strong><code>{client.slug}</code></div>)}
@@ -290,7 +334,7 @@ export default function ClientEventAdmin() {
           </form>}
         </section>}
 
-        <section className="tenant-section">
+        <section className="tenant-section" hidden={section !== 'events'}>
           <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Event workspaces</h2><p>Each event has isolated staff, exhibitors, requests and reports.</p></div></div>
           <div className="tenant-list">
             {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span></div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code></span><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div>)}
@@ -313,7 +357,7 @@ export default function ClientEventAdmin() {
           </form>
         </section>
 
-        <section className="tenant-section">
+        <section className="tenant-section" hidden={section !== 'suppliers'}>
           <div className="tenant-section-heading"><Building2 size={17} /><div><h2>Private suppliers</h2><p>Visible only to this organizer and reusable across its events.</p></div></div>
           {isPlatformAdmin && <label className="tenant-supplier-owner">Organizer<select value={supplierClientId} onChange={async event=>{setSupplierClientId(event.target.value);setPrivateSuppliers(await getSuppliers(event.target.value));}}><option value="">Select organization</option>{clients.map(client=><option key={client.id} value={client.id}>{client.name}</option>)}</select></label>}
           {canManageSuppliers(supplierClientId) && <form className="tenant-form tenant-inline-form" onSubmit={addPrivateSupplier}>
@@ -331,7 +375,7 @@ export default function ClientEventAdmin() {
           </div>
         </section>
 
-        <section className="tenant-section">
+        <section className="tenant-section" hidden={section !== 'team'}>
           <div className="tenant-section-heading"><MailPlus size={17} /><div><h2>Invite team members</h2><p>Access is limited to the selected client and event scope.</p></div></div>
           <form className="tenant-form tenant-invite-form" onSubmit={inviteMember}>
             {isPlatformAdmin ? <label>Client<select required value={inviteForm.client_id} onChange={event=>setInviteForm({ ...inviteForm, client_id:event.target.value, event_id:'' })}><option value="">Select client</option>{clients.map(client=><option key={client.id} value={client.id}>{client.name}</option>)}</select></label> : <p className="tenant-scope-note">Invitations are limited to your assigned organization.</p>}
@@ -344,5 +388,6 @@ export default function ClientEventAdmin() {
         </section>
       </>}
     </main>
+    </div>
   );
 }

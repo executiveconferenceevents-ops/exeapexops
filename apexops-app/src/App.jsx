@@ -127,6 +127,7 @@ export default function App() {
     if (supabase) await supabase.auth.signOut();
     setSession(null);
     setRole(null);
+    setPublicAccessView('events');
     setSelectedEvent(null);
     setEventMemberships([]);
     clearActiveEvent();
@@ -256,6 +257,20 @@ export default function App() {
     if (session && role === 'people') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><PeopleSetup onBack={()=>setRole('ops')} /></WithBack>;
   if (session && role === 'exhibitors') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><ExhibitorSetup onBack={()=>setRole('ops')} /></WithBack>;
   if (session && role === 'dept') return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><DeptQueue /></WithBack>;
+
+  if (!session && publicAccessView === 'clients') return (
+    <div style={{ fontFamily:FONT, minHeight:'100vh', display:'grid', placeItems:'center', padding:24, background:`linear-gradient(135deg, ${NAVY_DEEP} 0%, ${NAVY} 100%)` }}>
+      <div style={{ width:'100%', maxWidth:400 }}>
+        <div style={{ textAlign:'center', marginBottom:24, color:'#fff' }}>
+          <div style={{ fontFamily:DISPLAY_FONT, fontSize:30, fontWeight:700, letterSpacing:1 }}>APEXOPS™</div>
+          <div style={{ marginTop:6, color:GOLD_PALE, fontSize:11, letterSpacing:2.4, textTransform:'uppercase' }}>Platform admin</div>
+        </div>
+        <TeamLogin onSignedIn={nextSession=>{ setLoginDestination('clients'); setSession(nextSession); }} initiallyOpen title="Admin sign in" />
+        {eventError && <div className="event-context-error" role="alert" style={{ marginTop:12 }}>{eventError}</div>}
+        <button type="button" onClick={()=>setPublicAccessView('events')} style={{ display:'block', margin:'18px auto 0', background:'transparent', color:'rgba(255,255,255,.7)', border:0, cursor:'pointer', fontSize:12 }}><ArrowLeft size={14} /> Back to events</button>
+      </div>
+    </div>
+  );
 
   return (
     <div className={session ? 'access-page access-hub' : 'access-page access-login'} style={{
