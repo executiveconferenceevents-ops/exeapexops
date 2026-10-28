@@ -255,7 +255,15 @@ export default function App() {
   if (session && recovering) return <SetPasswordScreen onDone={()=>{ setRecovering(false); window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); }} />;
   if (role === 'exhibitor') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ExhibitorStatus /></WithBack>;
   if (role === 'client-query') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ClientQuery /></WithBack>;
-  if (role === 'rebooking') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><RebookingForm /></WithBack>;
+  if (role === 'rebooking') {
+    const rebookingNav = [
+      { key:'overview', label:session ? 'Workspace' : 'Overview', Icon:LayoutDashboard, onClick:()=>setRole(null) },
+      { key:'query', label:'Log a Query', Icon:ClipboardPlus, onClick:()=>setRole('client-query') },
+      { key:'status', label:'Check My Status', Icon:Monitor, onClick:()=>setRole('exhibitor') },
+      { key:'rebook', label:'Rebook Your Stand', Icon:Building2, active:true },
+    ];
+    return <AppShell eventName={selectedEvent?.name} nav={rebookingNav} onSignOut={session ? signOut : undefined}><RebookingForm /></AppShell>;
+  }
   if (session && role === 'tenant-admin' && canManageTenants) return <WithBack onBack={()=>setRole(canOpenOps ? 'ops' : null)} onSignOut={signOut}><ClientEventAdmin /></WithBack>;
   if (session && role === 'ops') return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><OpsPortal onOpenStaff={()=>setRole('staff')} onOpenExhibitors={()=>setRole('exhibitors')} /></WithBack>;
   if (session && role === 'staff') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><StaffSetup /></WithBack>;
