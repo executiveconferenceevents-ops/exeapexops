@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Building2, CheckCircle2, ClipboardPlus, Search } from 'lucide-react';
 import PhotoGallery from '../components/PhotoGallery';
+import { formatDateTime } from '../lib/format';
 import QueryForm from '../components/QueryForm';
 import { escalatePublicQuery, getPublicExhibitors, getPublicStatus, normalizeStand, readableError, STATUS_COLORS, submitClientQuery } from '../lib/mock';
 import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, TEAL, CORAL, FONT } from '../theme';
@@ -159,7 +160,7 @@ export default function ExhibitorStatus() {
             <div style={queryTop}><div><div style={smallLabel}>Query reference</div><strong style={reference}>{query.id}</strong></div><span style={{ ...statusPill, background: statusColor.badge }}>{query.status}</span></div>
             <p style={descriptionStyle}>{query.description}</p>
             {query.photo_urls?.length > 0 && <PhotoGallery urls={query.photo_urls} size={64} />}
-            <div style={queryFooter}><span>{query.category}</span><span>Logged {timeAgo(query.loggedAt)}</span></div>
+            <div style={queryFooter}><span>{query.category}</span><span>Logged {timeAgo(query.loggedAt)} · {formatDateTime(query.loggedAt)}</span></div>
             {query.status === 'ESCALATED' ? <div style={escalatedStyle}><AlertTriangle size={15} /> Your query has been escalated to the Ops Desk.</div> : <div style={escalationArea}>
               <label style={labelStyle}>Need urgent attention? <textarea rows={2} value={escalationNotes[query.id] || ''} onChange={event => setEscalationNotes(current => ({ ...current, [query.id]: event.target.value }))} placeholder="Optional: tell Ops why this needs attention" style={{ ...inputStyle, resize: 'vertical' }} /></label>
               <button disabled={Boolean(escalatingId)} onClick={() => escalate(query)} style={{ ...escalateButton, opacity: escalatingId ? 0.7 : 1 }}>{escalatingId === query.id ? 'Submitting...' : 'Escalate to Ops Desk'}</button>

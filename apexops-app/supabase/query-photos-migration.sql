@@ -83,6 +83,7 @@ declare
   requested_category text := trim(coalesce(query_payload->>'category', ''));
   requested_description text := trim(coalesce(query_payload->>'description', ''));
   requested_photos text[] := '{}';
+  requested_logged_at timestamptz := now();
 begin
   select event.id into target_event_id
   from public.events event
@@ -113,6 +114,12 @@ begin
   end if;
 
   new_query_id := 'Q-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 16));
+  -- Queries logged offline keep their original time, never in the future or older than 3 days.
+  begin
+    requested_logged_at := greatest(now() - interval '3 days', least(now(), (query_payload->>'submittedAt')::timestamptz));
+  exception when others then
+    requested_logged_at := now();
+  end;
   return query
   insert into public.queries (
     event_id, id, stand, exhibitor, contact, phone, category, description, est,
@@ -129,9 +136,9 @@ begin
     requested_est,
     'LOGGED',
     null,
-    now(),
+    requested_logged_at,
     'CLIENT',
-    now() + case requested_est
+    requested_logged_at + case requested_est
       when '15 min' then interval '15 minutes'
       when '30 min' then interval '30 minutes'
       when '2 hours' then interval '2 hours'

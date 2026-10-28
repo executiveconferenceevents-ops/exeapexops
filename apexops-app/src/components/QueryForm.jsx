@@ -57,7 +57,7 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
     setSaving(true);
     setError('');
     try {
-      await onSubmit({ ...form, description: details, sourceTab: clientMode ? 'CLIENT' : form.category, ...(clientMode && photos.length && { photos }) });
+      await onSubmit({ ...form, description: details, sourceTab: clientMode ? 'CLIENT' : form.category, ...(photos.length && { photos }) });
     } catch (submitError) {
       setError(submitError?.message || 'Could not save this query. Please try again.');
     } finally {
@@ -100,7 +100,7 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
       <Field label="Issue details / free text">
         <textarea aria-label="Issue details / free text" rows={3} value={customIssue} onChange={event => setCustomIssue(event.target.value)} placeholder="Add details about the problem..." style={{ ...inputStyle, minHeight: 92, resize: 'vertical' }} />
       </Field>
-      {clientMode && <Field label={`Photos of the issue (optional, up to ${QUERY_PHOTO_LIMIT})`}>
+      <Field label={`Photos of the issue (optional, up to ${QUERY_PHOTO_LIMIT})`}>
         <div style={photoRowStyle}>
           {photoPreviews.map((url, index) => <div key={url} style={thumbWrapStyle}>
             <img src={url} alt={`Attached photo ${index + 1}`} style={thumbStyle} />
@@ -111,7 +111,7 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
             <input type="file" accept="image/*" multiple aria-label="Add photos of the issue" onChange={event => { addPhotos(event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
           </label>}
         </div>
-      </Field>}
+      </Field>
       {!clientMode && <Field label="Estimated Fix Time">
         <select aria-label="Estimated Fix Time" value={form.est} onChange={event => setForm(current => ({ ...current, est: event.target.value }))} style={inputStyle}>
           {EST_OPTIONS.map(option => <option key={option}>{option}</option>)}

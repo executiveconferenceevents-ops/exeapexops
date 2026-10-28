@@ -25,6 +25,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [loginDestination, setLoginDestination] = useState(null);
   const [authReady, setAuthReady] = useState(false);
+  const [recovering, setRecovering] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [canManageTenants, setCanManageTenants] = useState(false);
   const [events, setEvents] = useState([]);
@@ -48,11 +49,13 @@ export default function App() {
       return undefined;
     }
     if (!supabase) { setAuthReady(true); return undefined; }
+    if (/type=(invite|recovery)/.test(window.location.hash)) setRecovering(true);
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthReady(true);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((authEvent, nextSession) => {
+      if (authEvent === 'PASSWORD_RECOVERY') setRecovering(true);
       setSession(nextSession);
       if (!nextSession) setRole(null);
     });
@@ -240,7 +243,7 @@ export default function App() {
       } else if (canOpenQueue) {
         setRole('dept');
       } else {
-        setEventError('This account has no supplier access for the selected event. Ask the client to update its invitation.');
+        setEventError('This account has no staff access for the selected event. Ask the client to update its invitation.');
       }
     }
 
@@ -248,6 +251,7 @@ export default function App() {
   }, [session, loginDestination, eventLoading, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue]);
 
   if (!authReady) return null;
+  if (session && recovering) return <SetPasswordScreen onDone={()=>{ setRecovering(false); window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); }} />;
   if (role === 'exhibitor') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ExhibitorStatus /></WithBack>;
   if (role === 'client-query') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ClientQuery /></WithBack>;
   if (role === 'rebooking') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><RebookingForm /></WithBack>;
@@ -285,7 +289,7 @@ export default function App() {
         </div>
         <div className="access-hub-intro" style={{ maxWidth:620, marginBottom:42 }}>
           <div className="access-hub-headline" style={{ fontFamily:DISPLAY_FONT, fontWeight:600, fontSize:'clamp(48px, 8vw, 88px)', lineHeight:.84, letterSpacing:-1.5 }}>
-            {session ? <>Choose your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>workspace.</em></> : publicAccessView === 'clients' ? <>Admin<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>portal.</em></> : publicAccessView === 'organiser' ? <>Event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>operations.</em></> : publicAccessView === 'team' ? <>Supplier<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>queue.</em></> : selectedEvent?.accessCode ? <>Your event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>services.</em></> : publicEventSlug ? <>Enter your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event code.</em></> : <>Find your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event.</em></>}
+            {session ? <>Choose your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>workspace.</em></> : publicAccessView === 'clients' ? <>Admin<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>portal.</em></> : publicAccessView === 'organiser' ? <>Event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>operations.</em></> : publicAccessView === 'team' ? <>Staff<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>queue.</em></> : selectedEvent?.accessCode ? <>Your event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>services.</em></> : publicEventSlug ? <>Enter your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event code.</em></> : <>Find your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event.</em></>}
           </div>
           <div style={{ width:54, height:3, background:GOLD, marginTop:30, marginBottom:18 }} />
           <div className="access-hub-subtitle" style={{ fontFamily:DISPLAY_FONT, fontStyle:'italic', color:'rgba(255,255,255,.72)', fontSize:19 }}>
@@ -304,7 +308,7 @@ export default function App() {
         {!session && <>
           <div className="public-access-panel">
           <nav className="public-access-tabs" aria-label="Access options" style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:24 }}>
-            {[['events','Exhibitors'],['team','Suppliers'],['organiser','Operations']].map(([view,label])=><button key={view} type="button" aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)} style={{ background:publicAccessView === view ? GOLD_PALE : 'rgba(255,255,255,.07)', color:publicAccessView === view ? NAVY : '#fff', border:'1px solid rgba(255,255,255,.28)', borderRadius:4, padding:'10px 14px', fontWeight:700, cursor:'pointer' }}>{label}</button>)}
+            {[['events','Exhibitors'],['team','Staff'],['organiser','Operations']].map(([view,label])=><button key={view} type="button" aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)} style={{ background:publicAccessView === view ? GOLD_PALE : 'rgba(255,255,255,.07)', color:publicAccessView === view ? NAVY : '#fff', border:'1px solid rgba(255,255,255,.28)', borderRadius:4, padding:'10px 14px', fontWeight:700, cursor:'pointer' }}>{label}</button>)}
           </nav>
           {publicAccessView === 'events' ? <div className="public-event-gate">
           {selectedEvent?.accessCode ? <div className="public-event-verified">
@@ -370,7 +374,7 @@ export default function App() {
           </>}
           {!eventLoading && !publicEvents.length && <p>No public events are available yet.</p>}
           </div> : <div className="team-access-panel">
-            <TeamLogin onSignedIn={nextSession=>{ setLoginDestination(publicAccessView); setSession(nextSession); }} initiallyOpen title={{ clients:'Admin sign in', organiser:'Operations sign in', team:'Supplier sign in' }[publicAccessView]} />
+            <TeamLogin onSignedIn={nextSession=>{ setLoginDestination(publicAccessView); setSession(nextSession); }} initiallyOpen title={{ clients:'Admin sign in', organiser:'Operations sign in', team:'Staff sign in' }[publicAccessView]} />
             <button type="button" onClick={()=>setPublicAccessView('events')} style={{ marginTop:12, background:'transparent', color:'rgba(255,255,255,.75)', border:0, cursor:'pointer' }}><ArrowLeft size={14} /> Back to events</button>
           </div>}
           {eventError && <div className="event-context-error" role="alert">{eventError}</div>}
@@ -385,7 +389,7 @@ export default function App() {
 
       {session && <div className="access-card-stack access-card-grid" style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1 }}>
         {session && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Ops Portal" sub="Operations: manage requests and event operations" onClick={()=>setRole('ops')} primary disabled={!selectedEvent || eventLoading} />}
-        {session && canOpenQueue && <RoleCard icon={<HardHat size={24} strokeWidth={1.8} />} title="My Queue" sub="Supplier: see your assignments and update status" onClick={()=>setRole('dept')} light disabled={!selectedEvent || eventLoading} />}
+        {session && canOpenQueue && <RoleCard icon={<HardHat size={24} strokeWidth={1.8} />} title="My Queue" sub="Staff: see your assignments and update status" onClick={()=>setRole('dept')} light disabled={!selectedEvent || eventLoading} />}
         {session && canManageTenants && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Admin Portal" sub={isPlatformAdmin ? 'Manage clients, events, invitations and suppliers' : 'Create events and manage your organisation’s team'} onClick={()=>setRole('tenant-admin')} light />}
         {session && selectedEvent && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Exhibitor Status" sub="See what exhibitors see for this event" onClick={()=>openStaffExhibitorView('exhibitor')} light />}
         {session && selectedEvent && canOpenOps && <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Log a query on behalf of an exhibitor" onClick={()=>openStaffExhibitorView('client-query')} light />}
@@ -420,6 +424,22 @@ function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in' }
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [resetMode, setResetMode] = useState(false);
+
+  async function sendReset(event) {
+    event.preventDefault();
+    setError('');
+    setNotice('');
+    if (DEMO_MODE || !supabase) {
+      setNotice('Password reset is not available in demo mode.');
+      return;
+    }
+    const appUrl = process.env.REACT_APP_APP_URL || (window.location.protocol.startsWith('http') ? window.location.origin : '');
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), appUrl ? { redirectTo: appUrl } : undefined);
+    if (resetError) setError(resetError.message);
+    else setNotice('If that email has an account, a reset link is on its way. Check your inbox.');
+  }
 
   async function signIn(event) {
     event.preventDefault();
@@ -437,13 +457,45 @@ function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in' }
   }
 
   if (!open) return <button className="team-sign-in-link" onClick={()=>setOpen(true)} style={{ background:'transparent', color:'rgba(255,255,255,.7)', border:'1px solid rgba(255,255,255,.25)', borderRadius:8, padding:11, cursor:'pointer' }}><LogIn size={14} /> Team sign in</button>;
-  return <form className="team-login-form" onSubmit={signIn} style={{ background:'#fff', borderRadius:8, padding:16, display:'grid', gap:8 }}>
-    <strong style={{ color:NAVY, fontSize:13 }}>{title}</strong>
+  return <form className="team-login-form" onSubmit={resetMode ? sendReset : signIn} style={{ background:'#fff', borderRadius:8, padding:16, display:'grid', gap:8 }}>
+    <strong style={{ color:NAVY, fontSize:13 }}>{resetMode ? 'Reset your password' : title}</strong>
     <input required type="email" placeholder="Work email" value={email} onChange={e=>setEmail(e.target.value)} />
-    <input required type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />
+    {!resetMode && <input required type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />}
     {error && <span style={{ color:'#C0392B', fontSize:11 }}>{error}</span>}
-    <button type="submit" style={{ background:NAVY, color:'#fff', border:'none', borderRadius:6, padding:9, fontWeight:700, cursor:'pointer' }}><LogIn size={14} /> Sign in</button>
+    {notice && <span style={{ color:'#1E8449', fontSize:12 }}>{notice}</span>}
+    <button type="submit" style={{ background:NAVY, color:'#fff', border:'none', borderRadius:6, padding:9, fontWeight:700, cursor:'pointer' }}>{resetMode ? 'Send reset link' : <><LogIn size={14} /> Sign in</>}</button>
+    <button type="button" onClick={()=>{ setResetMode(mode => !mode); setError(''); setNotice(''); }} style={{ background:'transparent', border:0, color:'#64778a', fontSize:12, cursor:'pointer', textDecoration:'underline' }}>{resetMode ? 'Back to sign in' : 'Forgot password?'}</button>
   </form>;
+}
+
+function SetPasswordScreen({ onDone }) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function save(event) {
+    event.preventDefault();
+    if (password.length < 8) { setError('Use at least 8 characters.'); return; }
+    if (password !== confirm) { setError('The two passwords do not match.'); return; }
+    setSaving(true);
+    setError('');
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+    setSaving(false);
+    if (updateError) setError(updateError.message);
+    else onDone();
+  }
+
+  return <div style={{ fontFamily:FONT, minHeight:'100vh', display:'grid', placeItems:'center', padding:24, background:`linear-gradient(135deg, ${NAVY_DEEP} 0%, ${NAVY} 100%)` }}>
+    <form className="team-login-form" onSubmit={save} style={{ width:'100%', maxWidth:400, background:'#fff', borderRadius:8, padding:24, display:'grid', gap:10 }}>
+      <strong style={{ color:NAVY, fontSize:16 }}>Set your password</strong>
+      <span style={{ color:'#64778a', fontSize:12 }}>Choose a password to finish setting up your account.</span>
+      <input required type="password" autoComplete="new-password" placeholder="New password" value={password} onChange={e=>setPassword(e.target.value)} />
+      <input required type="password" autoComplete="new-password" placeholder="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)} />
+      {error && <span style={{ color:'#C0392B', fontSize:12 }}>{error}</span>}
+      <button type="submit" disabled={saving} style={{ background:NAVY, color:'#fff', border:'none', borderRadius:6, padding:10, fontWeight:700, cursor:'pointer' }}>{saving ? 'Saving...' : 'Save password'}</button>
+    </form>
+  </div>;
 }
 
 function RoleCard({ icon, title, sub, onClick, primary, light, disabled }) {

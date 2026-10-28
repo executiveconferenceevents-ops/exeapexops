@@ -3,6 +3,7 @@ import { CheckCircle2, ClipboardPlus } from 'lucide-react';
 import QueryForm from '../components/QueryForm';
 import { getPublicExhibitors, submitClientQuery, readableError } from '../lib/mock';
 import { supabase } from '../lib/supabase';
+import { formatDateTime } from '../lib/format';
 import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, TEAL, FONT } from '../theme';
 
 export default function ClientQuery() {
@@ -37,7 +38,7 @@ export default function ClientQuery() {
         <CheckCircle2 size={40} color={TEAL} />
         <div style={eyebrowStyle}>{alreadySubmitted ? 'Already submitted' : 'Query sent to Ops'}</div>
         <h1 style={headingStyle}>{alreadySubmitted ? 'This issue is already logged.' : 'Your request is in the queue.'}</h1>
-        <p style={copyStyle}>{alreadySubmitted ? 'We did not create another query. Use this existing reference if you contact the Ops Desk:' : 'Reference'} <strong>{savedQuery.id}</strong> for Stand {savedQuery.stand}. {!alreadySubmitted && 'The Ops Desk will assign the right team.'}</p>
+        <p style={copyStyle}>{alreadySubmitted ? 'We did not create another query. Use this existing reference if you contact the Ops Desk:' : 'Reference'} <strong>{savedQuery.id}</strong> for Stand {savedQuery.stand}. Logged {formatDateTime(savedQuery.loggedAt || savedQuery.logged_at)}. {!alreadySubmitted && 'The Ops Desk will assign the right team.'}</p>
         {photosSkipped && <p style={{ color: '#805C16', fontSize: 13 }}>You were offline, so your photos were not attached. Send them to the Ops Desk once you have a connection.</p>}
         {!supabase && <p style={{ color: '#922B21', fontSize: 12 }}>Demo mode: Supabase is not connected, so this query is only saved in this browser.</p>}
       </section> : <section className="apex-service-panel" style={cardStyle}>

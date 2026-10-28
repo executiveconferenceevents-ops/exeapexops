@@ -5,6 +5,7 @@ import {
 } from '../lib/mock';
 import StatusBadge from '../components/StatusBadge';
 import PhotoGallery from '../components/PhotoGallery';
+import EvidenceUploader from '../components/EvidenceUploader';
 import QueryForm from '../components/QueryForm';
 import { Activity, AlertTriangle, Archive, Bell, Building2, Camera, Check, CheckCircle2, ClipboardList, ClipboardPlus, FileText, Hammer, HeartPulse, LayoutDashboard, Monitor, MoreHorizontal, Package, Palette, Plus, Printer, Shield, Sparkles, Truck, Users, Wifi, X, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -545,7 +546,7 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
 
       {/* Edit / assign modal */}
       {selected && (
-        <EditPanel q={selected} staff={staff} onSave={saveEdit} onClose={()=>setSelected(null)} />
+        <EditPanel q={selected} staff={staff} onSave={saveEdit} onClose={()=>setSelected(null)} onPhotosAdded={refresh} />
       )}
       {toast && <div role="status" style={toastStyle}>
         <span style={{ width:34, height:34, display:'grid', placeItems:'center', background:toast.kind === 'CLIENT_ESCALATION' ? '#FCE4E1' : '#D9EAF6', color:toast.kind === 'CLIENT_ESCALATION' ? CORAL : BLUE, borderRadius:6 }}><Bell size={17} /></span>
@@ -621,7 +622,8 @@ function QueryRow({ q, staff, onSelect }) {
   );
 }
 
-function EditPanel({ q, staff, onSave, onClose }) {
+function EditPanel({ q, staff, onSave, onClose, onPhotosAdded }) {
+  const [photoUrls, setPhotoUrls] = useState(q.photo_urls || []);
   const [status, setStatus]     = useState(q.status);
   const [assignedTo, setAssigned] = useState(q.assignedTo || '');
   const [notes, setNotes]       = useState(q.notes || '');
@@ -636,11 +638,16 @@ function EditPanel({ q, staff, onSave, onClose }) {
         <InfoBlock label="Contact" value={`${q.contact}  ${q.phone}`} />
         <InfoBlock label="Category" value={q.category} />
         <InfoBlock label="Est. Fix" value={q.est} />
+        <InfoBlock label="Logged" value={q.loggedAt ? formatDate(q.loggedAt) : '—'} />
+        <InfoBlock label="Last updated" value={q.updatedAt ? formatDate(q.updatedAt) : '—'} />
       </div>
       <Field label="Description">
         <div style={{ background:'#F8F8F8', border:'1px solid #E0E0E0', borderRadius:6, padding:'8px 10px', fontSize:13, color:'#333' }}>{q.description}</div>
       </Field>
-      {q.photo_urls?.length > 0 && <Field label="Photos from exhibitor"><PhotoGallery urls={q.photo_urls} size={110} /></Field>}
+      <Field label="Photos &amp; evidence">
+        <PhotoGallery urls={photoUrls} size={110} />
+        <div style={{ marginTop: photoUrls.length ? 10 : 0 }}><EvidenceUploader query={q} photoUrls={photoUrls} onAdded={urls => { setPhotoUrls(urls); onPhotosAdded?.(); }} /></div>
+      </Field>
       <Field label={`Assign To — ${q.category} department`}>
         <select value={assignedTo} onChange={e=>setAssigned(e.target.value)}>
           <option value="">— Unassigned —</option>

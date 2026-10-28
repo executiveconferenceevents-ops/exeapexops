@@ -74,9 +74,10 @@ async function prepareQueryPhoto(file) {
 }
 
 export const QUERY_PHOTO_LIMIT = 4;
+export const MAX_QUERY_PHOTOS = 8;
 
 export async function uploadQueryPhotos(files) {
-  const blobs = await Promise.all((files || []).slice(0, QUERY_PHOTO_LIMIT).map(prepareQueryPhoto));
+  const blobs = await Promise.all((files || []).slice(0, MAX_QUERY_PHOTOS).map(prepareQueryPhoto));
   if (!supabase) return Promise.all(blobs.map(readBlobAsDataUrl));
   const eventId = getActiveEventId();
   return Promise.all(blobs.map(async blob => {
@@ -977,7 +978,15 @@ export function recalculateSlaDeadlines(queries) {
   return updated;
 }
 
-export async function addQuery(q) {
+export async function addQuery(input) {
+  const { photos, ...q } = input;
+  if (photos?.length) {
+    try { q.photo_urls = await uploadQueryPhotos(photos); }
+    catch (uploadError) {
+      if (isNetworkError(uploadError)) throw new Error('Photos need an internet connection. Remove the photos to save this query now, or try again when you are online.');
+      throw uploadError;
+    }
+  }
   const normalizedQuery = {
     ...q,
     stand: normalizeStand(q.stand),
@@ -1033,7 +1042,7 @@ export async function submitClientQuery(query) {
           photosSkipped = true;
         }
       }
-      const payload = { ...queryFields, stand, photo_urls, sourceTab:'CLIENT' };
+      const payload = { ...queryFields, stand, photo_urls, sourceTab:'CLIENT', submittedAt:new Date().toISOString() };
       const { data, error } = await supabase.rpc('submit_public_query', {
         requested_event_slug:getEventSlug(),
         requested_code:getActiveEventCode(),
@@ -1107,6 +1116,7 @@ export async function updateQuery(id, patch) {
         ...(nextPatch.status !== undefined && { status: nextPatch.status }),
         ...(nextPatch.notes !== undefined && { notes: nextPatch.notes || null }),
         ...(nextPatch.completedAt !== undefined && { completed_at: nextPatch.completedAt || null }),
+        ...(nextPatch.photo_urls !== undefined && { photo_urls: nextPatch.photo_urls }),
         ...(slaDeadline && !Number.isNaN(slaDeadline.getTime()) && { sla_deadline: slaDeadline.toISOString() }),
       };
       const { data, error } = await supabase
