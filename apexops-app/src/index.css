@@ -302,8 +302,8 @@ textarea { resize: vertical; min-height: 60px; }
 @keyframes ops-loading-spin { to { transform:rotate(360deg); } }
 .access-login .access-hub-content { grid-column:1; grid-row:1; align-self:center; max-width:560px !important; }
 .access-login {
-  grid-template-rows:auto auto;
-  align-content:start;
+  grid-template-rows:minmax(0,1fr) auto;
+  align-content:stretch;
   justify-items:stretch;
   gap:20px;
   padding:38px clamp(24px,5vw,72px) 24px !important;
@@ -314,9 +314,9 @@ textarea { resize: vertical; min-height: 60px; }
   grid-column:1 / -1;
   grid-row:1;
   grid-template-columns:minmax(0,1fr) minmax(0,1fr);
-  grid-template-rows:auto 1fr;
+  grid-template-rows:auto auto;
   column-gap:clamp(48px,8vw,120px);
-  align-self:stretch;
+  align-self:center;
   width:100%;
   max-width:none !important;
 }
@@ -328,6 +328,18 @@ textarea { resize: vertical; min-height: 60px; }
 .access-login .public-access-tabs button[aria-current="page"] { border-color:var(--ops-navy) !important; background:var(--ops-navy) !important; color:#fff !important; }
 .access-login .access-hub-intro { max-width:540px !important; }
 .access-login .public-event-gate { width:100%; max-width:none; }
+.access-login .public-event-gate { border-color:#d5dae0; border-left-color:#c4ad82; background:#fff; padding:16px; gap:10px; box-shadow:0 2px 10px rgba(28,43,58,.06); }
+.access-login .public-event-gate label { color:#64778a; font-size:12px; letter-spacing:.6px; }
+.access-login .public-event-list-heading { color:#64778a; font-size:12px; }
+.access-login .public-event-selected-card { border-color:#d5dae0; background:#f9f7f1; padding:12px 14px; }
+.access-login .public-event-selected-card strong { color:#1c2b3a; font-size:15px; }
+.access-login .public-event-selected-card span,.access-login .public-event-selected-card small { color:#64778a; font-size:12px; }
+.access-login .public-event-selected-card button { border-color:#1c2b3a; color:#1c2b3a; font-size:12px; min-height:32px; padding:6px 12px; }
+.access-login .public-event-unlocked span { color:#64778a; font-size:11px; }
+.access-login .public-event-unlocked strong { color:#1c2b3a; font-size:15px; }
+.access-login .public-event-gate select,.access-login .public-event-gate input { min-height:42px; font-size:14px; }
+.access-login .public-event-code-row button,.access-login .public-event-unlocked button { min-height:42px; border-color:#1c2b3a; background:#1c2b3a; color:#fff; font-size:13px; }
+.access-login .public-event-code-row button:disabled { background:#8b97a5; border-color:#8b97a5; cursor:not-allowed; opacity:1; }
 .access-login .public-event-cards { grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); max-height:none; overflow:visible; }
 .access-login .public-event-services { display:grid; grid-template-columns:minmax(260px,.8fr) minmax(0,1.2fr); gap:14px; width:100%; margin-top:14px; }
 .access-login .public-event-service-group { display:grid; align-content:start; gap:10px; min-width:0; padding:18px; border:1px solid #d5dae0; border-top:2px solid #c4ad82; background:#f9f7f1; }
