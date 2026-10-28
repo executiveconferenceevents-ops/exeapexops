@@ -11,7 +11,8 @@ import ClientQuery from './views/ClientQuery';
 import { supabase } from './lib/supabase';
 import { DEMO_MODE } from './lib/demoStore';
 import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventSlug, getPublicEvents, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
-import { ArrowLeft, Building2, ClipboardPlus, HardHat, LogIn, LogOut, Monitor } from 'lucide-react';
+import { ArrowLeft, Building2, CheckCircle2, ClipboardPlus, HardHat, LayoutDashboard, LogIn, LogOut, Monitor } from 'lucide-react';
+import { AppShell, PageHeader, ServiceCard, StatusBadge } from './components/AppShell';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, FONT, DISPLAY_FONT } from './theme';
 
 const PRIVACY_NOTICE_VERSION = '2026-10-04-v1';
@@ -262,6 +263,82 @@ export default function App() {
   if (session && role === 'exhibitors') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><ExhibitorSetup onBack={()=>setRole('ops')} /></WithBack>;
   if (session && role === 'dept') return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><DeptQueue /></WithBack>;
 
+  if (session && !role) {
+    const hubItems = [
+      canOpenOps && { key:'ops', label:'Ops Portal', Icon:Monitor, description:'Operations: manage requests and event operations', action:()=>setRole('ops'), needsEvent:true },
+      canOpenQueue && { key:'dept', label:'My Queue', Icon:HardHat, description:'Staff: see your assignments and update status', action:()=>setRole('dept'), needsEvent:true },
+      isPlatformAdmin && { key:'admin', label:'Admin Portal', Icon:Building2, description:'Platform back end: manage clients, events, invitations and suppliers', action:()=>setRole('tenant-admin') },
+      canManageTenants && !isPlatformAdmin && { key:'events', label:'Event Manager', Icon:Building2, description:'Create your events and manage your team and suppliers', action:()=>setRole('tenant-admin') },
+      selectedEvent && canOpenOps && { key:'exhibitor', label:'Exhibitor Status', Icon:Monitor, description:'See what exhibitors see for this event', action:()=>openStaffExhibitorView('exhibitor') },
+      selectedEvent && canOpenOps && { key:'query', label:'Log a Query', Icon:ClipboardPlus, description:'Log a query on behalf of an exhibitor', action:()=>openStaffExhibitorView('client-query') },
+    ].filter(Boolean);
+    const hubNav = [
+      { key:'overview', label:'Overview', Icon:LayoutDashboard, active:true },
+      ...hubItems.map(item => ({ key:item.key, label:item.label, Icon:item.Icon, onClick:item.action, disabled:item.needsEvent && (!selectedEvent || eventLoading) })),
+    ];
+    return (
+      <AppShell eventName={selectedEvent?.name} nav={hubNav} onSignOut={signOut}>
+        <PageHeader title="Choose your workspace" subtitle="Open the area you work in for the selected event." />
+        <div className="event-card">
+          <div>
+            <label className="event-label" htmlFor="active-event">Active event</label>
+            <h2>{selectedEvent?.name || (eventLoading ? 'Loading your events...' : 'No event selected')}</h2>
+          </div>
+          <div className="event-actions">
+            <select id="active-event" value={selectedEvent?.id || ''} onChange={event=>selectEvent(event.target.value)} disabled={eventLoading}>
+              <option value="">{eventLoading ? 'Loading your events...' : 'Select an event'}</option>
+              {events.map(event => <option key={event.id} value={event.id}>{event.clients?.name ? `${event.clients.name} · ` : ''}{event.name}</option>)}
+            </select>
+          </div>
+        </div>
+        {eventError && <div className="shell-alert" role="alert">{eventError}</div>}
+        {!eventLoading && !events.length && !canManageTenants && <p className="shell-note">No event access is assigned to this account.</p>}
+        {selectedEvent && !canOpenOps && !canOpenQueue && <p className="shell-note">No staff access is assigned to this event. Contact your client administrator.</p>}
+        <div className="svc-grid">
+          {hubItems.map(item => <ServiceCard key={item.key} icon={item.Icon} title={item.label} description={item.description} onClick={item.action} disabled={item.needsEvent && (!selectedEvent || eventLoading)} />)}
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!session && publicAccessView === 'events' && selectedEvent?.accessCode) {
+    const servicesReady = privacyAcknowledged;
+    const exhibitorNav = [
+      { key:'overview', label:'Overview', Icon:LayoutDashboard, active:true },
+      { key:'query', label:'Log a Query', Icon:ClipboardPlus, onClick:()=>openPublicRole('client-query'), disabled:!servicesReady },
+      { key:'status', label:'Check My Status', Icon:Monitor, onClick:()=>openPublicRole('exhibitor'), disabled:!servicesReady },
+      { key:'rebook', label:'Rebook Your Stand', Icon:Building2, onClick:()=>openPublicRole('rebooking'), disabled:!servicesReady },
+    ];
+    return (
+      <AppShell eventName={selectedEvent.name} nav={exhibitorNav}>
+        <PageHeader title="Exhibitor services" subtitle="Report issues, follow your requests and plan your next event." />
+        <div className="event-card">
+          <div>
+            <span className="event-label">Active event</span>
+            <h2>{selectedEvent.name}</h2>
+          </div>
+          <div className="event-actions">
+            <StatusBadge icon={CheckCircle2}>Event access verified</StatusBadge>
+            <button type="button" className="shell-secondary" onClick={()=>selectPublicEvent('')}>Change event</button>
+          </div>
+        </div>
+        {eventError && <div className="shell-alert" role="alert">{eventError}</div>}
+        {!servicesReady ? <section className="shell-panel" aria-labelledby="privacy-notice-title">
+          <h2 id="privacy-notice-title">Privacy notice</h2>
+          <p>The event organiser and Executive Conference Events use the company, stand, contact details, issue details, and rebooking preferences you provide to administer this event, route requests, and contact you about them.</p>
+          <p>Your request may be shared with authorised event operations staff and service providers assigned to respond. Information is retained for event delivery and applicable legal record-keeping, then deleted when no longer needed. Do not enter identity numbers, payment details, medical information, or other sensitive personal information in these forms.</p>
+          <p>For access, correction, deletion, or privacy questions, contact your event organiser using the contact details on your event invitation.</p>
+          <label className="shell-check"><input type="checkbox" checked={privacyNoticeChecked} onChange={event=>setPrivacyNoticeChecked(event.target.checked)} /> <span>I have read and acknowledge this privacy notice.</span></label>
+          <button type="button" className="shell-primary" onClick={acknowledgePrivacyNotice} disabled={!privacyNoticeChecked}>Continue to event services</button>
+        </section> : <div className="svc-grid">
+          <ServiceCard icon={ClipboardPlus} eyebrow="Report an issue" title="Log a Query" description="Report an event issue for your stand, with photos if helpful." onClick={()=>openPublicRole('client-query')} />
+          <ServiceCard icon={Monitor} eyebrow="Exhibitor status" title="Check My Status" description="Find your stand’s live service requests." onClick={()=>openPublicRole('exhibitor')} />
+          <ServiceCard icon={Building2} eyebrow="Future events" title="Rebook Your Stand" description={`Register interest in ${selectedEvent.next_event_name || 'the next event'}.`} onClick={()=>openPublicRole('rebooking')} />
+        </div>}
+      </AppShell>
+    );
+  }
+
   if (!session && publicAccessView === 'clients') return (
     <div style={{ fontFamily:FONT, minHeight:'100vh', display:'grid', placeItems:'center', padding:24, background:`linear-gradient(135deg, ${NAVY_DEEP} 0%, ${NAVY} 100%)` }}>
       <div style={{ width:'100%', maxWidth:400 }}>
@@ -277,67 +354,32 @@ export default function App() {
   );
 
   return (
-    <div className={session ? 'access-page access-hub' : 'access-page access-login'} style={{
+    <div className="access-page access-login" style={{
       fontFamily:FONT, minHeight:'100vh', color:'#fff', position:'relative', overflow:'hidden',
       background:`radial-gradient(circle at 90% 12%, rgba(180,154,106,.14), transparent 28%), linear-gradient(120deg, ${NAVY_DEEP} 0%, ${NAVY} 58%, #273958 100%)`,
       display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'56px 24px 32px',
     }}>
-      {session && <button className="access-hub-signout" onClick={signOut} style={{ position:'absolute', top:22, right:24, display:'inline-flex', alignItems:'center', gap:7, background:'rgba(255,255,255,.08)', color:'rgba(255,255,255,.84)', border:'1px solid rgba(255,255,255,.3)', borderRadius:5, padding:'9px 13px', fontSize:12, fontWeight:700, cursor:'pointer' }}><LogOut size={14} /> Sign out</button>}
       <div className="access-hub-content" style={{ width:'100%', maxWidth:980, position:'relative', zIndex:1 }}>
         <div className="access-hub-eyebrow" style={{ color:GOLD_PALE, fontSize:11, letterSpacing:3.2, textTransform:'uppercase', marginBottom:24 }}>
           Executive Conference Events · APEXOPS™
         </div>
         <div className="access-hub-intro" style={{ maxWidth:620, marginBottom:42 }}>
           <div className="access-hub-headline" style={{ fontFamily:DISPLAY_FONT, fontWeight:600, fontSize:'clamp(48px, 8vw, 88px)', lineHeight:.84, letterSpacing:-1.5 }}>
-            {session ? <>Choose your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>workspace.</em></> : publicAccessView === 'clients' ? <>Admin<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>portal.</em></> : publicAccessView === 'organiser' ? <>Event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>operations.</em></> : publicAccessView === 'team' ? <>Staff<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>queue.</em></> : selectedEvent?.accessCode ? <>Your event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>services.</em></> : publicEventSlug ? <>Enter your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event code.</em></> : <>Find your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event.</em></>}
+            {publicAccessView === 'clients' ? <>Admin<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>portal.</em></> : publicAccessView === 'organiser' ? <>Event<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>operations.</em></> : publicAccessView === 'team' ? <>Staff<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>queue.</em></> : publicEventSlug ? <>Enter your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event code.</em></> : <>Find your<br /><em style={{ color:GOLD_PALE, fontWeight:500 }}>event.</em></>}
           </div>
           <div style={{ width:54, height:3, background:GOLD, marginTop:30, marginBottom:18 }} />
           <div className="access-hub-subtitle" style={{ fontFamily:DISPLAY_FONT, fontStyle:'italic', color:'rgba(255,255,255,.72)', fontSize:19 }}>
-            {session ? 'APEXOPS™ by Executive Conference Events' : publicAccessView === 'clients' ? 'Sign in to manage clients, events, teams and suppliers.' : publicAccessView === 'organiser' ? 'Sign in to run requests and operations for your event.' : publicAccessView === 'team' ? 'Sign in to see and update the jobs assigned to you.' : selectedEvent?.accessCode ? 'Choose a service for this event.' : publicEventSlug ? 'Enter the code provided by your organiser to continue.' : 'Select an event, then enter your organiser-issued code to access services.'}
+            {publicAccessView === 'clients' ? 'Sign in to manage clients, events, teams and suppliers.' : publicAccessView === 'organiser' ? 'Sign in to run requests and operations for your event.' : publicAccessView === 'team' ? 'Sign in to see and update the jobs assigned to you.' : publicEventSlug ? 'Enter the code provided by your organiser to continue.' : 'Select an event, then enter your organiser-issued code to access services.'}
           </div>
         </div>
 
-        {session && <div className="event-picker">
-          <label htmlFor="active-event">Event workspace</label>
-          <select id="active-event" value={selectedEvent?.id || ''} onChange={event=>selectEvent(event.target.value)} disabled={eventLoading}>
-            <option value="">{eventLoading ? 'Loading your events...' : 'Select an event'}</option>
-            {events.map(event => <option key={event.id} value={event.id}>{event.clients?.name ? `${event.clients.name} · ` : ''}{event.name}</option>)}
-          </select>
-          {!eventLoading && !events.length && <p>No event access is assigned to this account.</p>}
-        </div>}
         {!session && <>
           <div className="public-access-panel">
           <nav className="public-access-tabs" aria-label="Access options" style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:24 }}>
             {[['events','Exhibitors'],['team','Staff'],['organiser','Operations']].map(([view,label])=><button key={view} type="button" aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)} style={{ background:publicAccessView === view ? GOLD_PALE : 'rgba(255,255,255,.07)', color:publicAccessView === view ? NAVY : '#fff', border:'1px solid rgba(255,255,255,.28)', borderRadius:4, padding:'10px 14px', fontWeight:700, cursor:'pointer' }}>{label}</button>)}
           </nav>
           {publicAccessView === 'events' ? <div className="public-event-gate">
-          {selectedEvent?.accessCode ? <div className="public-event-verified">
-            <div className="public-event-unlocked">
-              <div><span>Event access verified</span><strong>{selectedEvent.name}</strong></div>
-              {privacyAcknowledged && <button type="button" onClick={()=>selectPublicEvent('')}>Change event</button>}
-            </div>
-            {!privacyAcknowledged && <section className="privacy-notice-panel" aria-labelledby="privacy-notice-title">
-              <h2 id="privacy-notice-title">Privacy notice</h2>
-              <p>The event organiser and Executive Conference Events use the company, stand, contact details, issue details, and rebooking preferences you provide to administer this event, route requests, and contact you about them.</p>
-              <p>Your request may be shared with authorised event operations staff and service providers assigned to respond. Information is retained for event delivery and applicable legal record-keeping, then deleted when no longer needed. Do not enter identity numbers, payment details, medical information, or other sensitive personal information in these forms.</p>
-              <p>For access, correction, deletion, or privacy questions, contact your event organiser using the contact details on your event invitation.</p>
-              <label><input type="checkbox" checked={privacyNoticeChecked} onChange={event=>setPrivacyNoticeChecked(event.target.checked)} /> <span>I have read and acknowledge this privacy notice.</span></label>
-              <button type="button" onClick={acknowledgePrivacyNotice} disabled={!privacyNoticeChecked}>Continue to event services</button>
-            </section>}
-            {privacyAcknowledged && <div className="public-event-services">
-              <section className="public-event-service-group">
-                <h2>Report an issue</h2>
-                <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Report an event issue for your stand" onClick={()=>openPublicRole('client-query')} light />
-              </section>
-              <section className="public-event-service-group public-event-exhibitor-group">
-                <h2>Exhibitors</h2>
-                <div className="public-event-exhibitor-options">
-                  <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Check My Status" sub="Find your stand’s live service requests" onClick={()=>openPublicRole('exhibitor')} light />
-                  <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Rebook Your Stand" sub={`Register interest in ${selectedEvent?.next_event_name || 'the next event'}`} onClick={()=>openPublicRole('rebooking')} light />
-                </div>
-              </section>
-            </div>}
-          </div> : publicEventSlug ? <div className="public-event-code-step">
+          {publicEventSlug ? <div className="public-event-code-step">
             <div className="public-event-selected-card">
               <div><strong>{selectedPublicEvent?.event_name || publicEventSlug}</strong><small>{formatEventDateRange(selectedPublicEvent?.event_start_date, selectedPublicEvent?.event_end_date)}</small></div>
               <button type="button" onClick={()=>selectPublicEvent('')} disabled={verifyingPublicEvent}>Change</button>
@@ -380,22 +422,7 @@ export default function App() {
           {eventError && <div className="event-context-error" role="alert">{eventError}</div>}
           </div>
         </>}
-        {session && eventError && <div className="event-context-error" role="alert">{eventError}</div>}
-
-        {session && <div className="access-hub-choice-heading" style={{ textAlign:'left', marginBottom:20 }}>
-          <div style={{ color:'rgba(255,255,255,.48)', fontSize:10, letterSpacing:2.2, textTransform:'uppercase' }}>Operations access</div>
-        </div>}
       </div>
-
-      {session && <div className="access-card-stack access-card-grid" style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1 }}>
-        {session && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Ops Portal" sub="Operations: manage requests and event operations" onClick={()=>setRole('ops')} primary disabled={!selectedEvent || eventLoading} />}
-        {session && canOpenQueue && <RoleCard icon={<HardHat size={24} strokeWidth={1.8} />} title="My Queue" sub="Staff: see your assignments and update status" onClick={()=>setRole('dept')} light disabled={!selectedEvent || eventLoading} />}
-        {session && isPlatformAdmin && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Admin Portal" sub="Platform back end: manage clients, events, invitations and suppliers" onClick={()=>setRole('tenant-admin')} light />}
-        {session && canManageTenants && !isPlatformAdmin && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Event Manager" sub="Create your events and manage your team and suppliers" onClick={()=>setRole('tenant-admin')} light />}
-        {session && selectedEvent && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Exhibitor Status" sub="See what exhibitors see for this event" onClick={()=>openStaffExhibitorView('exhibitor')} light />}
-        {session && selectedEvent && canOpenOps && <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Log a query on behalf of an exhibitor" onClick={()=>openStaffExhibitorView('client-query')} light />}
-        {session && selectedEvent && !canOpenOps && !canOpenQueue && <p className="event-access-help">No staff access is assigned to this event. Contact your client administrator.</p>}
-      </div>}
 
       {!session && publicAccessView !== 'clients' && <button type="button" onClick={()=>setPublicAccessView('clients')} style={{ position:'absolute', right:16, bottom:12, zIndex:2, background:'transparent', border:0, color:'rgba(27,42,74,.45)', fontSize:10, letterSpacing:1, cursor:'pointer' }}>Admin</button>}
       <div className="access-hub-footer" style={{ color:'rgba(255,255,255,.32)', fontSize:10, letterSpacing:.4, marginTop:48, position:'relative', zIndex:1 }}>
@@ -497,35 +524,6 @@ function SetPasswordScreen({ onDone }) {
       <button type="submit" disabled={saving} style={{ background:NAVY, color:'#fff', border:'none', borderRadius:6, padding:10, fontWeight:700, cursor:'pointer' }}>{saving ? 'Saving...' : 'Save password'}</button>
     </form>
   </div>;
-}
-
-function RoleCard({ icon, title, sub, onClick, primary, light, disabled }) {
-  const [hover, setHover] = useState(false);
-  return (
-    <button
-      className={`access-option${primary ? ' access-option-primary' : ''}`}
-      onClick={onClick}
-      disabled={disabled}
-      onMouseEnter={()=>setHover(true)}
-      onMouseLeave={()=>setHover(false)}
-      style={{
-        background: primary ? '#fff' : light ? 'rgba(255,255,255,.07)' : 'rgba(255,255,255,.1)',
-        border: primary ? '1px solid rgba(255,255,255,.8)' : '1px solid rgba(255,255,255,.22)',
-        borderRadius:4, padding:'17px 20px', cursor:'pointer', textAlign:'left',
-        transform: hover ? 'translateY(-2px)' : 'none',
-        boxShadow: hover ? '0 6px 20px rgba(0,0,0,.3)' : '0 2px 8px rgba(0,0,0,.2)',
-        transition:'all .15s',
-        display:'flex', alignItems:'center', gap:14,
-      }}
-    >
-      <span style={{ color: primary ? NAVY : GOLD_PALE, display:'inline-flex', alignItems:'center' }}>{icon}</span>
-      <div>
-        <div style={{ fontWeight:700, fontSize:14, letterSpacing:.2, color: primary ? NAVY : '#fff', marginBottom:3 }}>{title}</div>
-        <div style={{ fontSize:12, color: primary ? 'rgba(27,42,74,.7)' : 'rgba(255,255,255,.6)', lineHeight:1.4 }}>{sub}</div>
-      </div>
-      <span style={{ marginLeft:'auto', color: primary ? NAVY : 'rgba(255,255,255,.4)', fontSize:18 }}>›</span>
-    </button>
-  );
 }
 
 function WithBack({ onBack, onSignOut, children }) {

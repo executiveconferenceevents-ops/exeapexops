@@ -333,6 +333,14 @@ textarea { resize: vertical; min-height: 60px; }
 .access-login .public-event-list-heading { color:#64778a; font-size:12px; }
 .access-login .public-events-empty { border-color:#e3e6e8; background:#fafbfd; color:#64778a; font-size:13px; }
 .access-login .privacy-notice-panel { gap:12px; padding-top:10px; }
+.access-login .public-access-tabs { display:inline-flex !important; gap:2px !important; padding:4px; border:1px solid #d5dae0; border-radius:10px; background:#fff; }
+.access-login .public-access-tabs button { min-height:40px; padding:0 20px !important; border:0 !important; border-radius:7px !important; background:transparent !important; color:#5f6f7f !important; font-size:14px; font-weight:600 !important; }
+.access-login .public-access-tabs button:hover { color:var(--ops-navy) !important; }
+.access-login .public-access-tabs button[aria-current="page"] { background:var(--ops-navy) !important; color:#fff !important; }
+.access-login .team-login-form { gap:12px !important; padding:24px !important; border-radius:12px !important; }
+.access-login .team-login-form strong { font-size:20px !important; }
+.access-login .team-login-form input { min-height:44px; padding:0 12px; border:1px solid #d5dae0; border-radius:8px; font-size:14px; }
+.access-login .team-login-form button[type="submit"] { min-height:44px; border-radius:8px !important; font-size:14px !important; }
 .access-login .privacy-notice-panel h2 { color:#1c2b3a; font-size:20px; }
 .access-login .privacy-notice-panel p { color:#3f5163; font-size:13px; line-height:1.6; }
 .access-login .privacy-notice-panel label { align-items:center; gap:10px; margin-top:6px; color:#1c2b3a; font-size:13px; }
