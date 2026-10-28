@@ -286,7 +286,7 @@ export default function ClientEventAdmin() {
   return (
     <div className="adm-shell">
       <aside className="adm-sidebar">
-        <div className="adm-brand">APEXOPS<sup>™</sup><small>Platform admin</small></div>
+        <div className="adm-brand">APEXOPS<sup>™</sup><small>{isPlatformAdmin ? 'Platform admin' : 'Event manager'}</small></div>
         <nav aria-label="Admin sections">
           {navItems.map(([key, label, Icon]) => <button key={key} type="button" className={section === key ? 'active' : ''} aria-current={section === key ? 'page' : undefined} onClick={()=>setSection(key)}><Icon size={16} /> {label}</button>)}
         </nav>
@@ -294,7 +294,7 @@ export default function ClientEventAdmin() {
     <main className="tenant-admin-page adm-main">
       <header className="tenant-admin-heading adm-topbar">
         <div>
-          <div className="tenant-admin-kicker">{isPlatformAdmin ? 'PLATFORM ADMIN' : 'CLIENT ADMIN'}</div>
+          <div className="tenant-admin-kicker">{isPlatformAdmin ? 'PLATFORM ADMIN' : 'EVENT MANAGER'}</div>
           <h1>{sectionTitle}</h1>
           <p>{isPlatformAdmin ? 'Create clients after payment is confirmed, then set up their events and teams.' : 'Create events and manage team access for your organisation.'}</p>
         </div>

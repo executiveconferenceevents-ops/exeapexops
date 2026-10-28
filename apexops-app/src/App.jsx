@@ -223,8 +223,8 @@ export default function App() {
     if (!session || !loginDestination || eventLoading) return;
 
     if (loginDestination === 'clients') {
-      if (canManageTenants) setRole('tenant-admin');
-      else setEventError('This account does not have Admin access. Ask the platform owner to assign it.');
+      if (isPlatformAdmin) setRole('tenant-admin');
+      else setEventError('This account does not have Admin access. Clients can manage their events from the Event Manager card after signing in on the Operations tab.');
     } else if (loginDestination === 'organiser') {
       if (!selectedEvent) {
         setEventError(events.length
@@ -248,14 +248,14 @@ export default function App() {
     }
 
     setLoginDestination(null);
-  }, [session, loginDestination, eventLoading, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue]);
+  }, [session, loginDestination, eventLoading, isPlatformAdmin, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue]);
 
   if (!authReady) return null;
   if (session && recovering) return <SetPasswordScreen onDone={()=>{ setRecovering(false); window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); }} />;
   if (role === 'exhibitor') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ExhibitorStatus /></WithBack>;
   if (role === 'client-query') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ClientQuery /></WithBack>;
   if (role === 'rebooking') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><RebookingForm /></WithBack>;
-  if (session && role === 'tenant-admin') return <WithBack onBack={()=>setRole(canOpenOps ? 'ops' : null)} onSignOut={signOut}><ClientEventAdmin /></WithBack>;
+  if (session && role === 'tenant-admin' && canManageTenants) return <WithBack onBack={()=>setRole(canOpenOps ? 'ops' : null)} onSignOut={signOut}><ClientEventAdmin /></WithBack>;
   if (session && role === 'ops') return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><OpsPortal onOpenStaff={()=>setRole('staff')} onOpenExhibitors={()=>setRole('exhibitors')} /></WithBack>;
   if (session && role === 'staff') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><StaffSetup /></WithBack>;
     if (session && role === 'people') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><PeopleSetup onBack={()=>setRole('ops')} /></WithBack>;
@@ -390,7 +390,8 @@ export default function App() {
       {session && <div className="access-card-stack access-card-grid" style={{ display:'flex', flexDirection:'column', gap:10, width:420, maxWidth:'100%', position:'relative', zIndex:1 }}>
         {session && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Ops Portal" sub="Operations: manage requests and event operations" onClick={()=>setRole('ops')} primary disabled={!selectedEvent || eventLoading} />}
         {session && canOpenQueue && <RoleCard icon={<HardHat size={24} strokeWidth={1.8} />} title="My Queue" sub="Staff: see your assignments and update status" onClick={()=>setRole('dept')} light disabled={!selectedEvent || eventLoading} />}
-        {session && canManageTenants && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Admin Portal" sub={isPlatformAdmin ? 'Manage clients, events, invitations and suppliers' : 'Create events and manage your organisation’s team'} onClick={()=>setRole('tenant-admin')} light />}
+        {session && isPlatformAdmin && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Admin Portal" sub="Platform back end: manage clients, events, invitations and suppliers" onClick={()=>setRole('tenant-admin')} light />}
+        {session && canManageTenants && !isPlatformAdmin && <RoleCard icon={<Building2 size={24} strokeWidth={1.8} />} title="Event Manager" sub="Create your events and manage your team and suppliers" onClick={()=>setRole('tenant-admin')} light />}
         {session && selectedEvent && canOpenOps && <RoleCard icon={<Monitor size={24} strokeWidth={1.8} />} title="Exhibitor Status" sub="See what exhibitors see for this event" onClick={()=>openStaffExhibitorView('exhibitor')} light />}
         {session && selectedEvent && canOpenOps && <RoleCard icon={<ClipboardPlus size={24} strokeWidth={1.8} />} title="Log a Query" sub="Log a query on behalf of an exhibitor" onClick={()=>openStaffExhibitorView('client-query')} light />}
         {session && selectedEvent && !canOpenOps && !canOpenQueue && <p className="event-access-help">No staff access is assigned to this event. Contact your client administrator.</p>}
