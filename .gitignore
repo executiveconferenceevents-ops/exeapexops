@@ -1,2 +1,6 @@
 /apexops-app.zip
 apexops-app (2).zip
+node_modules
+
+.env
+.env.local
