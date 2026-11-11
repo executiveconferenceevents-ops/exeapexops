@@ -80,5 +80,9 @@ from (values
   ('Private query photo storage',
     exists (select 1 from storage.buckets where id = 'query-photos-private' and public = false)
       and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'can_read_query_photo'),
-    'query-photo-privacy-migration.sql')
+    'query-photo-privacy-migration.sql'),
+  ('Per-client event limits enforced by the database',
+    exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'clients' and column_name = 'event_limit')
+      and exists (select 1 from pg_trigger where tgrelid = 'public.events'::regclass and tgname = 'events_enforce_client_event_limit' and not tgisinternal),
+    'client-event-limits-migration.sql')
 ) as checks(item, ok, fix);

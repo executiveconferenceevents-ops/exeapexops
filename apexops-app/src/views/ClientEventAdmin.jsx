@@ -6,7 +6,7 @@ import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from
 import { enqueue, isNetworkError } from '../lib/offline';
 import { Building2, CalendarDays, LayoutDashboard, MailPlus, Plus, RefreshCw, Trash2, Truck, Upload } from 'lucide-react';
 
-const emptyClient = { name:'', slug:'', adminEmail:'' };
+const emptyClient = { name:'', slug:'', adminEmail:'', eventLimit:1 };
 const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'', logo_file:null };
 const emptyInvite = { client_id:'', event_id:'', email:'', role:'staff' };
 const emptySupplier = { name:'', contact:'', email:'', mobile:'', category:'Other' };
@@ -27,6 +27,8 @@ export default function ClientEventAdmin() {
   const [memberships, setMemberships] = useState([]);
   const [privateSuppliers, setPrivateSuppliers] = useState([]);
   const [supplierClientId, setSupplierClientId] = useState('');
+  const [managedClientId, setManagedClientId] = useState('');
+  const [managedClientEventLimit, setManagedClientEventLimit] = useState(1);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [clientForm, setClientForm] = useState(emptyClient);
   const [eventForm, setEventForm] = useState(emptyEvent);
@@ -64,12 +66,18 @@ export default function ClientEventAdmin() {
         platformAdmin = Boolean(adminResult.data);
         currentMemberships = membershipResult.data || [];
         if (platformAdmin) {
-          const { data, error: clientsError } = await supabase.from('clients').select('id, name, slug').order('name');
+          const { data, error: clientsError } = await supabase.from('clients').select('id, name, slug, event_limit').order('name');
           if (clientsError) throw clientsError;
           visibleClients = data || [];
         }
       }
       const managedClientId = currentMemberships.find(membership => membership.role === 'client_admin' && !membership.event_id)?.client_id || '';
+      let managedClientEventLimit = 1;
+      if (!DEMO_MODE && !platformAdmin && managedClientId) {
+        const { data:managedClient, error:managedClientError } = await supabase.from('clients').select('event_limit').eq('id', managedClientId).maybeSingle();
+        if (managedClientError) throw managedClientError;
+        managedClientEventLimit = managedClient?.event_limit || 1;
+      }
       let managedEvents = availableEvents;
       if (!DEMO_MODE && availableEvents.length) {
         const { data: codeRows, error: codeError } = await supabase.rpc('get_event_access_codes', {
@@ -88,6 +96,8 @@ export default function ClientEventAdmin() {
       setEvents(managedEvents);
       setMemberships(currentMemberships);
       setIsPlatformAdmin(platformAdmin);
+      setManagedClientId(managedClientId);
+      setManagedClientEventLimit(managedClientEventLimit);
       setEventForm(current => ({ ...current, client_id:platformAdmin ? current.client_id || visibleClients[0]?.id || '' : managedClientId }));
       setInviteForm(current => ({ ...current, client_id:platformAdmin ? current.client_id || visibleClients[0]?.id || '' : managedClientId }));
       const supplierScope = platformAdmin ? supplierClientId || visibleClients[0]?.id || '' : managedClientId;
@@ -148,12 +158,14 @@ export default function ClientEventAdmin() {
     try {
       const name = clientForm.name.trim();
       const slug = clientForm.slug.trim().toLowerCase();
+      const eventLimit = Number(clientForm.eventLimit);
+      if (!Number.isInteger(eventLimit) || eventLimit < 1 || eventLimit > 1000) throw new Error('Set an event limit from 1 to 1000.');
       if (DEMO_MODE) {
         const clients = getDemoCollection('clients', []);
         if (clients.some(client => client.slug === slug)) throw new Error('That organization URL slug is already in use.');
-        setDemoCollection('clients', [...clients, { id:`demo-client-${crypto.randomUUID()}`, name, slug }]);
+        setDemoCollection('clients', [...clients, { id:`demo-client-${crypto.randomUUID()}`, name, slug, event_limit:eventLimit }]);
       } else {
-        const input = { id:crypto.randomUUID(), name, slug, adminEmail:clientForm.adminEmail.trim() };
+        const input = { id:crypto.randomUUID(), name, slug, adminEmail:clientForm.adminEmail.trim(), eventLimit };
         const { error: createError } = await supabase.functions.invoke('create-client', { body:input });
         if (createError && isNetworkError(createError)) {
           await enqueue('client.create', input);
@@ -172,6 +184,29 @@ export default function ClientEventAdmin() {
       await refresh();
     } catch (saveError) {
       setError(saveError?.message || 'Could not create the client organization.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateClientEventLimit(clientId, value) {
+    const eventLimit = Number(value);
+    if (!Number.isInteger(eventLimit) || eventLimit < 1 || eventLimit > 1000) {
+      setError('Set an event limit from 1 to 1000.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const { error: updateError } = await supabase.from('clients').update({ event_limit:eventLimit }).eq('id', clientId);
+      if (updateError) throw updateError;
+      setClients(current => current.map(client => client.id === clientId ? { ...client, event_limit:eventLimit } : client));
+      if (clientId === managedClientId) setManagedClientEventLimit(eventLimit);
+      setNotice('Client event limit updated.');
+    } catch (updateError) {
+      setError(updateError?.message || 'Could not update the client event limit.');
+      await refresh();
     } finally {
       setSaving(false);
     }
@@ -315,6 +350,11 @@ export default function ClientEventAdmin() {
   ];
   const sectionTitle = navItems.find(([key]) => key === section)?.[1] || 'Overview';
   const liveEvents = events.filter(event => eventStatus(event)[1] === 'live').length;
+  const quotaClientId = isPlatformAdmin ? eventForm.client_id : managedClientId;
+  const quotaClient = clients.find(client => client.id === quotaClientId);
+  const currentEventLimit = isPlatformAdmin ? Number(quotaClient?.event_limit || 1) : managedClientEventLimit;
+  const currentClientEvents = events.filter(event => event.client_id === quotaClientId).length;
+  const eventLimitReached = Boolean(quotaClientId && currentClientEvents >= currentEventLimit);
 
   return (
     <div className="adm-shell">
@@ -355,13 +395,14 @@ export default function ClientEventAdmin() {
         {isPlatformAdmin && <section className="tenant-section" hidden={section !== 'clients'}>
           <div className="tenant-section-heading"><Building2 size={17} /><div><h2>Client organizations</h2><p>{clients.length} available to your account</p></div></div>
           <div className="tenant-list">
-            {clients.map(client => <div className="tenant-list-row" key={client.id}><strong>{client.name}</strong><code>{client.slug}</code></div>)}
+            {clients.map(client => <div className="tenant-list-row" key={client.id}><div className="tenant-event-details"><strong>{client.name}</strong><span>{client.slug} · {events.filter(event => event.client_id === client.id).length} of {client.event_limit || 1} events used</span></div><label className="tenant-quota-control">Event limit<input type="number" min="1" max="1000" value={client.event_limit || 1} disabled={saving} onChange={event=>setClients(current=>current.map(item=>item.id === client.id ? { ...item, event_limit:event.target.value } : item))} onBlur={event=>updateClientEventLimit(client.id, event.target.value)} /></label></div>)}
             {!clients.length && <p className="tenant-empty">No organizations are assigned to your account.</p>}
           </div>
           {isPlatformAdmin && <form className="tenant-form tenant-inline-form" onSubmit={createClient}>
             <h3>Create organization after payment confirmation</h3>
             <label>Organization name<input required maxLength="160" value={clientForm.name} onChange={event=>setClientForm({ ...clientForm, name:event.target.value })} /></label>
             <label>URL slug<input required pattern="[a-z0-9]+(-[a-z0-9]+)*" value={clientForm.slug} onChange={event=>setClientForm({ ...clientForm, slug:event.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'') })} /></label>
+            <label>Event limit<input required type="number" min="1" max="1000" value={clientForm.eventLimit} onChange={event=>setClientForm({ ...clientForm, eventLimit:event.target.value })} /><small>Maximum number of events this client can create.</small></label>
             <label>First admin email (optional)<input type="email" value={clientForm.adminEmail} onChange={event=>setClientForm({ ...clientForm, adminEmail:event.target.value })} /></label>
             <button type="submit" disabled={saving}><Plus size={15} /> Create client</button>
           </form>}
@@ -377,6 +418,7 @@ export default function ClientEventAdmin() {
             <h3>Create event</h3>
             {isPlatformAdmin ? <label>Client<select required value={eventForm.client_id} onChange={event=>setEventForm({ ...eventForm, client_id:event.target.value })}><option value="">Select client</option>{clients.map(client=><option key={client.id} value={client.id}>{client.name}</option>)}</select></label> : <p className="tenant-scope-note">New events will be created within your assigned organization.</p>}
             <label>Event name<input required maxLength="160" value={eventForm.name} onChange={event=>setEventForm({ ...eventForm, name:event.target.value })} /></label>
+            {quotaClientId && <p className="tenant-scope-note">Event allowance: {currentClientEvents} of {currentEventLimit} used.</p>}
             <label>URL slug<input required pattern="[a-z0-9]+(-[a-z0-9]+)*" value={eventForm.slug} onChange={event=>setEventForm({ ...eventForm, slug:event.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'') })} /></label>
             <label>Event logo (optional)<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>setEventForm({ ...eventForm, logo_file:event.target.files?.[0] || null })} /><small>PNG, JPG, or WebP; maximum 2 MB.</small></label>
             <label>Event start date<input type="date" required value={eventForm.event_start_date} onChange={event=>setEventForm({ ...eventForm, event_start_date:event.target.value })} /></label>
@@ -386,7 +428,7 @@ export default function ClientEventAdmin() {
             <label>Breakdown start<input type="date" required min={eventForm.event_end_date || eventForm.event_start_date || undefined} value={eventForm.breakdown_start_date} onChange={event=>setEventForm({ ...eventForm, breakdown_start_date:event.target.value })} /></label>
             <label>Breakdown end<input type="date" required min={eventForm.breakdown_start_date || undefined} value={eventForm.breakdown_end_date} onChange={event=>setEventForm({ ...eventForm, breakdown_end_date:event.target.value })} /></label>
             <label>Next event name<input maxLength="160" value={eventForm.next_event_name} onChange={event=>setEventForm({ ...eventForm, next_event_name:event.target.value })} placeholder="Optional rebooking destination" /></label>
-            <button type="submit" disabled={saving || !eventForm.client_id || !canManageClient(eventForm.client_id)}><Plus size={15} /> Create event</button>
+            <button type="submit" disabled={saving || !eventForm.client_id || !canManageClient(eventForm.client_id) || eventLimitReached}><Plus size={15} /> {eventLimitReached ? 'Event limit reached' : 'Create event'}</button>
           </form>
         </section>
 

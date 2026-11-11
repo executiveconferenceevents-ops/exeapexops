@@ -484,6 +484,8 @@ textarea { resize: vertical; min-height: 60px; }
 .tenant-event-logo-action input { position:absolute; width:1px; height:1px; opacity:0; }
 .tenant-event-access { display:grid; justify-items:end; gap:3px; min-width:0; }
 .tenant-event-access code { overflow-wrap:anywhere; }
+.tenant-quota-control { display:grid; gap:4px; flex:0 0 110px; color:#64778a; font-size:10px; font-weight:700; }
+.tenant-quota-control input { min-height:32px; width:100%; padding:5px 8px; border:1px solid #d5dae0; border-radius:4px; color:#1c2b3a; font:600 12px inherit; }
 .tenant-regenerate-code { padding:3px 0; border:0; background:transparent; color:#315c78; font:600 10px inherit; text-decoration:underline; cursor:pointer; }
 .tenant-regenerate-code:disabled { opacity:.55; cursor:wait; }
 .tenant-empty { padding:11px; color:#64778a; font-size:11px; }

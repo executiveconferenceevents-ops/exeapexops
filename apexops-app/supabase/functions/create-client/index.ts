@@ -45,7 +45,7 @@ Deno.serve(async request => {
   if (platformError) return respond(500, { message:'Could not verify platform permissions.' });
   if (!platformAdmin) return respond(403, { message:'Only platform administrators can create client organizations.' });
 
-  let input: { id?:string; name?:string; slug?:string; adminEmail?:string };
+  let input: { id?:string; name?:string; slug?:string; adminEmail?:string; eventLimit?:number };
   try { input = await request.json(); }
   catch { return respond(400, { message:'Provide a valid client request.' }); }
 
@@ -53,8 +53,12 @@ Deno.serve(async request => {
   const name = String(input.name || '').trim();
   const slug = String(input.slug || '').trim().toLowerCase();
   const adminEmail = String(input.adminEmail || '').trim().toLowerCase();
+  const eventLimit = Number(input.eventLimit ?? 1);
   if (!uuidPattern.test(id) || name.length < 2 || name.length > 160 || !slugPattern.test(slug)) {
     return respond(400, { message:'Provide a client name and a URL-safe slug.' });
+  }
+  if (!Number.isInteger(eventLimit) || eventLimit < 1 || eventLimit > 1000) {
+    return respond(400, { message:'Set an event limit from 1 to 1000.' });
   }
   if (adminEmail && !adminEmail.includes('@')) return respond(400, { message:'Provide a valid admin email.' });
 
@@ -64,7 +68,7 @@ Deno.serve(async request => {
   if (existing && existing.id !== id) return respond(409, { message:'That organization URL slug is already in use.' });
 
   if (!existing) {
-    const { error: insertError } = await adminClient.from('clients').insert({ id, name, slug });
+    const { error: insertError } = await adminClient.from('clients').insert({ id, name, slug, event_limit:eventLimit });
     if (insertError) return respond(500, { message:'Could not create the client organization.' });
   }
 
