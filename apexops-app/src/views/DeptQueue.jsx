@@ -4,20 +4,45 @@ import StatusBadge from '../components/StatusBadge';
 import PhotoGallery from '../components/PhotoGallery';
 import EvidenceUploader from '../components/EvidenceUploader';
 import { formatDateTime } from '../lib/format';
+import { supabase } from '../lib/supabase';
+import { DEMO_MODE } from '../lib/demoStore';
 import { ClipboardList, CheckCircle2, CircleUserRound, Clock3, HardHat } from 'lucide-react';
 import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, TEAL, GREEN, BG, FONT } from '../theme';
 
-export default function DeptQueue() {
+export default function DeptQueue({ allowStaffPicker = false }) {
   const [staffId, setStaffId]   = useState('');
   const [queries, setQueries]   = useState([]);
   const [staff, setStaff]       = useState([]);
   const [exhibitors, setExhibitors] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [profileError, setProfileError] = useState('');
 
   useEffect(() => {
-    refresh();
-    getStaff().then(setStaff);
-  }, []);
+    let cancelled = false;
+    async function loadQueue() {
+      try {
+        const [nextQueries, nextExhibitors, nextStaff] = await Promise.all([getQueries(), getExhibitors(), getStaff()]);
+        if (cancelled) return;
+        setQueries(nextQueries);
+        setExhibitors(nextExhibitors);
+        setStaff(nextStaff);
+        if (DEMO_MODE || allowStaffPicker) return;
+
+        const { data, error } = await supabase.auth.getUser();
+        if (error) throw error;
+        const email = String(data.user?.email || '').trim().toLowerCase();
+        const matchingStaff = nextStaff.filter(member => String(member.email || '').trim().toLowerCase() === email);
+        if (matchingStaff.length === 1) setStaffId(String(matchingStaff[0].id));
+        else setProfileError(matchingStaff.length
+          ? 'More than one staff profile uses this sign-in email. Ask your client administrator to resolve the duplicate.'
+          : 'Your sign-in email is not linked to a staff profile for this event. Ask your client administrator to add it.');
+      } catch (loadError) {
+        if (!cancelled) setProfileError(loadError?.message || 'Could not load your staff queue.');
+      }
+    }
+    loadQueue();
+    return () => { cancelled = true; };
+  }, [allowStaffPicker]);
 
   const refresh = async () => {
     const [nextQueries, nextExhibitors] = await Promise.all([getQueries(), getExhibitors()]);
@@ -47,20 +72,20 @@ export default function DeptQueue() {
       <div className="apex-service-header" style={{ background:`linear-gradient(110deg, ${NAVY_DEEP}, ${NAVY})`, padding:'0 32px', display:'flex', alignItems:'center', gap:16, minHeight:76, boxShadow:'0 2px 14px rgba(13,26,50,.16)' }}>
         <div><div style={{ color:GOLD_PALE, fontWeight:700, fontSize:19, letterSpacing:2 }}>APEXOPS™</div><div style={{ color:'rgba(255,255,255,.56)', fontSize:10, letterSpacing:1.8, textTransform:'uppercase', marginTop:3 }}>Personal work queue</div></div>
         <span style={{ color:'rgba(255,255,255,.65)', fontSize:12 }}>My Queue</span>
-        <select value={staffId} onChange={e=>setStaffId(e.target.value)} style={{
+        {(DEMO_MODE || allowStaffPicker) && <select value={staffId} onChange={e=>setStaffId(e.target.value)} style={{
           marginLeft:'auto', background:'#fff', border:'1px solid rgba(215,197,160,.65)', borderRadius:5,
           padding:'9px 12px', fontSize:13, fontWeight:600, color:NAVY, cursor:'pointer', minWidth:220,
         }}>
           <option value="">— Select your name —</option>
           {staff.map(s=><option key={s.id} value={s.id}>{s.name}{s.supplier_name ? ` (${s.supplier_name})` : ''}</option>)}
-        </select>
+        </select>}
       </div>
 
       {!staffId ? (
         <div className="apex-service-panel dept-queue-empty" style={{ maxWidth:700, margin:'48px auto', background:'#fff', border:'1px dashed #cbd6d8', borderRadius:8, padding:'48px 24px', textAlign:'center', color:'#6f7b82' }}>
           <CircleUserRound size={34} color={BLUE} strokeWidth={1.6} />
-          <div style={{ color:NAVY, fontSize:17, fontWeight:700, marginTop:14 }}>Select your name to view your queue</div>
-          <div style={{ fontSize:13, marginTop:6 }}>Your assigned exhibitor requests and current work will appear here.</div>
+          <div style={{ color:NAVY, fontSize:17, fontWeight:700, marginTop:14 }}>{profileError ? 'Staff profile not linked' : (DEMO_MODE || allowStaffPicker) ? 'Select a staff member to view their queue' : 'Loading your queue'}</div>
+          <div style={{ fontSize:13, marginTop:6 }}>{profileError || 'Assigned exhibitor requests and current work will appear here.'}</div>
         </div>
       ) : (
         <div className="apex-service-main dept-queue-content" style={{ padding:'28px 32px 64px', maxWidth:1120, margin:'0 auto' }}>
