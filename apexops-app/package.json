@@ -20,6 +20,8 @@
     "start:demo": "node scripts/start-demo.js",
     "start:demo:secure": "node scripts/start-demo.js --https",
     "build": "react-scripts build",
+    "test": "react-scripts test",
+    "test:security": "node --test scripts/security-db.test.cjs",
     "desktop": "electron .",
     "desktop:dist": "react-scripts build && electron-builder --win"
   },
@@ -56,6 +58,7 @@
     ]
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
     "electron": "^45.1.0",
     "electron-builder": "^26.18.0"
   }

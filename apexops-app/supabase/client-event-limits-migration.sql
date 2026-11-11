@@ -1,8 +1,18 @@
 -- Add an admin-configurable per-client event quota and enforce it on every event insert.
 begin;
 
-alter table public.clients
-  add column if not exists event_limit integer not null default 1;
+do $$
+begin
+  if not exists (
+    select 1 from pg_attribute
+    where attrelid = 'public.clients'::regclass and attname = 'event_limit' and not attisdropped
+  ) then
+    alter table public.clients add column event_limit integer not null default 1;
+    update public.clients client
+    set event_limit = greatest(1, (select count(*) from public.events event where event.client_id = client.id));
+  end if;
+end;
+$$;
 
 do $$
 begin

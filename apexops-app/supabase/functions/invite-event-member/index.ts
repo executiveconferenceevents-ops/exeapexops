@@ -108,6 +108,17 @@ Deno.serve(async request => {
   }
   if (!authorized) return respond(403, { message:'Only a platform or client administrator can invite users to this scope.' });
 
+  if (!platformAdmin) {
+    const { data: billingCurrent, error: billingError } = await callerClient.rpc('client_billing_is_current', { target_client_id:clientId });
+    if (billingError) return respond(503, { message:'Client access checks are not available. Contact the platform administrator.' });
+    if (!billingCurrent) return respond(403, { message:'This client account is not active. Contact the platform administrator.' });
+    if (eventId) {
+      const { data: eventActive, error: eventActiveError } = await callerClient.rpc('is_event_operational', { target_event_id:eventId });
+      if (eventActiveError) return respond(503, { message:'Event access checks are not available. Contact the platform administrator.' });
+      if (!eventActive) return respond(403, { message:'This event is no longer open for team changes.' });
+    }
+  }
+
   let invitedUser = null;
   let existingUser = false;
   for (let page = 1; page <= 20 && !invitedUser; page += 1) {
@@ -135,19 +146,21 @@ Deno.serve(async request => {
   const { data: existingMembership, error: existingMembershipError } = await existingMembershipQuery.maybeSingle();
   if (existingMembershipError) return respond(500, { message:'Could not check existing event access.' });
   if (existingMembership) {
-    const { error: membershipUpdateError } = await adminClient
+    const { data: updatedMembership, error: membershipUpdateError } = await callerClient
       .from('client_event_memberships')
       .update({ role })
-      .eq('id', existingMembership.id);
-    if (membershipUpdateError) return respond(500, { message:'Could not update the user’s event access.' });
+      .eq('id', existingMembership.id)
+      .select('id')
+      .maybeSingle();
+    if (membershipUpdateError || !updatedMembership) return respond(403, { message:'Could not update event access. Check the client account and event status.' });
   } else {
-    const { error: membershipInsertError } = await adminClient.from('client_event_memberships').insert({
+    const { error: membershipInsertError } = await callerClient.from('client_event_memberships').insert({
       user_id:invitedUser.id,
       client_id:clientId,
       event_id:eventId,
       role,
     });
-    if (membershipInsertError) return respond(500, { message:'Invitation exists, but event access could not be assigned.' });
+    if (membershipInsertError) return respond(403, { message:'Invitation exists, but event access could not be assigned. Check the client account and event status.' });
   }
 
   return respond(200, {

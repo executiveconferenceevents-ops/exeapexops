@@ -1,7 +1,21 @@
--- Close public event access and operational writes seven days after breakdown.
+-- Close public event access and operational writes 30 days after breakdown.
 -- Historical records remain readable to authorized event members.
 
 begin;
+
+do $$
+begin
+  if to_regprocedure('public.event_code_rate_limit_version()') is null
+    or not exists (
+      select 1 from pg_proc procedure
+      join pg_namespace namespace on namespace.oid = procedure.pronamespace
+      where namespace.nspname = 'public' and procedure.proname = 'validate_public_event_code'
+        and procedure.prosrc like '%if current_attempts >= 10%'
+    ) then
+    raise exception 'Apply event-code-rate-limit-migration.sql before the event expiry migration.';
+  end if;
+end;
+$$;
 
 create or replace function public.is_event_operational(target_event_id uuid)
 returns boolean
@@ -14,7 +28,7 @@ as $$
     select 1
     from public.events event
     where event.id = target_event_id
-      and current_date <= coalesce(event.breakdown_end_date, event.event_end_date) + 7
+      and current_date <= coalesce(event.breakdown_end_date, event.event_end_date) + 30
       and public.client_billing_is_current(event.client_id)
   );
 $$;
@@ -43,61 +57,108 @@ with check (
 revoke all on function public.is_event_operational(uuid) from public;
 grant execute on function public.is_event_operational(uuid) to authenticated;
 
-create or replace function public.validate_public_event_code(requested_slug text, requested_code text)
-returns uuid
-language plpgsql
-volatile
+drop policy if exists "active client admins manage memberships" on public.client_event_memberships;
+create policy "active client admins manage memberships" on public.client_event_memberships for all to authenticated
+using (
+  role <> 'platform_admin'
+  and public.has_client_access(client_id, event_id, array['client_admin'])
+  and public.client_billing_is_current(client_id)
+  and (event_id is null or public.is_event_operational(event_id))
+)
+with check (
+  role <> 'platform_admin'
+  and public.has_client_access(client_id, event_id, array['client_admin'])
+  and public.client_billing_is_current(client_id)
+  and (event_id is null or public.is_event_operational(event_id))
+);
+grant insert, update, delete on public.client_event_memberships to authenticated;
+
+create or replace function public.can_read_event_history(target_event_id uuid)
+returns boolean
+language sql
+stable
 security definer
 set search_path = public, pg_temp
 as $$
-declare
-  normalized_slug text := lower(trim(coalesce(requested_slug, '')));
-  normalized_code text := upper(trim(coalesce(requested_code, '')));
-  request_headers jsonb := '{}'::jsonb;
-  client_ip text;
-  client_ip_hash text;
-  window_start_at timestamptz := to_timestamp(floor(extract(epoch from now()) / 900) * 900);
-  current_attempts integer := 0;
-  matched_event_id uuid;
-begin
-  begin
-    request_headers := coalesce(nullif(current_setting('request.headers', true), '')::jsonb, '{}'::jsonb);
-  exception when others then
-    request_headers := '{}'::jsonb;
-  end;
-  client_ip := coalesce(
-    nullif(request_headers->>'cf-connecting-ip', ''),
-    nullif(request_headers->>'x-real-ip', ''),
-    nullif(trim(regexp_replace(coalesce(request_headers->>'x-forwarded-for', ''), '^.*,', '')), ''),
-    'unknown'
+  select public.is_platform_admin() or exists (
+    select 1 from public.events event
+    where event.id = target_event_id
+      and (
+        (public.is_event_operational(event.id) and public.has_event_access(event.id, array['client_admin','event_admin','ops','staff']))
+        or (current_date <= (coalesce(event.event_end_date, event.breakdown_end_date) + interval '12 months')::date
+          and public.has_event_access(event.id, array['client_admin']))
+      )
   );
-  client_ip_hash := md5(client_ip);
-
-  select event.id into matched_event_id
-  from public.events event
-  where event.slug = normalized_slug
-    and event.exhibitor_code = normalized_code
-    and event.is_public
-    and public.is_event_operational(event.id);
-  if matched_event_id is not null then return matched_event_id; end if;
-
-  if client_ip <> 'unknown'
-    and coalesce(current_setting('apexops.event_code_attempt_recorded', true), '0') <> '1' then
-    insert into public.event_code_attempts (event_slug, client_ip_hash, window_start, attempt_count)
-    values (normalized_slug, client_ip_hash, window_start_at, 1)
-    on conflict (event_slug, client_ip_hash, window_start)
-    do update set attempt_count = public.event_code_attempts.attempt_count + 1
-    returning attempt_count into current_attempts;
-    perform set_config('apexops.event_code_attempt_recorded', '1', true);
-    delete from public.event_code_attempts where window_start < now() - interval '1 day';
-    if current_attempts > 10 then return null; end if;
-  end if;
-
-  return null;
-end;
 $$;
 
-revoke all on function public.validate_public_event_code(text, text) from public;
+revoke all on function public.can_read_event_history(uuid) from public;
+grant execute on function public.can_read_event_history(uuid) to authenticated;
+
+drop policy if exists "event history access" on public.events;
+create policy "event history access" on public.events as restrictive for select to authenticated
+using (
+  public.is_platform_admin()
+  or (current_date <= coalesce(breakdown_end_date, event_end_date) + 30
+    and public.client_billing_is_current(client_id)
+    and public.has_client_access(client_id, id, array['client_admin','event_admin','ops','staff']))
+  or (current_date <= (coalesce(event_end_date, breakdown_end_date) + interval '12 months')::date
+    and public.has_client_access(client_id, id, array['client_admin']))
+);
+drop policy if exists "event history access" on public.queries;
+create policy "event history access" on public.queries as restrictive for select to authenticated
+using (public.can_read_event_history(event_id));
+drop policy if exists "event history access" on public.staff;
+create policy "event history access" on public.staff as restrictive for select to authenticated
+using (public.can_read_event_history(event_id));
+drop policy if exists "event history access" on public.exhibitors;
+create policy "event history access" on public.exhibitors as restrictive for select to authenticated
+using (public.can_read_event_history(event_id));
+drop policy if exists "event history access" on public.rebooking_requests;
+create policy "event history access" on public.rebooking_requests as restrictive for select to authenticated
+using (public.can_read_event_history(event_id));
+drop policy if exists "event history access" on public.ops_notifications;
+create policy "event history access" on public.ops_notifications as restrictive for select to authenticated
+using (public.can_read_event_history(event_id));
+
+drop policy if exists "event history access for query photos" on storage.objects;
+create policy "event history access for query photos" on storage.objects as restrictive for select to authenticated
+using (
+  case
+    when bucket_id not in ('query-photos', 'query-photos-private') then true
+    when split_part(name, '/', 1) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      then public.can_read_event_history(split_part(name, '/', 1)::uuid)
+    else false
+  end
+);
+
+create or replace function public.is_query_photo_event_active(object_path text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select case
+    when split_part(object_path, '/', 1) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      then public.is_event_operational(split_part(object_path, '/', 1)::uuid)
+    else false
+  end;
+$$;
+revoke all on function public.is_query_photo_event_active(text) from public;
+grant execute on function public.is_query_photo_event_active(text) to anon, authenticated;
+drop policy if exists "active public query photos" on storage.objects;
+create policy "active public query photos" on storage.objects as restrictive for select to anon
+using (bucket_id not in ('query-photos', 'query-photos-private') or public.is_query_photo_event_active(name));
+drop policy if exists "active query photo uploads" on storage.objects;
+create policy "active query photo uploads" on storage.objects as restrictive for insert to anon, authenticated
+with check (bucket_id not in ('query-photos', 'query-photos-private') or public.is_query_photo_event_active(name));
+drop policy if exists "active query photo updates" on storage.objects;
+create policy "active query photo updates" on storage.objects as restrictive for update to anon, authenticated
+using (bucket_id not in ('query-photos', 'query-photos-private') or public.is_query_photo_event_active(name))
+with check (bucket_id not in ('query-photos', 'query-photos-private') or public.is_query_photo_event_active(name));
+drop policy if exists "active query photo deletions" on storage.objects;
+create policy "active query photo deletions" on storage.objects as restrictive for delete to authenticated
+using (bucket_id not in ('query-photos', 'query-photos-private') or public.is_query_photo_event_active(name));
 
 create or replace function public.list_public_events()
 returns table (
@@ -121,6 +182,7 @@ $$;
 
 -- Keep event history visible, but stop operational writes once the grace period expires.
 drop policy if exists "event admins delete queries" on public.queries;
+drop policy if exists "event admins delete active event queries" on public.queries;
 create policy "event admins delete active event queries"
 on public.queries for delete to authenticated
 using (
@@ -186,6 +248,7 @@ with check (
 );
 
 drop policy if exists "event admins manage exhibitors" on public.exhibitors;
+drop policy if exists "ops and admins manage active event exhibitors" on public.exhibitors;
 create policy "ops and admins manage active event exhibitors"
 on public.exhibitors for all to authenticated
 using (
@@ -198,6 +261,7 @@ with check (
 );
 
 drop policy if exists "event admins update rebooking requests" on public.rebooking_requests;
+drop policy if exists "event admins update active rebooking requests" on public.rebooking_requests;
 create policy "event admins update active rebooking requests"
 on public.rebooking_requests for update to authenticated
 using (
@@ -210,6 +274,7 @@ with check (
 );
 
 drop policy if exists "event members update notifications" on public.ops_notifications;
+drop policy if exists "event members update active notifications" on public.ops_notifications;
 create policy "event members update active notifications"
 on public.ops_notifications for update to authenticated
 using (
@@ -222,6 +287,7 @@ with check (
 );
 
 drop policy if exists "event operations delete private query photos" on storage.objects;
+drop policy if exists "event operations delete active private query photos" on storage.objects;
 create policy "event operations delete active private query photos"
 on storage.objects for delete to authenticated
 using (

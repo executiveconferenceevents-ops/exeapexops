@@ -7,7 +7,7 @@ import StatusBadge from '../components/StatusBadge';
 import PhotoGallery from '../components/PhotoGallery';
 import EvidenceUploader from '../components/EvidenceUploader';
 import QueryForm from '../components/QueryForm';
-import { Activity, AlertTriangle, Archive, Bell, Building2, Camera, Check, CheckCircle2, ClipboardList, ClipboardPlus, FileText, Hammer, HeartPulse, LayoutDashboard, Monitor, MoreHorizontal, Package, Palette, Plus, Printer, Shield, Sparkles, Truck, Users, Wifi, X, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Archive, Bell, Building2, Camera, Check, CheckCircle2, ClipboardList, ClipboardPlus, FileText, Hammer, HeartPulse, LayoutDashboard, Menu, Monitor, MoreHorizontal, Package, Palette, Plus, Printer, Shield, Sparkles, Truck, Users, Wifi, X, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getActiveEvent } from '../lib/eventScope';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, BG, BLUE, TEAL, CORAL, GREEN, FONT, DISPLAY_FONT } from '../theme';
@@ -141,6 +141,7 @@ const DEPARTMENT_ICONS = {
 export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
   const activeEvent = getActiveEvent();
   const eventName = activeEvent?.name || 'Event workspace';
+  const [menuOpen, setMenuOpen] = useState(false);
   const [queries, setQueries]   = useState([]);
   const [staff, setStaff]       = useState([]);
   const [exhibitors, setExhibitors] = useState([]);
@@ -410,7 +411,10 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
           <div className="ops-sidebar-event-name">{eventName}</div>
           <div className="ops-sidebar-event-meta">Exhibitor service &amp; delivery</div>
         </div>
-        <nav className="ops-sidebar-nav" aria-label="Operations navigation">
+        <button type="button" className="ops-mobile-menu" aria-expanded={menuOpen} aria-controls="ops-navigation" onClick={()=>setMenuOpen(open=>!open)}>
+          {menuOpen ? <X size={18} /> : <Menu size={18} />}<span>Operations menu</span><span className="ops-mobile-event">{eventName}</span>
+        </button>
+        <nav id="ops-navigation" className={`ops-sidebar-nav${menuOpen ? ' is-open' : ''}`} aria-label="Operations navigation">
           <div className="ops-nav-group-label">Work queue</div>
           {[
             ['DASHBOARD', 'Dashboard', LayoutDashboard, dashboardPool.filter(query => query.status !== 'COMPLETED').length],
@@ -418,7 +422,7 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
             ['ESCALATIONS', 'Escalations', AlertTriangle, escalated.length],
             ['NOTIFICATIONS', 'Notifications', Bell, notifications.filter(item => !item.read_at).length],
           ].map(([value, label, Icon, count]) => (
-            <button key={value} className={`ops-nav-item${tab === value ? ' active' : ''}`} aria-current={tab === value ? 'page' : undefined} onClick={()=>{ setStatusFilter(null); setTab(value); }}>
+            <button key={value} className={`ops-nav-item${tab === value ? ' active' : ''}`} aria-current={tab === value ? 'page' : undefined} onClick={()=>{ setStatusFilter(null); setTab(value); setMenuOpen(false); }}>
               <Icon size={15} /><span>{label}</span>{count > 0 && <span className="ops-nav-badge">{count}</span>}
             </button>
           ))}
@@ -429,7 +433,7 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
           {CATEGORIES.map(category => {
             const Icon = DEPARTMENT_ICONS[category] || ClipboardList;
             const count = dashboardPool.filter(query => query.category === category && query.status !== 'COMPLETED').length;
-            return <button key={category} className={`ops-nav-item ops-department-item${tab === category ? ' active' : ''}`} aria-current={tab === category ? 'page' : undefined} onClick={()=>{ setStatusFilter(null); setTab(category); }}>
+            return <button key={category} className={`ops-nav-item ops-department-item${tab === category ? ' active' : ''}`} aria-current={tab === category ? 'page' : undefined} onClick={()=>{ setStatusFilter(null); setTab(category); setMenuOpen(false); }}>
               <Icon size={15} /><span>{category}</span>{count > 0 && <span className="ops-nav-badge">{count}</span>}
             </button>;
           })}

@@ -2,7 +2,7 @@
 -- Paste the whole file into the Supabase SQL Editor and click Run.
 -- Apply required schema, entitlement, lifecycle and security migrations before deploying the app.
 
-select item, case when ok then 'OK' else 'MISSING - run ' || fix end as status
+select item, case when fix like 'MANUAL: %' then 'MANUAL REVIEW - ' || substr(fix, 9) when ok then 'OK' else 'MISSING - run ' || fix end as status
 from (values
   ('Base tables (queries, staff, exhibitors, suppliers)',
     (select count(*) = 4 from information_schema.tables where table_schema = 'public' and table_name in ('queries', 'staff', 'exhibitors', 'suppliers')),
@@ -62,13 +62,21 @@ from (values
       and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'submit_public_query' and p.prosrc like '%photo_urls%'),
     'query-photos-migration.sql'),
   ('Staff can read only assigned work and its related records',
-    (select count(*) = 5 from pg_policies where schemaname = 'public' and ((tablename = 'queries' and policyname in ('staff read assigned queries', 'staff update assigned queries')) or (tablename = 'staff' and policyname = 'staff read own profile') or (tablename = 'exhibitors' and policyname = 'staff read assigned exhibitors') or (tablename = 'suppliers' and policyname = 'event managers read suppliers'))),
+    (select count(*) = 5 from pg_policies where schemaname = 'public' and ((tablename = 'queries' and policyname in ('staff read assigned queries', 'staff update assigned queries')) or (tablename = 'staff' and policyname = 'staff read own profile') or (tablename = 'exhibitors' and policyname = 'staff read assigned exhibitors') or (tablename = 'suppliers' and policyname = 'event managers read suppliers')))
+      and not exists (select 1 from pg_policies where schemaname = 'public' and ((tablename = 'queries' and policyname = 'event members read queries') or (tablename = 'exhibitors' and policyname = 'event members read exhibitors') or (tablename = 'suppliers' and policyname = 'client members read suppliers'))),
     'staff-queue-security-migration.sql'),
-  ('Event codes are random and guess attempts are rate-limited',
+  ('Event codes are random and failed attempts are recorded',
     exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'validate_public_event_code')
       and exists (select 1 from pg_class where relnamespace = 'public'::regnamespace and relname = 'event_code_attempts')
       and exists (select 1 from pg_trigger where tgrelid = 'public.events'::regclass and tgname = 'events_set_exhibitor_code' and not tgisinternal),
     'event-code-hardening-migration.sql'),
+  ('Event-code lockout validator installed',
+    exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'event_code_rate_limit_version')
+      and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'validate_public_event_code' and p.prosrc like '%if current_attempts >= 10%'),
+    'event-code-rate-limit-migration.sql'),
+  ('Event-code rate limiting in the deployed environment',
+    false,
+    'MANUAL: verify trusted proxy IP headers, concurrent requests and all public access paths'),
   ('Query submission idempotency and durable consent',
     exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'queries' and column_name = 'client_submission_id')
       and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'event_privacy_acknowledgements')
@@ -90,8 +98,12 @@ from (values
       and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'client_billing_is_current')
       and exists (select 1 from pg_trigger where tgrelid = 'public.events'::regclass and tgname = 'events_enforce_client_event_entitlement' and not tgisinternal),
     'client-billing-access-migration.sql'),
-  ('Seven-day event expiry and operational write gates',
-    exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'is_event_operational')
+  ('30-day event expiry and twelve-month archive policies',
+    exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'is_event_operational' and p.prosrc like '%+ 30%')
+      and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'can_read_event_history')
+      and (select count(*) = 6 from pg_policies where schemaname = 'public' and policyname = 'event history access' and tablename in ('events','queries','staff','exhibitors','rebooking_requests','ops_notifications'))
+      and (select count(*) = 5 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname in ('event history access for query photos','active public query photos','active query photo uploads','active query photo updates','active query photo deletions'))
+      and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'client_event_memberships' and policyname = 'active client admins manage memberships' and with_check like '%is_event_operational%')
       and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'events' and policyname = 'active client admins update events')
       and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'queries' and policyname = 'ops and admins insert event queries'),
     'event-expiration-migration.sql')

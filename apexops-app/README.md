@@ -80,7 +80,7 @@ select id from auth.users where lower(email) = lower('didi@executiveconferenceev
 on conflict (user_id) do nothing;
 ```
 
-If this account does not exist in Supabase Auth yet, create/invite it first, then rerun the bootstrap SQL. Sign in as Didi and open **Clients & Events** to create an organization only after payment is confirmed. Client admins do not see the platform-wide organization list; they can create events inside their own organization. Each event requires event, build-up, and breakdown date ranges. Its exhibitor code is generated as the first five letters of the event name plus its start date (`ESGAF-20260930`); share it separately with exhibitors. Event links use `?event=<slug>`, for example `https://your-app.example/?event=esg-africa-2026`; the welcome page asks exhibitors for the code before opening event services. The demo code is `ESGAF-20260930`.
+If this account does not exist in Supabase Auth yet, create/invite it first, then rerun the bootstrap SQL. Platform Admin manages client accounts and access; client admins manage events inside their own organization. Each event requires event, build-up, and breakdown date ranges. The event-code hardening migration generates random exhibitor codes and rotates older codes, which must be shared separately with exhibitors. Event links use `?event=<slug>`, for example `https://your-app.example/?event=esg-africa-2026`; the welcome page asks exhibitors for the code before opening event services. The isolated demo code is `ESGAF-20260930`.
 
 Deploy the invitation function from this project with the Supabase CLI:
 
@@ -92,6 +92,14 @@ supabase secrets set APP_URL=https://your-app.example
 Supabase supplies the function’s URL, anon key, and service-role key as Edge Function environment variables. Never put the service-role key in the React `.env` file or browser code. The app continues to use only the publishable/anon key; membership checks and invitations run server-side.
 
 The optional seed/import SQL files target `esg-africa-2026` by default. Change the event slug before running them for another event. The event-scoped reset script also targets only that slug; review it before execution.
+
+### Security and lifecycle rollout
+
+The newer access, billing and event-expiry changes must be tested in a separate Supabase project before production. Run `npm test -- --watchAll=false --runInBand` and `npm run test:security` locally. The database tests use isolated PostgreSQL fixtures; they do not prove production RLS, proxy headers or Edge Function behavior.
+
+After the existing base and event-code security migrations, the staged order is `client-event-limits-migration.sql`, `client-billing-access-migration.sql`, `staff-queue-security-migration.sql`, `event-code-rate-limit-migration.sql`, then `event-expiration-migration.sql`. Apply the updated query-photo privacy policies only after the expiry helper exists. Deploy the updated `invite-event-member` function together with the database and app changes. Check `check-migrations.sql`, then test separate platform-admin, client-admin, Operations, staff and public accounts against active, expired and archived events.
+
+Before rollout, verify the trusted client-IP headers and all code-bearing public endpoints, including storage, through the real proxy; the lockout deliberately fails closed when an IP is unavailable. The expiry migration immediately changes access for events already outside their active or archive periods. Existing event limits are initialized to at least each client's current event count, but an admin must increase a limit before that client can create further events. Billing is manual: approved overage credits do not generate or collect an invoice. Separate organiser and external-seat accounting, 12-month retention/deletion, and automated payment reconciliation are not implemented.
 
 To clear one event's activity after you have reviewed the demo, update the slug and run `supabase/reset-live-event-data.sql` manually in the SQL Editor for the production project. It deletes that event's rows from `queries`, `rebooking_requests`, and `ops_notifications`; staff, suppliers, exhibitors, and other events are preserved. This is destructive and cannot be undone.
 

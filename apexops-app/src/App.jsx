@@ -139,6 +139,12 @@ export default function App() {
     setRole(null);
   }
 
+  function handleEventCreated(event) {
+    setEvents(current => [...current.filter(item => item.id !== event.id), event]);
+    setSelectedEvent(event);
+    setActiveEvent(event);
+  }
+
   function selectPublicEvent(slug) {
     setPublicEventSlug(slug);
     setPublicAccessCode('');
@@ -293,19 +299,19 @@ export default function App() {
     ];
     return <AppShell eventName={selectedEvent?.name} nav={rebookingNav} onSignOut={session ? signOut : undefined}><RebookingForm /></AppShell>;
   }
-  if (session && role === 'tenant-admin' && canManageTenants) return <WithBack onBack={()=>setRole(canOpenOps ? 'ops' : null)} onSignOut={signOut}><ClientEventAdmin /></WithBack>;
+  if (session && role === 'tenant-admin' && canManageTenants) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><ClientEventAdmin onEventCreated={handleEventCreated} /></WithBack>;
   if (session && role === 'ops' && canOpenOps) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><OpsPortal onOpenStaff={()=>setRole('staff')} onOpenExhibitors={()=>setRole('exhibitors')} /></WithBack>;
-  if (session && role === 'staff' && canOpenOps) return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><StaffSetup /></WithBack>;
+  if (session && role === 'staff' && canOpenOps) return <WithBack backLabel="Back to Operations" onBack={()=>setRole('ops')} onSignOut={signOut}><StaffSetup /></WithBack>;
   if (session && role === 'people' && canOpenOps) return <WithBack showBack={false} onBack={()=>setRole('ops')} onSignOut={signOut}><PeopleSetup onBack={()=>setRole('ops')} /></WithBack>;
   if (session && role === 'exhibitors' && canOpenOps) return <WithBack showBack={false} onBack={()=>setRole('ops')} onSignOut={signOut}><ExhibitorSetup onBack={()=>setRole('ops')} /></WithBack>;
   if (session && role === 'dept' && canOpenQueue) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><DeptQueue allowStaffPicker={canOpenOps} /></WithBack>;
 
   if (session && !role) {
     const hubItems = [
-      canOpenOps && { key:'ops', label:'Ops Portal', Icon:Monitor, description:'Operations: manage requests and event operations', action:()=>setRole('ops'), needsEvent:true },
+      canOpenOps && { key:'ops', label:'Event Operations', Icon:Monitor, description:'Manage requests and work for the selected event', action:()=>setRole('ops'), needsEvent:true },
       canOpenQueue && { key:'dept', label:'My Queue', Icon:HardHat, description:'Staff: see your assignments and update status', action:()=>setRole('dept'), needsEvent:true },
-      isPlatformAdmin && { key:'admin', label:'Admin Portal', Icon:Building2, description:'Platform back end: manage clients, events, invitations and suppliers', action:()=>setRole('tenant-admin') },
-      canManageTenants && !isPlatformAdmin && { key:'events', label:'Event Manager', Icon:Building2, description:'Create your events and manage your team and suppliers', action:()=>setRole('tenant-admin') },
+      isPlatformAdmin && { key:'admin', label:'Platform Admin', Icon:Building2, description:'Manage client accounts and access', action:()=>setRole('tenant-admin') },
+      canManageTenants && !isPlatformAdmin && { key:'events', label:'Client Workspace', Icon:Building2, description:'Manage your events, team and suppliers', action:()=>setRole('tenant-admin') },
       selectedEvent && canOpenOps && { key:'exhibitor', label:'Exhibitor Status', Icon:Monitor, description:'See what exhibitors see for this event', action:()=>openStaffExhibitorView('exhibitor') },
       selectedEvent && canOpenOps && { key:'query', label:'Log a Query', Icon:ClipboardPlus, description:'Log a query on behalf of an exhibitor', action:()=>openStaffExhibitorView('client-query') },
     ].filter(Boolean);
@@ -377,7 +383,7 @@ export default function App() {
   }
 
   if (!session && publicAccessView === 'clients') return (
-    <LoginLayout title="Admin" accent="portal." subtitle="Sign in to manage clients, events, teams and suppliers.">
+    <LoginLayout title="Platform" accent="admin." subtitle="Sign in to manage client accounts and access.">
       <TeamLogin onSignedIn={nextSession=>{ setLoginDestination('clients'); setSession(nextSession); }} initiallyOpen title="Admin sign in" />
       {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
       <button type="button" className="lg-link" onClick={()=>setPublicAccessView('events')}><ArrowLeft size={14} /> Back to events</button>
@@ -548,7 +554,7 @@ function SetPasswordScreen({ onDone }) {
   </LoginLayout>;
 }
 
-function WithBack({ onBack, onSignOut, showBack = true, children }) {
+function WithBack({ onBack, onSignOut, showBack = true, backLabel = 'Back to workspace', children }) {
   return (
     <div>
       <div className="global-nav-actions apex-service-nav" style={{ position:'relative', display:'flex', justifyContent:'flex-end', gap:8, padding:'8px 16px', background:'#fff', borderBottom:'1px solid #d6dfdf' }}>
@@ -557,7 +563,7 @@ function WithBack({ onBack, onSignOut, showBack = true, children }) {
           border:'1px solid #d6dfdf', borderRadius:5,
           padding:'7px 10px', fontSize:12, fontWeight:700,
           cursor:'pointer', display:'inline-flex', alignItems:'center', gap:6,
-        }}><ArrowLeft size={14} /> Back to Home</button>}
+        }}><ArrowLeft size={14} /> {backLabel}</button>}
         {onSignOut && <button className="global-nav-signout" onClick={onSignOut} style={{ background:NAVY, color:'#fff', border:'1px solid rgba(255,255,255,.2)', borderRadius:5, padding:'7px 10px', fontSize:12, fontWeight:700, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:6 }}><LogOut size={14} /> Sign out</button>}
       </div>
       {children}

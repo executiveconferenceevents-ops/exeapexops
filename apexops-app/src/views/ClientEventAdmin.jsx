@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { getAvailableEvents, getEventAccessCode, setActiveEvent } from '../lib/eventScope';
+import { getAvailableEvents, getEventAccessCode } from '../lib/eventScope';
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
 import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
 import { enqueue, isNetworkError } from '../lib/offline';
-import { VOLUME_PLANS } from '../lib/pricing';
+import { EVENT_TIERS, EXTRA_STAFF_SEAT_PRICE, INCLUDED_INTERNAL_SEATS, VOLUME_PLANS } from '../lib/pricing';
 import { Building2, CalendarDays, LayoutDashboard, MailPlus, Plus, RefreshCw, Trash2, Truck, Upload } from 'lucide-react';
 
 const emptyClient = { name:'', slug:'', adminEmail:'', eventLimit:1 };
@@ -21,7 +21,7 @@ function eventStatus(event) {
   return ['Upcoming', 'upcoming'];
 }
 
-export default function ClientEventAdmin() {
+export default function ClientEventAdmin({ onEventCreated }) {
   const [section, setSection] = useState('overview');
   const [clients, setClients] = useState([]);
   const [events, setEvents] = useState([]);
@@ -245,15 +245,22 @@ export default function ClientEventAdmin() {
     setError('');
     setNotice('');
     try {
+      let saved;
       if (DEMO_MODE) {
         const current = getDemoCollection('clients', []);
-        setDemoCollection('clients', current.map(client => client.id === clientId ? { ...client, ...patch } : client));
+        const client = current.find(item => item.id === clientId);
+        saved = { ...patch };
+        if (saved.billing_mode === 'monthly' && saved.term_started_at !== (client?.term_started_at || null)) saved.prepaid_event_credits = 0;
+        setDemoCollection('clients', current.map(item => item.id === clientId ? { ...item, ...saved } : item));
       } else {
-        const { error: updateError } = await supabase.from('clients').update(patch).eq('id', clientId);
+        const { data, error: updateError } = await supabase.from('clients').update(patch).eq('id', clientId)
+          .select('billing_plan, billing_mode, billing_status, prepaid_event_credits, paid_through, term_started_at, term_ends_at, committed_events').single();
         if (updateError) throw updateError;
+        saved = data;
       }
-      setClients(current => current.map(client => client.id === clientId ? { ...client, ...patch } : client));
+      setClients(current => current.map(client => client.id === clientId ? { ...client, ...saved } : client));
       setNotice('Client access settings saved. Payment has not been collected by this app.');
+      return saved;
     } catch (updateError) {
       setError(updateError?.message || 'Could not update client access settings.');
       await refresh();
@@ -300,7 +307,7 @@ export default function ClientEventAdmin() {
       }
       setEventForm(current => ({ ...emptyEvent, client_id:current.client_id }));
       await refresh();
-      setActiveEvent(data);
+      onEventCreated(data);
       setNotice(`Event created. Public links can use ?event=${data.slug}.`);
     } catch (saveError) {
       setError(saveError?.message || 'Could not create the event.');
@@ -393,10 +400,11 @@ export default function ClientEventAdmin() {
 
   const navItems = [
     ['overview', 'Overview', LayoutDashboard],
-    ...(isPlatformAdmin ? [['clients', 'Clients', Building2]] : []),
-    ['events', 'Events', CalendarDays],
-    ['suppliers', 'Suppliers', Truck],
-    ['team', 'Team access', MailPlus],
+    ...(isPlatformAdmin ? [['clients', 'Clients & access', Building2], ['pricing', 'Pricing', CalendarDays]] : [
+      ['events', 'Events', CalendarDays],
+      ['suppliers', 'Suppliers', Truck],
+      ['team', 'Team access', MailPlus],
+    ]),
   ];
   const sectionTitle = navItems.find(([key]) => key === section)?.[1] || 'Overview';
   const liveEvents = events.filter(event => eventStatus(event)[1] === 'live').length;
@@ -409,17 +417,17 @@ export default function ClientEventAdmin() {
   return (
     <div className="adm-shell">
       <aside className="adm-sidebar">
-        <div className="adm-brand">APEXOPS<sup>™</sup><small>{isPlatformAdmin ? 'Platform admin' : 'Event manager'}</small></div>
-        <nav aria-label="Admin sections">
+        <div className="adm-brand">APEXOPS<sup>™</sup><small>{isPlatformAdmin ? 'Platform Admin' : 'Client workspace'}</small></div>
+        <nav aria-label={isPlatformAdmin ? 'Platform administration' : 'Client workspace'}>
           {navItems.map(([key, label, Icon]) => <button key={key} type="button" className={section === key ? 'active' : ''} aria-current={section === key ? 'page' : undefined} onClick={()=>setSection(key)}><Icon size={16} /> {label}</button>)}
         </nav>
       </aside>
     <main className="tenant-admin-page adm-main">
       <header className="tenant-admin-heading adm-topbar">
         <div>
-          <div className="tenant-admin-kicker">{isPlatformAdmin ? 'PLATFORM ADMIN' : 'EVENT MANAGER'}</div>
+          <div className="tenant-admin-kicker">{isPlatformAdmin ? 'PLATFORM ADMIN' : 'CLIENT WORKSPACE'}</div>
           <h1>{sectionTitle}</h1>
-          <p>{isPlatformAdmin ? 'Create clients after payment is confirmed, then set up their events and teams.' : 'Create events and manage team access for your organisation.'}</p>
+          <p>{isPlatformAdmin ? 'Manage client accounts and access.' : 'Manage events, suppliers and team access for your organisation.'}</p>
         </div>
         <button className="tenant-refresh" type="button" onClick={refresh} disabled={loading || saving} title="Refresh"><RefreshCw size={15} /> Refresh</button>
       </header>
@@ -435,7 +443,7 @@ export default function ClientEventAdmin() {
             <div className="adm-stat"><span>Private suppliers</span><strong>{privateSuppliers.length}</strong></div>
           </div>
           <div className="tenant-section">
-            <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Your events</h2><p>Open the Events section to create or manage them.</p></div></div>
+            <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>{isPlatformAdmin ? 'Client events' : 'Your events'}</h2><p>{isPlatformAdmin ? 'Event overview across client accounts.' : 'Open the Events section to create or manage them.'}</p></div></div>
             <div className="tenant-list">
               {events.map(event => { const [label, tone] = eventStatus(event); return <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}</strong><span>{event.clients?.name ? `${event.clients.name} · ` : ''}{event.event_start_date} to {event.event_end_date}</span></div><span className={`adm-chip adm-chip-${tone}`}>{label}</span></div>; })}
               {!events.length && <p className="tenant-empty">No events yet. Create your first one in Events.</p>}
@@ -456,6 +464,18 @@ export default function ClientEventAdmin() {
             <label>First admin email (optional)<input type="email" value={clientForm.adminEmail} onChange={event=>setClientForm({ ...clientForm, adminEmail:event.target.value })} /></label>
             <button type="submit" disabled={saving}><Plus size={15} /> Create client</button>
           </form>}
+        </section>}
+
+        {isPlatformAdmin && <section className="tenant-section" hidden={section !== 'pricing'}>
+          <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Proposed launch pricing</h2><p>ZAR per event. VAT, if applicable, is additional.</p></div></div>
+          <div className="tenant-pricing-table-wrap"><table className="tenant-pricing-table">
+            <thead><tr><th>Event category</th><th>Stands / build locations</th><th>Per event</th></tr></thead>
+            <tbody>{EVENT_TIERS.map(tier=><tr key={tier.id}><td>{tier.name}</td><td>{tier.maxLocations ? `${tier.minLocations}–${tier.maxLocations}` : `${tier.minLocations}+`}</td><td>{tier.listPrice === null ? 'Custom quote' : `R${tier.listPrice.toLocaleString('en-ZA')}`}</td></tr>)}</tbody>
+          </table></div>
+          <p className="tenant-scope-note">Floor area, halls, operational zones and complexity also require assessment; a custom quote may apply.</p>
+          <h3>Annual commitment</h3>
+          <div className="tenant-pricing-table-wrap"><table className="tenant-pricing-table"><thead><tr><th>Events per year</th><th>Discount</th></tr></thead><tbody><tr><td>1–11</td><td>None</td></tr>{VOLUME_PLANS.map(plan=><tr key={plan.id}><td>{plan.eventsPerYear}–{plan.maxEvents}</td><td>{plan.discountPct}%</td></tr>)}</tbody></table></div>
+          <p className="tenant-scope-note">Includes {INCLUDED_INTERNAL_SEATS} internal operational accounts; additional internal accounts are R{EXTRA_STAFF_SEAT_PRICE} per user per event. External participant access is free.</p>
         </section>}
 
         <section className="tenant-section" hidden={section !== 'events'}>
@@ -525,11 +545,12 @@ function BillingControls({ client, saving, onSave }) {
     paid_through:client.paid_through || '',
     term_started_at:client.term_started_at || '',
     term_ends_at:client.term_ends_at || '',
+    committed_events:client.committed_events ?? 0,
   });
   const [error, setError] = useState('');
   const monthly = form.billing_plan !== 'legacy' && form.billing_plan !== 'pay_per_event';
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
     const credits = Number(form.prepaid_event_credits);
     if (!Number.isInteger(credits) || credits < 0) {
@@ -540,9 +561,14 @@ function BillingControls({ client, saving, onSave }) {
       setError('Enter valid term dates and a paid-through date before activating a monthly plan.');
       return;
     }
-    setError('');
     const plan = VOLUME_PLANS.find(item => item.id === form.billing_plan);
-    onSave(client.id, {
+    const committedEvents = Number(form.committed_events);
+    if (monthly && (!Number.isInteger(committedEvents) || committedEvents < 1 || (plan && (committedEvents < plan.eventsPerYear || committedEvents > plan.maxEvents)))) {
+      setError(plan ? `Enter a commitment from ${plan.eventsPerYear} to ${plan.maxEvents} events.` : 'Enter a positive number of committed events.');
+      return;
+    }
+    setError('');
+    const saved = await onSave(client.id, {
       billing_plan:form.billing_plan,
       billing_mode:monthly ? 'monthly' : form.billing_plan === 'legacy' ? 'unmanaged' : 'prepaid',
       billing_status:form.billing_status,
@@ -550,23 +576,25 @@ function BillingControls({ client, saving, onSave }) {
       paid_through:form.paid_through || null,
       term_started_at:form.term_started_at || null,
       term_ends_at:form.term_ends_at || null,
-      committed_events:plan?.eventsPerYear || 0,
+      committed_events:monthly ? committedEvents : 0,
     });
+    if (saved) setForm(current => ({ ...current, ...saved, paid_through:saved.paid_through || '', term_started_at:saved.term_started_at || '', term_ends_at:saved.term_ends_at || '' }));
   }
 
   return <details>
     <summary>Billing and access: {client.billing_status || 'pending'}</summary>
     <form className="tenant-form" onSubmit={submit}>
-      <label>Plan<select value={form.billing_plan} onChange={event=>setForm({ ...form, billing_plan:event.target.value })}>
+      <label>Plan<select value={form.billing_plan} onChange={event=>{ const plan=VOLUME_PLANS.find(item=>item.id === event.target.value); setForm({ ...form, billing_plan:event.target.value, committed_events:plan?.eventsPerYear || 0 }); }}>
         <option value="legacy">Legacy / unmanaged</option><option value="pay_per_event">Pay per event</option>
-        {VOLUME_PLANS.map(plan=><option key={plan.id} value={plan.id}>{plan.eventsPerYear} events / year</option>)}
+        {VOLUME_PLANS.map(plan=><option key={plan.id} value={plan.id}>{plan.eventsPerYear}–{plan.maxEvents} events / year ({plan.discountPct}%)</option>)}
+        {monthly && form.billing_plan !== 'enterprise' && !VOLUME_PLANS.some(plan=>plan.id === form.billing_plan) && <option value={form.billing_plan}>Previous plan ({form.billing_plan})</option>}
         <option value="enterprise">Enterprise / negotiated</option>
       </select></label>
       <label>Access status<select value={form.billing_status} onChange={event=>setForm({ ...form, billing_status:event.target.value })}>
         {['pending','active','past_due','suspended','cancelled'].map(status=><option key={status} value={status}>{status.replace('_', ' ')}</option>)}
       </select></label>
       {form.billing_plan === 'pay_per_event' && <label>Prepaid event credits<input type="number" min="0" step="1" required value={form.prepaid_event_credits} onChange={event=>setForm({ ...form, prepaid_event_credits:event.target.value })} /></label>}
-      {monthly && <><label>Term start<input type="date" value={form.term_started_at} onChange={event=>setForm({ ...form, term_started_at:event.target.value })} /></label><label>Term end<input type="date" value={form.term_ends_at} onChange={event=>setForm({ ...form, term_ends_at:event.target.value })} /></label><label>Paid through<input type="date" value={form.paid_through} onChange={event=>setForm({ ...form, paid_through:event.target.value })} /></label></>}
+      {monthly && <><label>Committed events<input type="number" min="1" step="1" required value={form.committed_events} onChange={event=>setForm({ ...form, committed_events:event.target.value })} /></label><label>Approved additional event credits<input type="number" min="0" step="1" required value={form.prepaid_event_credits} onChange={event=>setForm({ ...form, prepaid_event_credits:event.target.value })} /><small>Credits reset when the term start changes.</small></label><label>Term start<input type="date" value={form.term_started_at} onChange={event=>setForm({ ...form, term_started_at:event.target.value })} /></label><label>Term end<input type="date" value={form.term_ends_at} onChange={event=>setForm({ ...form, term_ends_at:event.target.value })} /></label><label>Paid through<input type="date" value={form.paid_through} onChange={event=>setForm({ ...form, paid_through:event.target.value })} /></label></>}
       {error && <p className="tenant-error" role="alert">{error}</p>}
       <button type="submit" disabled={saving}>Save access settings</button>
     </form>
