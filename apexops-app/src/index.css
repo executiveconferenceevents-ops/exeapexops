@@ -101,6 +101,25 @@ textarea { resize: vertical; min-height: 60px; }
 .dept-queue-screen .apex-service-header select { width:auto !important; min-width:210px; min-height:34px; margin-left:auto; border-color:rgba(213,218,224,.5) !important; border-radius:3px !important; }
 .dept-queue-content { max-width:1120px !important; padding:20px 0 40px !important; }
 .dept-staff-summary { margin-bottom:18px !important; border-radius:3px !important; border-top:2px solid var(--service-gold) !important; box-shadow:0 1px 5px rgba(28,43,58,.05) !important; }
+.dept-work-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:4px 0 14px; }
+.dept-work-toolbar h2 { margin:0; color:var(--service-navy); font-size:17px; }
+.dept-work-toolbar > div:first-child > span { display:block; margin-top:4px; color:#687780; font-size:12px; }
+.dept-work-view-switch { display:flex; gap:3px; padding:3px; border:1px solid #d5dae0; border-radius:3px; background:#fff; }
+.dept-work-view-switch button { display:flex; align-items:center; gap:6px; min-height:32px; padding:5px 10px; border:0; border-radius:2px; background:transparent; color:#536b79; font-family:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+.dept-work-view-switch button.is-active { background:var(--service-navy); color:#fff; }
+.dept-work-board { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(205px, 1fr); gap:10px; overflow-x:auto; align-items:start; padding:2px 2px 12px; }
+.dept-work-column { min-height:170px; border:1px solid #dce2e1; border-radius:3px; background:#f3f5f4; }
+.dept-work-column > header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px; border-bottom:1px solid #dce2e1; color:var(--service-navy); font-size:11px; font-weight:700; }
+.dept-work-count { display:grid; place-items:center; min-width:22px; height:22px; border-radius:2px; background:#e4e9e7; color:#43545d; }
+.dept-work-column-cards { display:grid; gap:8px; padding:8px; }
+.dept-work-card { display:grid; gap:7px; min-width:0; padding:10px; border:1px solid #dce2e1; border-left:3px solid var(--service-gold); border-radius:3px; background:#fff; }
+.dept-work-card-top { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.dept-work-card-top code { color:#718089; font-size:10px; overflow-wrap:anywhere; }
+.dept-work-card > strong { color:var(--service-navy); font-size:13px; }
+.dept-work-stand,.dept-work-card-meta { color:#687780; font-size:10px; }
+.dept-work-card p { margin:0; color:#394951; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
+.dept-work-card > button { justify-self:start; min-height:30px; padding:5px 9px; border:1px solid #d5dae0; border-radius:2px; background:#fff; color:var(--service-navy); font-family:inherit; font-size:11px; font-weight:600; cursor:pointer; }
+.dept-work-column-empty { padding:18px 8px; color:#8a97a0; text-align:center; font-size:11px; }
 .dept-queue-empty { margin:28px auto !important; border:1px dashed #c6c4bc !important; border-radius:3px !important; background:#fbfaf7 !important; }
 .dept-queue-row { border-radius:3px !important; box-shadow:none !important; }
 .dept-queue-row:not(.is-done) { border-left-color:var(--service-gold) !important; }
@@ -137,6 +156,8 @@ textarea { resize: vertical; min-height: 60px; }
   .apex-service-header > div:last-child { display:none; }
   .apex-service-screen .apex-service-main { padding:16px 0 24px !important; }
   .dept-queue-content { padding:14px 0 24px !important; }
+  .dept-work-toolbar { align-items:flex-start; }
+  .dept-work-board { grid-auto-columns:minmax(78vw, 1fr); }
   .dept-queue-screen .apex-service-header { flex-wrap:wrap; padding:8px 12px !important; }
   .dept-queue-screen .apex-service-header select { min-width:0; width:100% !important; margin-left:0; }
   .dept-staff-summary { flex-wrap:wrap; }
@@ -511,7 +532,7 @@ textarea { resize: vertical; min-height: 60px; }
 .adm-sidebar nav button:hover { background:rgba(255,255,255,.08); color:#fff; }
 .adm-sidebar nav button.active { background:rgba(213,194,146,.18); color:#fff; box-shadow:inset 3px 0 0 #d5c292; }
 .adm-main { width:100%; max-width:1100px; margin:0; padding:30px 32px 56px; font-family:inherit; }
-.adm-topbar { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:22px; padding:0 330px 0 0 !important; border-bottom:0 !important; }
+.adm-topbar { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:22px; padding:0 !important; border-bottom:0 !important; }
 .adm-topbar h1 { font:700 26px/1.2 'Inter','Segoe UI',system-ui,sans-serif; }
 .adm-topbar p { margin-top:6px; font-size:13px; }
 .adm-main .tenant-admin-kicker { font-size:11px; letter-spacing:1.4px; }

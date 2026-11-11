@@ -1,6 +1,6 @@
 -- Read-only check: shows which APEXOPS migrations are already applied. Changes nothing.
 -- Paste the whole file into the Supabase SQL Editor and click Run.
--- Apply missing security migrations in this order: event-code-hardening, query-photo-privacy, query-idempotency-consent.
+-- Apply required schema, entitlement, lifecycle and security migrations before deploying the app.
 
 select item, case when ok then 'OK' else 'MISSING - run ' || fix end as status
 from (values
@@ -61,8 +61,8 @@ from (values
       and exists (select 1 from storage.buckets where id = 'query-photos')
       and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'submit_public_query' and p.prosrc like '%photo_urls%'),
     'query-photos-migration.sql'),
-  ('Staff queues restricted to own assigned queries',
-    (select count(*) = 3 from pg_policies where schemaname = 'public' and ((tablename = 'queries' and policyname in ('staff read assigned queries', 'staff update assigned queries')) or (tablename = 'staff' and policyname = 'staff read own profile'))),
+  ('Staff can read only assigned work and its related records',
+    (select count(*) = 5 from pg_policies where schemaname = 'public' and ((tablename = 'queries' and policyname in ('staff read assigned queries', 'staff update assigned queries')) or (tablename = 'staff' and policyname = 'staff read own profile') or (tablename = 'exhibitors' and policyname = 'staff read assigned exhibitors') or (tablename = 'suppliers' and policyname = 'event managers read suppliers'))),
     'staff-queue-security-migration.sql'),
   ('Event codes are random and guess attempts are rate-limited',
     exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'validate_public_event_code')
@@ -84,5 +84,15 @@ from (values
   ('Per-client event limits enforced by the database',
     exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'clients' and column_name = 'event_limit')
       and exists (select 1 from pg_trigger where tgrelid = 'public.events'::regclass and tgname = 'events_enforce_client_event_limit' and not tgisinternal),
-    'client-event-limits-migration.sql')
+    'client-event-limits-migration.sql'),
+  ('Manual client billing and annual event entitlements',
+    (select count(*) = 8 from information_schema.columns where table_schema = 'public' and table_name = 'clients' and column_name in ('billing_mode','billing_status','billing_plan','paid_through','prepaid_event_credits','term_started_at','term_ends_at','committed_events'))
+      and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'client_billing_is_current')
+      and exists (select 1 from pg_trigger where tgrelid = 'public.events'::regclass and tgname = 'events_enforce_client_event_entitlement' and not tgisinternal),
+    'client-billing-access-migration.sql'),
+  ('Seven-day event expiry and operational write gates',
+    exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'is_event_operational')
+      and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'events' and policyname = 'active client admins update events')
+      and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'queries' and policyname = 'ops and admins insert event queries'),
+    'event-expiration-migration.sql')
 ) as checks(item, ok, fix);

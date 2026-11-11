@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getExhibitors, getQueries, getStaff, normalizeStand, updateQuery, STATUS_FLOW, STATUS_COLORS } from '../lib/mock';
 import StatusBadge from '../components/StatusBadge';
 import PhotoGallery from '../components/PhotoGallery';
@@ -6,16 +6,19 @@ import EvidenceUploader from '../components/EvidenceUploader';
 import { formatDateTime } from '../lib/format';
 import { supabase } from '../lib/supabase';
 import { DEMO_MODE } from '../lib/demoStore';
-import { ClipboardList, CheckCircle2, CircleUserRound, Clock3, HardHat } from 'lucide-react';
+import { getActiveEventId } from '../lib/eventScope';
+import { ClipboardList, CheckCircle2, CircleUserRound, Clock3, HardHat, LayoutGrid, List } from 'lucide-react';
 import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, TEAL, GREEN, BG, FONT } from '../theme';
 
 export default function DeptQueue({ allowStaffPicker = false }) {
+  const [viewMode, setViewMode] = useState('board');
   const [staffId, setStaffId]   = useState('');
   const [queries, setQueries]   = useState([]);
   const [staff, setStaff]       = useState([]);
   const [exhibitors, setExhibitors] = useState([]);
   const [selected, setSelected] = useState(null);
   const [profileError, setProfileError] = useState('');
+  const refreshing = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,9 +31,9 @@ export default function DeptQueue({ allowStaffPicker = false }) {
         setStaff(nextStaff);
         if (DEMO_MODE || allowStaffPicker) return;
 
-        const { data, error } = await supabase.auth.getUser();
+        const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
-        const email = String(data.user?.email || '').trim().toLowerCase();
+        const email = String(data.session?.user?.email || '').trim().toLowerCase();
         const matchingStaff = nextStaff.filter(member => String(member.email || '').trim().toLowerCase() === email);
         if (matchingStaff.length === 1) setStaffId(String(matchingStaff[0].id));
         else setProfileError(matchingStaff.length
@@ -45,10 +48,47 @@ export default function DeptQueue({ allowStaffPicker = false }) {
   }, [allowStaffPicker]);
 
   const refresh = async () => {
-    const [nextQueries, nextExhibitors] = await Promise.all([getQueries(), getExhibitors()]);
-    setQueries(nextQueries);
-    setExhibitors(nextExhibitors);
+    if (refreshing.current || document.hidden) return;
+    refreshing.current = true;
+    try {
+      const [nextQueries, nextExhibitors] = await Promise.all([getQueries(), getExhibitors()]);
+      setQueries(nextQueries);
+      setExhibitors(nextExhibitors);
+    } finally {
+      refreshing.current = false;
+    }
   };
+
+  useEffect(() => {
+    const eventId = getActiveEventId();
+    let timer;
+    let cancelled = false;
+    const scheduleRefresh = () => {
+      window.clearTimeout(timer);
+      if (cancelled || document.hidden) return;
+      timer = window.setTimeout(async () => {
+        try { await refresh(); } catch { /* the next realtime event or interval will retry */ }
+        scheduleRefresh();
+      }, 15000);
+    };
+    const handleVisibility = () => {
+      window.clearTimeout(timer);
+      if (!document.hidden) {
+        void refresh().catch(() => {}).finally(scheduleRefresh);
+      }
+    };
+    const channel = supabase?.channel(`staff-queue:${eventId}`)
+      .on('postgres_changes', { event:'*', schema:'public', table:'queries', filter:`event_id=eq.${eventId}` }, () => { void refresh().catch(() => {}); })
+      .subscribe();
+    document.addEventListener('visibilitychange', handleVisibility);
+    scheduleRefresh();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, []);
   const myStaff = staff.find(s => s.id === staffId);
   const myQueries = staffId ? queries.filter(q => String(q.assignedTo || '') === String(staffId)) : [];
   const active = myQueries.filter(q => q.status !== 'COMPLETED');
@@ -111,19 +151,42 @@ export default function DeptQueue({ allowStaffPicker = false }) {
             </div>
           </div>
 
-          {/* Active queue */}
-          <SectionTitle icon={<Clock3 size={16} />} label={`ACTIVE QUERIES (${active.length})`} color={GREEN} />
-          {active.length === 0 && <div style={{ color:'#6f7b82', textAlign:'center', padding:'34px 24px', background:'#fff', border:'1px dashed #cbd6d8', borderRadius:8, marginBottom:20 }}><CheckCircle2 size={28} color={TEAL} /><div style={{ color:NAVY, fontWeight:700, marginTop:10 }}>You’re all clear</div><div style={{ fontSize:13, marginTop:5 }}>No active exhibitor requests are assigned to you.</div></div>}
-          {active.map((q,i) => (
-            <DeptRow key={q.id} q={q} exhibitors={exhibitors} pos={i+1} onSelect={()=>setSelected(q)} onMarkDone={()=>markDone(q)} />
-          ))}
+          <div className="dept-work-toolbar">
+            <div><h2>My work</h2><span>{active.length} active · {done.length} completed</span></div>
+            <div className="dept-work-view-switch" role="tablist" aria-label="Work view">
+              <button type="button" role="tab" aria-selected={viewMode === 'board'} className={viewMode === 'board' ? 'is-active' : ''} onClick={()=>setViewMode('board')}><LayoutGrid size={15} /> Board</button>
+              <button type="button" role="tab" aria-selected={viewMode === 'list'} className={viewMode === 'list' ? 'is-active' : ''} onClick={()=>setViewMode('list')}><List size={15} /> List</button>
+            </div>
+          </div>
 
-          {/* Completed */}
-          {done.length > 0 && <>
-            <SectionTitle icon={<CheckCircle2 size={16} />} label={`COMPLETED (${done.length})`} color={TEAL} />
-            {done.map(q=>(
-              <DeptRow key={q.id} q={q} exhibitors={exhibitors} done onSelect={()=>setSelected(q)} />
-            ))}
+          {viewMode === 'board' ? (
+            <div className="dept-work-board" aria-label="Assigned work by status">
+              {WORK_COLUMNS.map(column => {
+                const columnQueries = myQueries.filter(query => column.statuses.includes(query.status));
+                return <section className="dept-work-column" key={column.id} aria-label={`${column.label}: ${columnQueries.length}`}>
+                  <header><span>{column.label}</span><span className="dept-work-count">{columnQueries.length}</span></header>
+                  <div className="dept-work-column-cards">
+                    {columnQueries.map(query => <article className="dept-work-card" key={query.id}>
+                      <div className="dept-work-card-top"><code>{query.id}</code><StatusBadge status={query.status} /></div>
+                      <strong>{query.exhibitor}</strong>
+                      <span className="dept-work-stand">Stand {query.stand}</span>
+                      <p>{query.description}</p>
+                      <div className="dept-work-card-meta">{formatDateTime(query.loggedAt)}{query.photo_urls?.length ? ` · ${query.photo_urls.length} photo${query.photo_urls.length === 1 ? '' : 's'}` : ''}</div>
+                      <button type="button" onClick={()=>setSelected(query)}>Open details</button>
+                    </article>)}
+                    {!columnQueries.length && <div className="dept-work-column-empty">No work here</div>}
+                  </div>
+                </section>;
+              })}
+            </div>
+          ) : <>
+            <SectionTitle icon={<Clock3 size={16} />} label={`ACTIVE QUERIES (${active.length})`} color={GREEN} />
+            {active.length === 0 && <div style={{ color:'#6f7b82', textAlign:'center', padding:'34px 24px', background:'#fff', border:'1px dashed #cbd6d8', borderRadius:8, marginBottom:20 }}><CheckCircle2 size={28} color={TEAL} /><div style={{ color:NAVY, fontWeight:700, marginTop:10 }}>You’re all clear</div><div style={{ fontSize:13, marginTop:5 }}>No active exhibitor requests are assigned to you.</div></div>}
+            {active.map((q,i) => <DeptRow key={q.id} q={q} exhibitors={exhibitors} pos={i+1} onSelect={()=>setSelected(q)} onMarkDone={()=>markDone(q)} />)}
+            {done.length > 0 && <>
+              <SectionTitle icon={<CheckCircle2 size={16} />} label={`COMPLETED (${done.length})`} color={TEAL} />
+              {done.map(q=><DeptRow key={q.id} q={q} exhibitors={exhibitors} done onSelect={()=>setSelected(q)} />)}
+            </>}
           </>}
         </div>
       )}
@@ -223,6 +286,13 @@ function Stat({ label, value, color }) {
 }
 
 const contactLink = { color:BLUE, textDecoration:'none', fontWeight:600 };
+const WORK_COLUMNS = [
+  { id:'new', label:'New', statuses:['LOGGED','ASSIGNED'] },
+  { id:'pending', label:'Pending', statuses:['PENDING'] },
+  { id:'progress', label:'In progress', statuses:['IN PROGRESS'] },
+  { id:'attention', label:'Needs attention', statuses:['ISSUES/DELAYED','ESCALATED'] },
+  { id:'done', label:'Done', statuses:['COMPLETED'] },
+];
 function firstContact(value) { return String(value).split(/[;,]/)[0].trim(); }
 function whatsappLink(value) {
   const digits = whatsappDigits(firstContact(value));

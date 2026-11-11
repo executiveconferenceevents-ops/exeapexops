@@ -85,12 +85,30 @@ export async function getAvailableEvents() {
     }]).map(event => ({ ...event, clients:clients.find(client => client.id === event.client_id) || event.clients }));
   }
   if (!supabase) return [];
-  const { data, error } = await supabase
-    .from('events')
-    .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, clients(name)')
-    .order('name');
-  if (error) throw error;
-  return data || [];
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user?.id;
+  if (!userId) return [];
+  return loadCachedPublicValue(`available-events:${userId}`, async () => {
+    const { data, error } = await supabase
+      .from('events')
+      .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, clients(name)')
+      .order('name');
+    if (error) throw error;
+    return data || [];
+  });
+}
+
+export async function getUserEventAccess(userId) {
+  if (!supabase || !userId) return { platformAdmin:false, memberships:[] };
+  return loadCachedPublicValue(`event-access:${userId}`, async () => {
+    const [adminResult, membershipResult] = await Promise.all([
+      supabase.rpc('is_platform_admin'),
+      supabase.from('client_event_memberships').select('client_id, event_id, role'),
+    ]);
+    if (adminResult.error) throw adminResult.error;
+    if (membershipResult.error) throw membershipResult.error;
+    return { platformAdmin:Boolean(adminResult.data), memberships:membershipResult.data || [] };
+  });
 }
 
 export async function getEventAccessCode(eventId) {

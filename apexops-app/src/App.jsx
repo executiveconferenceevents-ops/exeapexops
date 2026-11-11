@@ -10,7 +10,7 @@ import RebookingForm from './views/RebookingForm';
 import ClientQuery from './views/ClientQuery';
 import { supabase } from './lib/supabase';
 import { DEMO_MODE } from './lib/demoStore';
-import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventAccessCode, getEventSlug, getPublicEvents, PRIVACY_NOTICE_VERSION, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
+import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventAccessCode, getEventSlug, getPublicEvents, getUserEventAccess, PRIVACY_NOTICE_VERSION, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
 import { ArrowLeft, Building2, CheckCircle2, ClipboardPlus, HardHat, LayoutDashboard, LogIn, LogOut, Monitor } from 'lucide-react';
 import { AppShell, PageHeader, ServiceCard, StatusBadge } from './components/AppShell';
 import LoginLayout from './components/LoginLayout';
@@ -76,15 +76,10 @@ export default function App() {
           let organizationAdmin = false;
           let currentMemberships = [];
           if (supabase) {
-            const [adminResult, membershipResult] = await Promise.all([
-              supabase.rpc('is_platform_admin'),
-              supabase.from('client_event_memberships').select('client_id, event_id, role'),
-            ]);
+            const accessContext = await getUserEventAccess(session.user?.id);
             if (cancelled) return;
-            if (adminResult.error) throw adminResult.error;
-            if (membershipResult.error) throw membershipResult.error;
-            platformAdmin = Boolean(adminResult.data);
-            currentMemberships = membershipResult.data || [];
+            platformAdmin = accessContext.platformAdmin;
+            currentMemberships = accessContext.memberships;
             organizationAdmin = currentMemberships.some(membership => membership.role === 'client_admin' && !membership.event_id);
           } else if (DEMO_MODE) {
             platformAdmin = true;
@@ -275,10 +270,20 @@ export default function App() {
     setLoginDestination(null);
   }, [session, loginDestination, eventLoading, isPlatformAdmin, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue]);
 
+  useEffect(() => {
+    if (!session || eventLoading || !role) return;
+    const operationsRole = ['ops','staff','people','exhibitors','exhibitor','client-query','rebooking'].includes(role);
+    const allowed = role === 'tenant-admin' ? canManageTenants
+      : operationsRole ? canOpenOps
+        : role === 'dept' ? canOpenQueue
+          : true;
+    if (!allowed) setRole(null);
+  }, [session, eventLoading, role, canManageTenants, canOpenOps, canOpenQueue]);
+
   if (!authReady) return null;
   if (session && recovering) return <SetPasswordScreen onDone={()=>{ setRecovering(false); window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); }} />;
-  if (role === 'exhibitor') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ExhibitorStatus /></WithBack>;
-  if (role === 'client-query') return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ClientQuery /></WithBack>;
+  if (role === 'exhibitor' && (!session || canOpenOps)) return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ExhibitorStatus /></WithBack>;
+  if (role === 'client-query' && (!session || canOpenOps)) return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ClientQuery /></WithBack>;
   if (role === 'rebooking') {
     const rebookingNav = [
       { key:'overview', label:session ? 'Workspace' : 'Overview', Icon:LayoutDashboard, onClick:()=>setRole(null) },
@@ -289,11 +294,11 @@ export default function App() {
     return <AppShell eventName={selectedEvent?.name} nav={rebookingNav} onSignOut={session ? signOut : undefined}><RebookingForm /></AppShell>;
   }
   if (session && role === 'tenant-admin' && canManageTenants) return <WithBack onBack={()=>setRole(canOpenOps ? 'ops' : null)} onSignOut={signOut}><ClientEventAdmin /></WithBack>;
-  if (session && role === 'ops') return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><OpsPortal onOpenStaff={()=>setRole('staff')} onOpenExhibitors={()=>setRole('exhibitors')} /></WithBack>;
-  if (session && role === 'staff') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><StaffSetup /></WithBack>;
-    if (session && role === 'people') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><PeopleSetup onBack={()=>setRole('ops')} /></WithBack>;
-  if (session && role === 'exhibitors') return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><ExhibitorSetup onBack={()=>setRole('ops')} /></WithBack>;
-  if (session && role === 'dept') return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><DeptQueue allowStaffPicker={canOpenOps} /></WithBack>;
+  if (session && role === 'ops' && canOpenOps) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><OpsPortal onOpenStaff={()=>setRole('staff')} onOpenExhibitors={()=>setRole('exhibitors')} /></WithBack>;
+  if (session && role === 'staff' && canOpenOps) return <WithBack onBack={()=>setRole('ops')} onSignOut={signOut}><StaffSetup /></WithBack>;
+  if (session && role === 'people' && canOpenOps) return <WithBack showBack={false} onBack={()=>setRole('ops')} onSignOut={signOut}><PeopleSetup onBack={()=>setRole('ops')} /></WithBack>;
+  if (session && role === 'exhibitors' && canOpenOps) return <WithBack showBack={false} onBack={()=>setRole('ops')} onSignOut={signOut}><ExhibitorSetup onBack={()=>setRole('ops')} /></WithBack>;
+  if (session && role === 'dept' && canOpenQueue) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><DeptQueue allowStaffPicker={canOpenOps} /></WithBack>;
 
   if (session && !role) {
     const hubItems = [
@@ -543,17 +548,17 @@ function SetPasswordScreen({ onDone }) {
   </LoginLayout>;
 }
 
-function WithBack({ onBack, onSignOut, children }) {
+function WithBack({ onBack, onSignOut, showBack = true, children }) {
   return (
     <div>
-      <div className="global-nav-actions apex-service-nav" style={{ position:'fixed', top:16, right:20, zIndex:200, display:'flex', gap:8, padding:5, background:'rgba(255,255,255,.94)', border:'1px solid #d6dfdf', borderRadius:8, boxShadow:'0 4px 16px rgba(13,26,50,.16)' }}>
-        <button className="global-nav-back" onClick={onBack} style={{
+      <div className="global-nav-actions apex-service-nav" style={{ position:'relative', display:'flex', justifyContent:'flex-end', gap:8, padding:'8px 16px', background:'#fff', borderBottom:'1px solid #d6dfdf' }}>
+        {showBack && <button className="global-nav-back" onClick={onBack} style={{
           background:'#fff', color:NAVY,
           border:'1px solid #d6dfdf', borderRadius:5,
-          padding:'10px 14px', fontSize:12, fontWeight:800,
-          cursor:'pointer', boxShadow:'0 3px 10px rgba(13,26,50,.12)', display:'inline-flex', alignItems:'center', gap:6,
-        }}><ArrowLeft size={14} /> Back to Home</button>
-        {onSignOut && <button className="global-nav-signout" onClick={onSignOut} style={{ background:NAVY, color:'#fff', border:'1px solid rgba(255,255,255,.2)', borderRadius:5, padding:'10px 14px', fontSize:12, fontWeight:800, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:6 }}><LogOut size={14} /> Sign out</button>}
+          padding:'7px 10px', fontSize:12, fontWeight:700,
+          cursor:'pointer', display:'inline-flex', alignItems:'center', gap:6,
+        }}><ArrowLeft size={14} /> Back to Home</button>}
+        {onSignOut && <button className="global-nav-signout" onClick={onSignOut} style={{ background:NAVY, color:'#fff', border:'1px solid rgba(255,255,255,.2)', borderRadius:5, padding:'7px 10px', fontSize:12, fontWeight:700, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:6 }}><LogOut size={14} /> Sign out</button>}
       </div>
       {children}
     </div>

@@ -96,6 +96,45 @@ using (
   and lower(trim(coalesce(email, ''))) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
 );
 
+-- A staff account may read exhibitor details only for stands with work assigned to it.
+drop policy if exists "event members read exhibitors" on public.exhibitors;
+drop policy if exists "ops and admins read event exhibitors" on public.exhibitors;
+drop policy if exists "staff read assigned exhibitors" on public.exhibitors;
+create policy "ops and admins read event exhibitors"
+on public.exhibitors for select to authenticated
+using (public.has_event_access(event_id, array['client_admin','event_admin','ops']));
+
+create policy "staff read assigned exhibitors"
+on public.exhibitors for select to authenticated
+using (
+  public.has_event_access(event_id, array['staff'])
+  and exists (
+    select 1
+    from public.queries as assigned_query
+    join public.staff as profile on profile.id = assigned_query.assigned_to
+      and profile.event_id = assigned_query.event_id
+    where assigned_query.event_id = exhibitors.event_id
+      and upper(trim(assigned_query.stand)) = upper(trim(exhibitors.stand))
+      and lower(trim(coalesce(profile.email, ''))) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
+  )
+);
+
+-- Supplier contact records are for event managers; staff already have their own supplier profile.
+drop policy if exists "client members read suppliers" on public.suppliers;
+drop policy if exists "event managers read suppliers" on public.suppliers;
+create policy "event managers read suppliers"
+on public.suppliers for select to authenticated
+using (
+  public.is_platform_admin()
+  or exists (
+    select 1
+    from public.client_event_memberships as membership
+    where membership.user_id = auth.uid()
+      and membership.client_id = suppliers.client_id
+      and membership.role in ('client_admin','event_admin','ops')
+  )
+);
+
 -- The application only updates these query fields; assignment remains protected by the row policy.
 revoke update on public.queries from authenticated;
 grant update (assigned_to, status, completed_at, notes, sla_deadline, photo_urls)

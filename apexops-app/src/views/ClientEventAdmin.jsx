@@ -29,6 +29,7 @@ export default function ClientEventAdmin() {
   const [supplierClientId, setSupplierClientId] = useState('');
   const [managedClientId, setManagedClientId] = useState('');
   const [managedClientEventLimit, setManagedClientEventLimit] = useState(1);
+  const [managedClientBilling, setManagedClientBilling] = useState({ billing_mode:'unmanaged', billing_status:'active', paid_through:'', prepaid_event_credits:0 });
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [clientForm, setClientForm] = useState(emptyClient);
   const [eventForm, setEventForm] = useState(emptyEvent);
@@ -55,7 +56,7 @@ export default function ClientEventAdmin() {
       if (DEMO_MODE) {
         platformAdmin = true;
         currentMemberships = getDemoCollection('memberships', [{ client_id:'demo-client-ece', event_id:null, role:'client_admin' }]);
-        visibleClients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events' }]);
+        visibleClients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events', event_limit:1, billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy', prepaid_event_credits:0 }]);
       } else {
         const [membershipResult, adminResult] = await Promise.all([
           supabase.from('client_event_memberships').select('client_id, event_id, role'),
@@ -66,17 +67,25 @@ export default function ClientEventAdmin() {
         platformAdmin = Boolean(adminResult.data);
         currentMemberships = membershipResult.data || [];
         if (platformAdmin) {
-          const { data, error: clientsError } = await supabase.from('clients').select('id, name, slug, event_limit').order('name');
+          const { data, error: clientsError } = await supabase.from('clients')
+            .select('id, name, slug, event_limit, billing_mode, billing_status, billing_plan, paid_through, term_started_at, term_ends_at, committed_events, prepaid_event_credits')
+            .order('name');
           if (clientsError) throw clientsError;
           visibleClients = data || [];
         }
       }
       const managedClientId = currentMemberships.find(membership => membership.role === 'client_admin' && !membership.event_id)?.client_id || '';
       let managedClientEventLimit = 1;
+      let managedClientBilling = { billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy', paid_through:null, term_ends_at:null, committed_events:0, prepaid_event_credits:0 };
       if (!DEMO_MODE && !platformAdmin && managedClientId) {
-        const { data:managedClient, error:managedClientError } = await supabase.from('clients').select('event_limit').eq('id', managedClientId).maybeSingle();
+        const { data:managedClient, error:managedClientError } = await supabase.from('clients')
+          .select('event_limit, billing_mode, billing_status, billing_plan, paid_through, term_ends_at, committed_events, prepaid_event_credits')
+          .eq('id', managedClientId).maybeSingle();
         if (managedClientError) throw managedClientError;
         managedClientEventLimit = managedClient?.event_limit || 1;
+        managedClientBilling = managedClient || managedClientBilling;
+      } else if (DEMO_MODE) {
+        managedClientBilling = visibleClients[0] || managedClientBilling;
       }
       let managedEvents = availableEvents;
       if (!DEMO_MODE && availableEvents.length) {
@@ -98,6 +107,7 @@ export default function ClientEventAdmin() {
       setIsPlatformAdmin(platformAdmin);
       setManagedClientId(managedClientId);
       setManagedClientEventLimit(managedClientEventLimit);
+      setManagedClientBilling(managedClientBilling);
       setEventForm(current => ({ ...current, client_id:platformAdmin ? current.client_id || visibleClients[0]?.id || '' : managedClientId }));
       setInviteForm(current => ({ ...current, client_id:platformAdmin ? current.client_id || visibleClients[0]?.id || '' : managedClientId }));
       const supplierScope = platformAdmin ? supplierClientId || visibleClients[0]?.id || '' : managedClientId;
@@ -112,13 +122,25 @@ export default function ClientEventAdmin() {
 
   useEffect(() => { refresh(); }, []);
 
-  const canManageClient = clientId => isPlatformAdmin || memberships.some(membership =>
-    membership.client_id === clientId && membership.role === 'client_admin' && !membership.event_id);
+  const billingForClient = clientId => isPlatformAdmin
+    ? clients.find(client => client.id === clientId) || {}
+    : managedClientBilling;
+  const billingIsCurrent = clientId => {
+    const account = billingForClient(clientId);
+    if (account.billing_status !== 'active') return false;
+    if (account.billing_mode === 'monthly') {
+      const today = new Date().toISOString().slice(0, 10);
+      return Boolean(account.paid_through && account.paid_through >= today && account.term_ends_at && account.term_ends_at >= today);
+    }
+    return account.billing_mode === 'unmanaged' || account.billing_mode === 'prepaid';
+  };
+  const canManageClient = clientId => isPlatformAdmin || (billingIsCurrent(clientId) && memberships.some(membership =>
+    membership.client_id === clientId && membership.role === 'client_admin' && !membership.event_id));
   const canManageSuppliers = clientId => canManageClient(clientId);
-  const canInviteToScope = (clientId, eventId) => isPlatformAdmin || memberships.some(membership =>
+  const canInviteToScope = (clientId, eventId) => isPlatformAdmin || (billingIsCurrent(clientId) && memberships.some(membership =>
     membership.client_id === clientId && membership.role === 'client_admin'
       && (!membership.event_id || membership.event_id === eventId)
-      && (eventId || !membership.event_id));
+      && (eventId || !membership.event_id)));
   const selectedEvent = events.find(event => event.id === inviteForm.event_id);
   const inviteClientEvents = events.filter(event => event.client_id === inviteForm.client_id);
 
@@ -206,6 +228,29 @@ export default function ClientEventAdmin() {
       setNotice('Client event limit updated.');
     } catch (updateError) {
       setError(updateError?.message || 'Could not update the client event limit.');
+      await refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateClientBilling(clientId, patch) {
+    if (!isPlatformAdmin) return;
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      if (DEMO_MODE) {
+        const current = getDemoCollection('clients', []);
+        setDemoCollection('clients', current.map(client => client.id === clientId ? { ...client, ...patch } : client));
+      } else {
+        const { error: updateError } = await supabase.from('clients').update(patch).eq('id', clientId);
+        if (updateError) throw updateError;
+      }
+      setClients(current => current.map(client => client.id === clientId ? { ...client, ...patch } : client));
+      setNotice('Client access settings saved. Payment has not been collected by this app.');
+    } catch (updateError) {
+      setError(updateError?.message || 'Could not update client access settings.');
       await refresh();
     } finally {
       setSaving(false);

@@ -24,6 +24,7 @@ as $$
         from public.events event
         where event.id::text = split_part(object_path, '/', 1)
             and event.is_public
+            and public.is_event_operational(event.id)
             and encode(digest(upper(trim(event.exhibitor_code)), 'sha256'), 'hex') = split_part(object_path, '/', 2)
             and split_part(object_path, '/', 3) <> ''
             and split_part(object_path, '/', 4) <> ''
@@ -46,6 +47,7 @@ begin
     if split_part(object_path, '/', 2) <> 'team' or split_part(object_path, '/', 4) = '' or split_part(object_path, '/', 5) <> '' then return false; end if;
     begin target_event_id := split_part(object_path, '/', 1)::uuid;
     exception when others then return false; end;
+    if not public.is_event_operational(target_event_id) then return false; end if;
     if public.has_event_access(target_event_id, array['client_admin','event_admin','ops']) then return true; end if;
     return exists (
         select 1
