@@ -4,6 +4,7 @@ import { getAvailableEvents, getEventAccessCode, setActiveEvent } from '../lib/e
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
 import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
 import { enqueue, isNetworkError } from '../lib/offline';
+import { VOLUME_PLANS } from '../lib/pricing';
 import { Building2, CalendarDays, LayoutDashboard, MailPlus, Plus, RefreshCw, Trash2, Truck, Upload } from 'lucide-react';
 
 const emptyClient = { name:'', slug:'', adminEmail:'', eventLimit:1 };
@@ -236,6 +237,10 @@ export default function ClientEventAdmin() {
 
   async function updateClientBilling(clientId, patch) {
     if (!isPlatformAdmin) return;
+    if (patch.prepaid_event_credits !== undefined && (!Number.isInteger(Number(patch.prepaid_event_credits)) || Number(patch.prepaid_event_credits) < 0)) {
+      setError('Prepaid event credits must be a whole number of zero or more.');
+      return;
+    }
     setSaving(true);
     setError('');
     setNotice('');
@@ -440,7 +445,7 @@ export default function ClientEventAdmin() {
         {isPlatformAdmin && <section className="tenant-section" hidden={section !== 'clients'}>
           <div className="tenant-section-heading"><Building2 size={17} /><div><h2>Client organizations</h2><p>{clients.length} available to your account</p></div></div>
           <div className="tenant-list">
-            {clients.map(client => <div className="tenant-list-row" key={client.id}><div className="tenant-event-details"><strong>{client.name}</strong><span>{client.slug} · {events.filter(event => event.client_id === client.id).length} of {client.event_limit || 1} events used</span></div><label className="tenant-quota-control">Event limit<input type="number" min="1" max="1000" value={client.event_limit || 1} disabled={saving} onChange={event=>setClients(current=>current.map(item=>item.id === client.id ? { ...item, event_limit:event.target.value } : item))} onBlur={event=>updateClientEventLimit(client.id, event.target.value)} /></label></div>)}
+            {clients.map(client => <div key={client.id}><div className="tenant-list-row"><div className="tenant-event-details"><strong>{client.name}</strong><span>{client.slug} · {events.filter(event => event.client_id === client.id).length} of {client.event_limit || 1} events used</span></div><label className="tenant-quota-control">Event limit<input type="number" min="1" max="1000" value={client.event_limit || 1} disabled={saving} onChange={event=>setClients(current=>current.map(item=>item.id === client.id ? { ...item, event_limit:event.target.value } : item))} onBlur={event=>updateClientEventLimit(client.id, event.target.value)} /></label></div><BillingControls client={client} saving={saving} onSave={updateClientBilling} /></div>)}
             {!clients.length && <p className="tenant-empty">No organizations are assigned to your account.</p>}
           </div>
           {isPlatformAdmin && <form className="tenant-form tenant-inline-form" onSubmit={createClient}>
@@ -510,4 +515,60 @@ export default function ClientEventAdmin() {
     </main>
     </div>
   );
+}
+
+function BillingControls({ client, saving, onSave }) {
+  const [form, setForm] = useState({
+    billing_plan:client.billing_plan || 'legacy',
+    billing_status:client.billing_status || 'pending',
+    prepaid_event_credits:client.prepaid_event_credits ?? 0,
+    paid_through:client.paid_through || '',
+    term_started_at:client.term_started_at || '',
+    term_ends_at:client.term_ends_at || '',
+  });
+  const [error, setError] = useState('');
+  const monthly = form.billing_plan !== 'legacy' && form.billing_plan !== 'pay_per_event';
+
+  function submit(event) {
+    event.preventDefault();
+    const credits = Number(form.prepaid_event_credits);
+    if (!Number.isInteger(credits) || credits < 0) {
+      setError('Enter a non-negative whole number of credits.');
+      return;
+    }
+    if (monthly && form.billing_status === 'active' && (!form.term_started_at || !form.term_ends_at || !form.paid_through || form.term_started_at > form.term_ends_at)) {
+      setError('Enter valid term dates and a paid-through date before activating a monthly plan.');
+      return;
+    }
+    setError('');
+    const plan = VOLUME_PLANS.find(item => item.id === form.billing_plan);
+    onSave(client.id, {
+      billing_plan:form.billing_plan,
+      billing_mode:monthly ? 'monthly' : form.billing_plan === 'legacy' ? 'unmanaged' : 'prepaid',
+      billing_status:form.billing_status,
+      prepaid_event_credits:credits,
+      paid_through:form.paid_through || null,
+      term_started_at:form.term_started_at || null,
+      term_ends_at:form.term_ends_at || null,
+      committed_events:plan?.eventsPerYear || 0,
+    });
+  }
+
+  return <details>
+    <summary>Billing and access: {client.billing_status || 'pending'}</summary>
+    <form className="tenant-form" onSubmit={submit}>
+      <label>Plan<select value={form.billing_plan} onChange={event=>setForm({ ...form, billing_plan:event.target.value })}>
+        <option value="legacy">Legacy / unmanaged</option><option value="pay_per_event">Pay per event</option>
+        {VOLUME_PLANS.map(plan=><option key={plan.id} value={plan.id}>{plan.eventsPerYear} events / year</option>)}
+        <option value="enterprise">Enterprise / negotiated</option>
+      </select></label>
+      <label>Access status<select value={form.billing_status} onChange={event=>setForm({ ...form, billing_status:event.target.value })}>
+        {['pending','active','past_due','suspended','cancelled'].map(status=><option key={status} value={status}>{status.replace('_', ' ')}</option>)}
+      </select></label>
+      {form.billing_plan === 'pay_per_event' && <label>Prepaid event credits<input type="number" min="0" step="1" required value={form.prepaid_event_credits} onChange={event=>setForm({ ...form, prepaid_event_credits:event.target.value })} /></label>}
+      {monthly && <><label>Term start<input type="date" value={form.term_started_at} onChange={event=>setForm({ ...form, term_started_at:event.target.value })} /></label><label>Term end<input type="date" value={form.term_ends_at} onChange={event=>setForm({ ...form, term_ends_at:event.target.value })} /></label><label>Paid through<input type="date" value={form.paid_through} onChange={event=>setForm({ ...form, paid_through:event.target.value })} /></label></>}
+      {error && <p className="tenant-error" role="alert">{error}</p>}
+      <button type="submit" disabled={saving}>Save access settings</button>
+    </form>
+  </details>;
 }
