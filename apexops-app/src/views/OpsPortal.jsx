@@ -139,7 +139,8 @@ const DEPARTMENT_ICONS = {
 };
 
 export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
-  const eventName = getActiveEvent()?.name || 'Event workspace';
+  const activeEvent = getActiveEvent();
+  const eventName = activeEvent?.name || 'Event workspace';
   const [queries, setQueries]   = useState([]);
   const [staff, setStaff]       = useState([]);
   const [exhibitors, setExhibitors] = useState([]);
@@ -224,9 +225,9 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
     scheduleRefresh();
     document.addEventListener('visibilitychange', handleVisibilityChange);
     let toastTimeout;
-    const channel = supabase?.channel('live-query-status')
-      .on('postgres_changes', { event:'*', schema:'public', table:'queries' }, refresh)
-      .on('postgres_changes', { event:'INSERT', schema:'public', table:'ops_notifications' }, event => {
+    const channel = supabase?.channel(`live-query-status:${activeEvent?.id || 'all'}`)
+      .on('postgres_changes', { event:'*', schema:'public', table:'queries', ...(activeEvent?.id && { filter:`event_id=eq.${activeEvent.id}` }) }, refresh)
+      .on('postgres_changes', { event:'INSERT', schema:'public', table:'ops_notifications', ...(activeEvent?.id && { filter:`event_id=eq.${activeEvent.id}` }) }, event => {
         setToast(event.new);
         window.clearTimeout(toastTimeout);
         toastTimeout = window.setTimeout(() => setToast(null), 8000);
