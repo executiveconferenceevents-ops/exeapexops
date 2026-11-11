@@ -10,8 +10,10 @@ export default function SyncStatus() {
     return () => { unsubscribe(); stop(); };
   }, []);
 
-  if (state.online && !state.pending && !state.failed) return null;
-  const message = !state.online
+  if (state.online && !state.pending && !state.failed && !state.storageError) return null;
+  const message = state.storageError
+    ? state.storageMessage || 'Offline storage is unavailable. Do not close this page until you are online.'
+    : !state.online
     ? `Offline - changes are saved on this device${state.pending ? ` (${state.pending} waiting to sync)` : ''}`
     : state.pending ? `Syncing ${state.pending} change${state.pending === 1 ? '' : 's'}...`
     : `${state.failed} change${state.failed === 1 ? '' : 's'} need review`;

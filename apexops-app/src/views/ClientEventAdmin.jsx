@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { getAvailableEvents, setActiveEvent } from '../lib/eventScope';
+import { getAvailableEvents, getEventAccessCode, setActiveEvent } from '../lib/eventScope';
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
 import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
 import { enqueue, isNetworkError } from '../lib/offline';
@@ -70,8 +70,22 @@ export default function ClientEventAdmin() {
         }
       }
       const managedClientId = currentMemberships.find(membership => membership.role === 'client_admin' && !membership.event_id)?.client_id || '';
+      let managedEvents = availableEvents;
+      if (!DEMO_MODE && availableEvents.length) {
+        const { data: codeRows, error: codeError } = await supabase.rpc('get_event_access_codes', {
+          requested_event_ids:availableEvents.map(event => event.id),
+        });
+        let rows = codeRows || [];
+        if (codeError?.code === 'PGRST202') {
+          const { data:legacyRows, error:legacyError } = await supabase.from('events').select('id, exhibitor_code').in('id', availableEvents.map(event => event.id));
+          if (legacyError) throw legacyError;
+          rows = legacyRows || [];
+        } else if (codeError) throw codeError;
+        const codeByEventId = new Map(rows.map(row => [row.event_id || row.id, row.exhibitor_code]));
+        managedEvents = availableEvents.map(event => ({ ...event, exhibitor_code:codeByEventId.get(event.id) || '' }));
+      }
       setClients(visibleClients);
-      setEvents(availableEvents);
+      setEvents(managedEvents);
       setMemberships(currentMemberships);
       setIsPlatformAdmin(platformAdmin);
       setEventForm(current => ({ ...current, client_id:platformAdmin ? current.client_id || visibleClients[0]?.id || '' : managedClientId }));
@@ -142,7 +156,7 @@ export default function ClientEventAdmin() {
         const input = { id:crypto.randomUUID(), name, slug, adminEmail:clientForm.adminEmail.trim() };
         const { error: createError } = await supabase.functions.invoke('create-client', { body:input });
         if (createError && isNetworkError(createError)) {
-          enqueue('client.create', input);
+          await enqueue('client.create', input);
           setClientForm(emptyClient);
           setNotice('You are offline. The client will be created automatically when the connection returns.');
           return;
@@ -195,7 +209,7 @@ export default function ClientEventAdmin() {
         setDemoCollection('events', [...currentEvents, data]);
       } else {
         const { data:createdEvent, error: createError } = await supabase.from('events').insert(eventValues)
-          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, exhibitor_code, is_public, logo_url').single();
+          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url').single();
         if (createError) throw createError;
         data = createdEvent;
       }
@@ -228,6 +242,25 @@ export default function ClientEventAdmin() {
       setNotice(`${event.name} logo updated. It will appear in the Exhibitors event list.`);
     } catch (saveError) {
       setError(saveError?.message || 'Could not update the event logo.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function rotateEventCode(event) {
+    if (!window.confirm(`Regenerate the exhibitor code for ${event.name}? The current code will stop working immediately.`)) return;
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const { error: rotateError } = await supabase.from('events').update({ exhibitor_code:null }).eq('id', event.id);
+      if (rotateError) throw rotateError;
+      const code = await getEventAccessCode(event.id);
+      if (!code) throw new Error('The new exhibitor code was generated but could not be retrieved. Refresh the page to load it.');
+      setEvents(current => current.map(item => item.id === event.id ? { ...item, exhibitor_code:code } : item));
+      setNotice(`Exhibitor code for ${event.name} was regenerated. Share the new code with exhibitors.`);
+    } catch (rotateError) {
+      setError(rotateError?.message || 'Could not regenerate the exhibitor code.');
     } finally {
       setSaving(false);
     }
@@ -337,7 +370,7 @@ export default function ClientEventAdmin() {
         <section className="tenant-section" hidden={section !== 'events'}>
           <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Event workspaces</h2><p>Each event has isolated staff, exhibitors, requests and reports.</p></div></div>
           <div className="tenant-list">
-            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span></div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code></span><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div>)}
+            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span></div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code><button className="tenant-regenerate-code" type="button" disabled={saving} onClick={()=>rotateEventCode(event)}>Regenerate code</button></span><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div>)}
             {!events.length && <p className="tenant-empty">No events are assigned to your account.</p>}
           </div>
           <form className="tenant-form tenant-inline-form" onSubmit={createEvent}>

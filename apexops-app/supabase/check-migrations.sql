@@ -1,5 +1,6 @@
 -- Read-only check: shows which APEXOPS migrations are already applied. Changes nothing.
 -- Paste the whole file into the Supabase SQL Editor and click Run.
+-- Apply missing security migrations in this order: event-code-hardening, query-photo-privacy, query-idempotency-consent.
 
 select item, case when ok then 'OK' else 'MISSING - run ' || fix end as status
 from (values
@@ -62,5 +63,20 @@ from (values
     'query-photos-migration.sql'),
   ('Staff queues restricted to own assigned queries',
     (select count(*) = 3 from pg_policies where schemaname = 'public' and ((tablename = 'queries' and policyname in ('staff read assigned queries', 'staff update assigned queries')) or (tablename = 'staff' and policyname = 'staff read own profile'))),
-    'staff-queue-security-migration.sql')
+    'staff-queue-security-migration.sql'),
+  ('Event codes are random and guess attempts are rate-limited',
+    exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'validate_public_event_code')
+      and exists (select 1 from pg_class where relnamespace = 'public'::regnamespace and relname = 'event_code_attempts')
+      and exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'events_exhibitor_code_unique_idx'),
+    'event-code-hardening-migration.sql'),
+  ('Query submission idempotency and durable consent',
+    exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'queries' and column_name = 'client_submission_id')
+      and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'event_privacy_acknowledgements')
+      and exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'queries_event_submission_id_unique')
+      and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'acknowledge_public_event_privacy'),
+    'query-idempotency-consent-migration.sql'),
+  ('Private query photo storage',
+    exists (select 1 from storage.buckets where id = 'query-photos-private' and public = false)
+      and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'can_read_query_photo'),
+    'query-photo-privacy-migration.sql')
 ) as checks(item, ok, fix);

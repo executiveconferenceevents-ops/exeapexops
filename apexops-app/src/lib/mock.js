@@ -1,7 +1,7 @@
 // ─── Data catalog and query store ────────────────────────────────────────────
 import { supabase } from './supabase';
 import { DEMO_MODE, getAppStorage, getDemoCollection, setDemoCollection } from './demoStore';
-import { getActiveClientId, getActiveEventCode, getActiveEventId, getEventSlug } from './eventScope';
+import { getActiveClientId, getActiveEvent, getActiveEventCode, getActiveEventId, getEventSlug, PRIVACY_NOTICE_VERSION } from './eventScope';
 import { applyPendingDb, cacheGet, cacheWrite, cachedRead, enqueue, isNetworkError, pendingOps } from './offline';
 
 function eventCacheKey(key) {
@@ -57,7 +57,7 @@ function readBlobAsDataUrl(blob) {
   });
 }
 
-async function prepareQueryPhoto(file) {
+export async function prepareQueryPhoto(file) {
   if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error('Photos must be JPG, PNG or WebP images.');
   try {
     const bitmap = await createImageBitmap(file);
@@ -76,19 +76,31 @@ async function prepareQueryPhoto(file) {
 export const QUERY_PHOTO_LIMIT = 4;
 export const MAX_QUERY_PHOTOS = 8;
 
-export async function uploadQueryPhotos(files) {
+async function sha256Hex(value) {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export async function uploadQueryPhotos(files, contextId = crypto.randomUUID(), options = {}) {
   const blobs = await Promise.all((files || []).slice(0, MAX_QUERY_PHOTOS).map(prepareQueryPhoto));
   if (!supabase) return Promise.all(blobs.map(readBlobAsDataUrl));
-  const eventId = getActiveEventId();
+  const eventId = options.eventId || getActiveEventId();
+  const { data: sessionData } = await supabase.auth.getSession();
+  const isPublicCodePath = !sessionData.session;
+  const scope = isPublicCodePath
+    ? `${await sha256Hex(options.code || getActiveEventCode())}/${contextId}`
+    : `team/${contextId}`;
   return Promise.all(blobs.map(async blob => {
     const extension = { 'image/png': 'png', 'image/webp': 'webp' }[blob.type] || 'jpg';
-    const path = `${eventId}/${crypto.randomUUID()}.${extension}`;
-    const { error } = await supabase.storage.from('query-photos').upload(path, blob, { contentType: blob.type, upsert: false });
+    const blobHash = await sha256Hex(await blob.arrayBuffer());
+    const path = `${eventId}/${scope}/${blobHash}.${extension}`;
+    const { error } = await supabase.storage.from('query-photos-private').upload(path, blob, { contentType: blob.type, upsert: true });
     if (error) {
-      if (/bucket not found/i.test(error.message || '')) throw new Error('Photo uploads are not switched on yet. Ask the platform admin to run supabase/query-photos-migration.sql.');
+      if (/bucket not found/i.test(error.message || '')) throw new Error('Private photo uploads are not enabled yet. Ask the platform admin to run supabase/query-photo-privacy-migration.sql.');
       throw error;
     }
-    return supabase.storage.from('query-photos').getPublicUrl(path).data.publicUrl;
+    return `private://${path}`;
   }));
 }
 
@@ -333,7 +345,9 @@ export async function submitRebookingRequest(request) {
       request_payload:row,
     });
     if (error) throw error;
-    return Array.isArray(data) ? data[0] : data;
+    const saved = Array.isArray(data) ? data[0] : data;
+    if (!saved) throw new Error('The event code is invalid or the event is unavailable.');
+    return saved;
   }
   if (DEMO_MODE) {
     const rows = getDemoCollection('rebookings', DEMO_REBOOKINGS);
@@ -400,6 +414,7 @@ export async function escalatePublicQuery({ queryId, stand, message = '' }) {
     escalation_message: message.trim(),
   });
   if (error) throw error;
+  if (!data) throw new Error('This query could not be escalated. Check the event, stand and query status.');
   return data;
 }
 
@@ -423,7 +438,7 @@ export async function upsertStaffRecords(records) {
     const { data, error } = await supabase.from('staff').upsert(rows, { onConflict:'id' }).select();
     if (!error) return data || [];
     if (isNetworkError(error)) {
-      enqueue('db.upsert', { table:'staff', rows, onConflict:'id', eventId:getActiveEventId() });
+      await enqueue('db.upsert', { table:'staff', rows, onConflict:'id', eventId:getActiveEventId() });
       return rows;
     }
     const legacyRows = rows.map(({ supplier_name, email, ...legacy }) => legacy);
@@ -502,7 +517,7 @@ export async function upsertExhibitorRecords(records) {
   if (supabase) {
     const { data, error } = await supabase.from('exhibitors').upsert(rows, { onConflict:'event_id,stand' }).select();
     if (error && isNetworkError(error)) {
-      enqueue('db.upsert', { table:'exhibitors', rows, onConflict:'event_id,stand', eventId:getActiveEventId() });
+      await enqueue('db.upsert', { table:'exhibitors', rows, onConflict:'event_id,stand', eventId:getActiveEventId() });
       return rows;
     }
     if (error) throw error;
@@ -525,7 +540,7 @@ export async function addStaff({ name, supplier_name, email, category, departmen
     const { data, error } = await supabase.from('staff').insert(member).select().single();
     if (error && isNetworkError(error)) {
       if (photo) throw new Error('Photos can only be uploaded while online. Add the photo once the connection returns.');
-      enqueue('db.insert', { table:'staff', row:member, eventId:getActiveEventId() });
+      await enqueue('db.insert', { table:'staff', row:member, eventId:getActiveEventId() });
       return member;
     }
     if (!error) {
@@ -564,7 +579,7 @@ export async function updateStaff(id, patch) {
     const { data, error } = await supabase.from('staff').update(dbPatch).eq('id', id).eq('event_id', getActiveEventId()).select().single();
     if (error && isNetworkError(error)) {
       if (photo) throw new Error('Photos can only be uploaded while online. Add the photo once the connection returns.');
-      enqueue('db.update', { table:'staff', match:{ id, event_id:getActiveEventId() }, patch:dbPatch, eventId:getActiveEventId() });
+      await enqueue('db.update', { table:'staff', match:{ id, event_id:getActiveEventId() }, patch:dbPatch, eventId:getActiveEventId() });
       return { id, ...dbPatch };
     }
     if (!error) {
@@ -616,7 +631,7 @@ export async function removeStaff(id) {
   if (supabase) {
     const { error } = await supabase.from('staff').delete().eq('id', id).eq('event_id', getActiveEventId());
     if (error && isNetworkError(error)) {
-      enqueue('db.delete', { table:'staff', match:{ id, event_id:getActiveEventId() }, eventId:getActiveEventId() });
+      await enqueue('db.delete', { table:'staff', match:{ id, event_id:getActiveEventId() }, eventId:getActiveEventId() });
       return;
     }
     if (error) throw error;
@@ -735,12 +750,12 @@ export async function getExhibitors() {
         .eq('event_id', getActiveEventId())
         .order('stand');
       if (!error) {
-        cacheWrite(eventCacheKey('exhibitors'), data);
-        return withOverrides(mergeExhibitorRows(applyPendingDb('exhibitors', data, 'stand', getActiveEventId())));
+        await cacheWrite(eventCacheKey('exhibitors'), data);
+        return withOverrides(mergeExhibitorRows(await applyPendingDb('exhibitors', data, 'stand', getActiveEventId())));
       }
       if (isNetworkError(error)) {
-        const cached = cacheGet(eventCacheKey('exhibitors'));
-        if (cached) return withOverrides(mergeExhibitorRows(applyPendingDb('exhibitors', cached, 'stand', getActiveEventId())));
+        const cached = await cacheGet(eventCacheKey('exhibitors'));
+        if (cached) return withOverrides(mergeExhibitorRows(await applyPendingDb('exhibitors', cached, 'stand', getActiveEventId())));
       }
       if (error.message?.includes('logo_url') || error.message?.includes('scanner_') || error.message?.includes('Could not find the')) {
         const { data: fallbackData, error: fallbackError } = await supabase
@@ -770,7 +785,7 @@ export async function addExhibitor(exhibitor) {
       const { data, error } = await supabase.from('exhibitors').insert({ ...scopedExhibitor, logo_url: persistedLogoUrl || null }).select().single();
       if (!error) return data;
       if (isNetworkError(error)) {
-        enqueue('db.insert', { table:'exhibitors', row:scopedExhibitor, eventId:getActiveEventId() });
+        await enqueue('db.insert', { table:'exhibitors', row:scopedExhibitor, eventId:getActiveEventId() });
         return scopedExhibitor;
       }
       if (error.message?.includes('logo_url') || error.message?.includes('Could not find the')) {
@@ -808,7 +823,7 @@ export async function updateExhibitor(stand, patch) {
       if (!error) return data;
       if (isNetworkError(error)) {
         const offlinePatch = { ...safePatch, ...(persistedLogoUrl !== undefined && { logo_url: persistedLogoUrl || null }) };
-        enqueue('db.update', { table:'exhibitors', match:{ stand, event_id:getActiveEventId() }, patch:offlinePatch, eventId:getActiveEventId() });
+        await enqueue('db.update', { table:'exhibitors', match:{ stand, event_id:getActiveEventId() }, patch:offlinePatch, eventId:getActiveEventId() });
         return { stand, ...offlinePatch };
       }
       if (error.message?.includes('logo_url') || error.message?.includes('Could not find the')) {
@@ -836,7 +851,7 @@ export async function removeExhibitor(stand) {
   if (supabase) {
     const { error } = await supabase.from('exhibitors').delete().eq('stand', stand).eq('event_id', getActiveEventId());
     if (error && isNetworkError(error)) {
-      enqueue('db.delete', { table:'exhibitors', match:{ stand, event_id:getActiveEventId() }, eventId:getActiveEventId() });
+      await enqueue('db.delete', { table:'exhibitors', match:{ stand, event_id:getActiveEventId() }, eventId:getActiveEventId() });
       return;
     }
     if (error) throw error;
@@ -928,19 +943,19 @@ export async function getQueries() {
       if (error) throw error;
       return fetched || [];
     });
-    const data = applyPendingQueryOps(baseRows, eventId);
+    const data = await applyPendingQueryOps(baseRows, eventId);
     return (data || []).map(fromRow).map(query => ({ ...query, slaDeadline: query.slaDeadline || deriveSlaDeadline(query, data || []) }));
   }
   const queries = DEMO_MODE ? getDemoCollection('queries', DEMO_QUERIES) : _queries;
   return recalculateSlaDeadlines(queries.map(query => ({ ...query, category: normalizeCategory(query.category) })));
 }
 
-function applyPendingQueryOps(rows, eventId) {
+async function applyPendingQueryOps(rows, eventId) {
   let result = [...rows];
-  pendingOps('query.insert').forEach(({ payload }) => {
+  (await pendingOps('query.insert')).forEach(({ payload }) => {
     if (payload.row.event_id === eventId && !result.some(row => row.id === payload.row.id)) result.push(payload.row);
   });
-  pendingOps('query.update').forEach(({ payload }) => {
+  (await pendingOps('query.update')).forEach(({ payload }) => {
     if (payload.eventId === eventId) result = result.map(row => row.id === payload.id ? { ...row, ...payload.dbPatch } : row);
   });
   return result;
@@ -980,11 +995,16 @@ export function recalculateSlaDeadlines(queries) {
 
 export async function addQuery(input) {
   const { photos, ...q } = input;
+  const queryId = q.id || `Q-${Date.now()}`;
+  let photosPending = [];
   if (photos?.length) {
-    try { q.photo_urls = await uploadQueryPhotos(photos); }
+    try {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) photosPending = photos;
+      else q.photo_urls = await uploadQueryPhotos(photos, queryId);
+    }
     catch (uploadError) {
-      if (isNetworkError(uploadError)) throw new Error('Photos need an internet connection. Remove the photos to save this query now, or try again when you are online.');
-      throw uploadError;
+      if (isNetworkError(uploadError)) photosPending = photos;
+      else throw uploadError;
     }
   }
   const normalizedQuery = {
@@ -996,7 +1016,7 @@ export async function addQuery(input) {
   const duplicate = findDuplicateQuery(existingQueries, normalizedQuery);
   if (duplicate) throw duplicateQueryError(duplicate);
 
-  const id = `Q-${Date.now()}`;
+  const id = queryId;
   const loggedAt = new Date();
   const baseQuery = {
     ...normalizedQuery,
@@ -1012,8 +1032,12 @@ export async function addQuery(input) {
   const entry = { ...baseQuery, slaDeadline: queue.find(item => item.id === id)?.slaDeadline || new Date(loggedAt.getTime() + estMinutes(q.est || '1 hour') * 60000) };
   if (supabase) {
     const row = toRow(entry);
+    if (photosPending.length) {
+      await enqueue('query.insert', { row, photos:photosPending });
+      return entry;
+    }
     const { error } = await supabase.from('queries').insert(row);
-    if (error && isNetworkError(error)) enqueue('query.insert', { row });
+    if (error && isNetworkError(error)) await enqueue('query.insert', { row });
     else if (error) throw error;
     return entry;
   }
@@ -1029,37 +1053,61 @@ export async function addQuery(input) {
 export async function submitClientQuery(query) {
   const stand = normalizeStand(query.stand);
   const { photos, ...queryFields } = query;
+  const submissionId = query.submissionId || crypto.randomUUID();
+  const pendingQueryId = `Q-${submissionId.replace(/-/g, '').slice(0, 16).toUpperCase()}`;
 
   try {
     let saved;
-    let photosSkipped = false;
+    let photosPending = [];
     if (supabase) {
       let photo_urls = [];
       if (photos?.length) {
-        try { photo_urls = await uploadQueryPhotos(photos); }
-        catch (uploadError) {
-          if (!isNetworkError(uploadError)) throw uploadError;
-          photosSkipped = true;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          photosPending = photos;
+        } else {
+          try { photo_urls = await uploadQueryPhotos(photos, submissionId); }
+          catch (uploadError) {
+            if (!isNetworkError(uploadError)) throw uploadError;
+            photosPending = photos;
+          }
         }
       }
-      const payload = { ...queryFields, stand, photo_urls, sourceTab:'CLIENT', submittedAt:new Date().toISOString() };
+      const activeEvent = getActiveEvent();
+      const payload = {
+        ...queryFields,
+        stand,
+        event_id:getActiveEventId(),
+        photo_urls,
+        sourceTab:'CLIENT',
+        submission_id:submissionId,
+        acknowledgement_id:activeEvent?.privacyAcknowledgementId || null,
+        privacy_notice_version:activeEvent?.privacyAcknowledgementId ? PRIVACY_NOTICE_VERSION : null,
+        submittedAt:new Date().toISOString(),
+      };
+      if (photosPending.length) {
+        await enqueue('public.query', { slug:getEventSlug(), code:getActiveEventCode(), payload, photos:photosPending });
+        return { query: { ...payload, id:pendingQueryId, status:'LOGGED', loggedAt:new Date() }, duplicate:false, queued:true, photosQueued:true };
+      }
       const { data, error } = await supabase.rpc('submit_public_query', {
         requested_event_slug:getEventSlug(),
         requested_code:getActiveEventCode(),
         query_payload:payload,
       });
       if (error && isNetworkError(error)) {
-        enqueue('public.query', { slug:getEventSlug(), code:getActiveEventCode(), payload });
-        return { query: { ...payload, id:'Pending sync', status:'LOGGED', loggedAt:new Date() }, duplicate: false, queued: true, photosSkipped: Boolean(photos?.length) };
+        await enqueue('public.query', { slug:getEventSlug(), code:getActiveEventCode(), payload, photos:[] });
+        return { query: { ...payload, id:pendingQueryId, status:'LOGGED', loggedAt:new Date() }, duplicate:false, queued:true, photosQueued:false };
       }
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : data;
+      if (!row) throw new Error(activeEvent?.privacyAcknowledgementId
+        ? 'The event code is invalid or the event is unavailable.'
+        : 'Please acknowledge the event privacy notice before submitting a query.');
       saved = fromRow(row);
     } else {
       const photo_urls = photos?.length ? await uploadQueryPhotos(photos) : [];
       saved = await addQuery({ ...queryFields, stand, photo_urls, sourceTab:'CLIENT' });
     }
-    return { query: saved, duplicate: false, photosSkipped };
+    return { query: saved, duplicate: false, photosQueued:false };
   } catch (error) {
     if (error.duplicateQuery) return { query: error.duplicateQuery, duplicate: true };
     if (!/already been submitted/i.test(readableError(error, ''))) throw error;
@@ -1127,7 +1175,7 @@ export async function updateQuery(id, patch) {
         .select()
         .single();
       if (error && isNetworkError(error)) {
-        enqueue('query.update', { id, eventId:getActiveEventId(), dbPatch });
+        await enqueue('query.update', { id, eventId:getActiveEventId(), dbPatch });
         return updated;
       }
       if (error) throw error;

@@ -3,6 +3,7 @@ import { DEMO_MODE, getDemoCollection } from './demoStore';
 
 const DEFAULT_EVENT_SLUG = process.env.REACT_APP_DEFAULT_EVENT_SLUG || 'esg-africa-2026';
 const ACTIVE_EVENT_KEY = 'apexops-active-event-v1';
+export const PRIVACY_NOTICE_VERSION = '2026-10-04-v1';
 let activeEvent = null;
 
 export function getEventSlug() {
@@ -67,10 +68,26 @@ export async function getAvailableEvents() {
   if (!supabase) return [];
   const { data, error } = await supabase
     .from('events')
-    .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, exhibitor_code, is_public, logo_url, clients(name)')
+    .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, clients(name)')
     .order('name');
   if (error) throw error;
   return data || [];
+}
+
+export async function getEventAccessCode(eventId) {
+  if (DEMO_MODE) {
+    const event = (await getAvailableEvents()).find(item => item.id === eventId);
+    return event?.exhibitor_code || '';
+  }
+  if (!supabase) return '';
+  const { data, error } = await supabase.rpc('get_event_access_code', { requested_event_id:eventId });
+  if (error?.code === 'PGRST202') {
+    const { data:legacyEvent, error:legacyError } = await supabase.from('events').select('exhibitor_code').eq('id', eventId).maybeSingle();
+    if (legacyError) throw legacyError;
+    return legacyEvent?.exhibitor_code || '';
+  }
+  if (error) throw error;
+  return data || '';
 }
 
 export async function getPublicEvents() {

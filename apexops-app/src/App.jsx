@@ -10,13 +10,11 @@ import RebookingForm from './views/RebookingForm';
 import ClientQuery from './views/ClientQuery';
 import { supabase } from './lib/supabase';
 import { DEMO_MODE } from './lib/demoStore';
-import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventSlug, getPublicEvents, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
+import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventAccessCode, getEventSlug, getPublicEvents, PRIVACY_NOTICE_VERSION, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
 import { ArrowLeft, Building2, CheckCircle2, ClipboardPlus, HardHat, LayoutDashboard, LogIn, LogOut, Monitor } from 'lucide-react';
 import { AppShell, PageHeader, ServiceCard, StatusBadge } from './components/AppShell';
 import LoginLayout from './components/LoginLayout';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, FONT, DISPLAY_FONT } from './theme';
-
-const PRIVACY_NOTICE_VERSION = '2026-10-04-v1';
 
 // ── Role selector / login screen ──────────────────────────────────────────────
 // In production this becomes a real Supabase auth login.
@@ -41,6 +39,7 @@ export default function App() {
   const [verifyingPublicEvent, setVerifyingPublicEvent] = useState(false);
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
   const [privacyNoticeChecked, setPrivacyNoticeChecked] = useState(false);
+  const [privacyAcknowledgementId, setPrivacyAcknowledgementId] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [eventLoading, setEventLoading] = useState(true);
   const [eventError, setEventError] = useState('');
@@ -117,6 +116,7 @@ export default function App() {
           setSelectedEvent(null);
           setPrivacyAcknowledged(false);
           setPrivacyNoticeChecked(false);
+          setPrivacyAcknowledgementId('');
         }
       } catch (eventLoadError) {
         if (!cancelled) setEventError(eventLoadError?.message || 'Could not load events for this account.');
@@ -151,6 +151,7 @@ export default function App() {
     setSelectedEvent(null);
     setPrivacyAcknowledged(false);
     setPrivacyNoticeChecked(false);
+    setPrivacyAcknowledgementId('');
     setEventError('');
     clearActiveEvent();
     const url = new URL(window.location.href);
@@ -169,11 +170,8 @@ export default function App() {
       setSelectedEvent(publicEvent);
       setActiveEvent(publicEvent);
       setPublicAccessCode('');
-      let alreadyAcknowledged = false;
-      try {
-        alreadyAcknowledged = window.localStorage.getItem(`apexops-privacy-ack:${publicEvent.slug}`) === PRIVACY_NOTICE_VERSION;
-      } catch { /* acknowledge for this page when local storage is unavailable */ }
-      setPrivacyAcknowledged(alreadyAcknowledged);
+      setPrivacyAcknowledged(false);
+      setPrivacyAcknowledgementId(crypto.randomUUID());
       setPrivacyNoticeChecked(false);
     } catch (verificationError) {
       setEventError(verificationError?.message || 'Could not verify this event code.');
@@ -194,16 +192,33 @@ export default function App() {
     setRole(nextRole);
   }
 
-  function openStaffExhibitorView(nextRole) {
-    if (!selectedEvent?.exhibitor_code) return;
-    setActiveEvent({ ...selectedEvent, accessCode: selectedEvent.exhibitor_code });
-    setRole(nextRole);
+  async function openStaffExhibitorView(nextRole) {
+    if (!selectedEvent?.id) return;
+    try {
+      const accessCode = selectedEvent.exhibitor_code || await getEventAccessCode(selectedEvent.id);
+      if (!accessCode) throw new Error('You do not have permission to open this exhibitor view.');
+      setActiveEvent({ ...selectedEvent, accessCode });
+      setRole(nextRole);
+    } catch (accessError) {
+      setEventError(accessError?.message || 'Could not open the exhibitor view.');
+    }
   }
 
-  function acknowledgePrivacyNotice() {
+  async function acknowledgePrivacyNotice() {
     if (!selectedEvent?.slug || !privacyNoticeChecked) return;
-    try { window.localStorage.setItem(`apexops-privacy-ack:${selectedEvent.slug}`, PRIVACY_NOTICE_VERSION); }
-    catch { /* keep the acknowledgement active for this page if storage is unavailable */ }
+    if (supabase) {
+      const { data, error } = await supabase.rpc('acknowledge_public_event_privacy', {
+        requested_event_slug:selectedEvent.slug,
+        requested_code:selectedEvent.accessCode,
+        requested_acknowledgement_id:privacyAcknowledgementId,
+        requested_notice_version:PRIVACY_NOTICE_VERSION,
+      });
+      if (error || !data) {
+        setEventError(error?.message || 'Could not record your acknowledgement. Check your connection and try again.');
+        return;
+      }
+    }
+    setActiveEvent({ ...selectedEvent, privacyAcknowledgementId });
     setPrivacyAcknowledged(true);
     setEventError('');
   }

@@ -90,7 +90,10 @@ export default function ExhibitorStatus() {
       setDuplicateWarning(result.duplicate);
       setMessage(result.duplicate
         ? `This issue was already submitted as ${result.query.id}. We did not create another query.`
-        : `Query ${result.query.id} was sent to the Ops Desk.`);
+        : result.queued
+          ? 'Your query is saved on this device and will sync when the connection returns.'
+          : `Query ${result.query.id} was sent to the Ops Desk.`);
+      if (result.queued) return;
       try {
         setQueries(deduplicateQueries(await getPublicStatus(normalizedStand)));
       } catch (refreshError) {

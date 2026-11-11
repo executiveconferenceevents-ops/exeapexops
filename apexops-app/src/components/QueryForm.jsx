@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, ClipboardPlus, X } from 'lucide-react';
-import { CATEGORIES, EST_OPTIONS, QUERY_PHOTO_LIMIT } from '../lib/mock';
+import { CATEGORIES, EST_OPTIONS, prepareQueryPhoto, QUERY_PHOTO_LIMIT } from '../lib/mock';
 import { BLUE } from '../theme';
 
 const DEPARTMENT_ISSUES = {
@@ -28,6 +28,7 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [photos, setPhotos] = useState([]);
+  const [submissionId] = useState(() => crypto.randomUUID());
   const photoPreviews = useMemo(() => photos.map(file => URL.createObjectURL(file)), [photos]);
   useEffect(() => () => photoPreviews.forEach(url => URL.revokeObjectURL(url)), [photoPreviews]);
   const submissionInProgress = useRef(false);
@@ -38,11 +39,19 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
     setForm(current => ({ ...current, exhibitor: name, stand: exhibitor?.stand || '', contact: exhibitor?.contact || '', phone: exhibitor?.phone || '' }));
   }
 
-  function addPhotos(fileList) {
+  async function addPhotos(fileList) {
     const incoming = [...fileList];
-    if (photos.length + incoming.length > QUERY_PHOTO_LIMIT) setError(`You can attach up to ${QUERY_PHOTO_LIMIT} photos.`);
-    else setError('');
-    setPhotos(current => [...current, ...incoming].slice(0, QUERY_PHOTO_LIMIT));
+    if (photos.length + incoming.length > QUERY_PHOTO_LIMIT) {
+      setError(`You can attach up to ${QUERY_PHOTO_LIMIT} photos.`);
+      return;
+    }
+    setError('');
+    try {
+      const prepared = await Promise.all(incoming.map(prepareQueryPhoto));
+      setPhotos(current => [...current, ...prepared].slice(0, QUERY_PHOTO_LIMIT));
+    } catch (photoError) {
+      setError(photoError?.message || 'Could not prepare the selected photo.');
+    }
   }
 
   async function submit(event) {
@@ -57,7 +66,7 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
     setSaving(true);
     setError('');
     try {
-      await onSubmit({ ...form, description: details, sourceTab: clientMode ? 'CLIENT' : form.category, ...(photos.length && { photos }) });
+      await onSubmit({ ...form, description: details, sourceTab: clientMode ? 'CLIENT' : form.category, submissionId, ...(photos.length && { photos }) });
     } catch (submitError) {
       setError(submitError?.message || 'Could not save this query. Please try again.');
     } finally {

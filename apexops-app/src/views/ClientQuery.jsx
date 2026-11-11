@@ -10,7 +10,8 @@ export default function ClientQuery() {
   const [exhibitors, setExhibitors] = useState([]);
   const [savedQuery, setSavedQuery] = useState(null);
   const [alreadySubmitted, setAlreadySubmitted] = useState(false);
-  const [photosSkipped, setPhotosSkipped] = useState(false);
+  const [queued, setQueued] = useState(false);
+  const [photosQueued, setPhotosQueued] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -22,7 +23,8 @@ export default function ClientQuery() {
       const result = await submitClientQuery(query);
       setSavedQuery(result.query);
       setAlreadySubmitted(result.duplicate);
-      setPhotosSkipped(Boolean(result.photosSkipped));
+      setQueued(Boolean(result.queued));
+      setPhotosQueued(Boolean(result.photosQueued));
     } catch (saveError) {
       throw new Error(readableError(saveError, 'Could not send this query to the Ops Desk.'));
     }
@@ -36,10 +38,10 @@ export default function ClientQuery() {
     <main className="apex-service-main" style={mainStyle}>
       {savedQuery ? <section className="apex-service-panel" style={cardStyle}>
         <CheckCircle2 size={40} color={TEAL} />
-        <div style={eyebrowStyle}>{alreadySubmitted ? 'Already submitted' : 'Query sent to Ops'}</div>
-        <h1 style={headingStyle}>{alreadySubmitted ? 'This issue is already logged.' : 'Your request is in the queue.'}</h1>
-        <p style={copyStyle}>{alreadySubmitted ? 'We did not create another query. Use this existing reference if you contact the Ops Desk:' : 'Reference'} <strong>{savedQuery.id}</strong> for Stand {savedQuery.stand}. Logged {formatDateTime(savedQuery.loggedAt || savedQuery.logged_at)}. {!alreadySubmitted && 'The Ops Desk will assign the right team.'}</p>
-        {photosSkipped && <p style={{ color: '#805C16', fontSize: 13 }}>You were offline, so your photos were not attached. Send them to the Ops Desk once you have a connection.</p>}
+        <div style={eyebrowStyle}>{alreadySubmitted ? 'Already submitted' : queued ? 'Saved on this device' : 'Query sent to Ops'}</div>
+        <h1 style={headingStyle}>{alreadySubmitted ? 'This issue is already logged.' : queued ? 'Your request will sync when online.' : 'Your request is in the queue.'}</h1>
+        <p style={copyStyle}>{alreadySubmitted ? 'We did not create another query. Use this existing reference if you contact the Ops Desk:' : queued ? 'Your request is saved on this device and will be sent automatically when the connection returns. Keep this page or app installed until it syncs.' : 'Reference'} <strong>{savedQuery.id}</strong> for Stand {savedQuery.stand}. Logged {formatDateTime(savedQuery.loggedAt || savedQuery.logged_at)}. {!alreadySubmitted && !queued && 'The Ops Desk will assign the right team.'}</p>
+        {photosQueued && <p style={{ color: '#17724a', fontSize: 13 }}>Your photos are saved with the request and will upload when it syncs.</p>}
         {!supabase && <p style={{ color: '#922B21', fontSize: 12 }}>Demo mode: Supabase is not connected, so this query is only saved in this browser.</p>}
       </section> : <section className="apex-service-panel" style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}><div style={iconBox}><ClipboardPlus size={20} /></div><div><div style={eyebrowStyle}>Client request</div><h1 style={headingStyle}>Log a query</h1></div></div>
