@@ -217,7 +217,8 @@ begin
     select coalesce(array_agg(photo), '{}') into requested_photos
     from jsonb_array_elements_text(query_payload->'photo_urls') as photo;
   end if;
-  if cardinality(requested_photos) > case when auth.role() = 'anon' then 4 else 8 end
+  if (auth.role() = 'anon' and cardinality(requested_photos) > 4)
+    or (auth.role() <> 'anon' and cardinality(requested_photos) > 8)
     or exists (
       select 1 from unnest(requested_photos) as photo
       where length(photo) > 600
