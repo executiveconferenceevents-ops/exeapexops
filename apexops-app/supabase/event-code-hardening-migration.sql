@@ -162,29 +162,29 @@ begin
   loop
     definition := pg_get_functiondef(target.oid);
     original_definition := definition;
-    definition := replace(
+    definition := regexp_replace(
       definition,
-      'event.slug = lower(trim(requested_slug))' || E'\n    and event.exhibitor_code = upper(trim(requested_code))',
-      'event.id = public.validate_public_event_code(requested_slug, requested_code)'
+      'event[.]slug[[:space:]]*=[[:space:]]*lower[[:space:]]*\([[:space:]]*trim[[:space:]]*\([[:space:]]*requested_slug[[:space:]]*\)[[:space:]]*\)[[:space:]]+and[[:space:]]+event[.]exhibitor_code[[:space:]]*=[[:space:]]*upper[[:space:]]*\([[:space:]]*trim[[:space:]]*\([[:space:]]*requested_code[[:space:]]*\)[[:space:]]*\)',
+      'event.id = public.validate_public_event_code(requested_slug, requested_code)', 'gi'
     );
-    definition := replace(
+    definition := regexp_replace(
       definition,
-      'event.slug = lower(trim(requested_event_slug))' || E'\n    and event.exhibitor_code = upper(trim(requested_code))',
-      'event.id = public.validate_public_event_code(requested_event_slug, requested_code)'
+      'event[.]slug[[:space:]]*=[[:space:]]*lower[[:space:]]*\([[:space:]]*trim[[:space:]]*\([[:space:]]*requested_event_slug[[:space:]]*\)[[:space:]]*\)[[:space:]]+and[[:space:]]+event[.]exhibitor_code[[:space:]]*=[[:space:]]*upper[[:space:]]*\([[:space:]]*trim[[:space:]]*\([[:space:]]*requested_code[[:space:]]*\)[[:space:]]*\)',
+      'event.id = public.validate_public_event_code(requested_event_slug, requested_code)', 'gi'
     );
     -- Functions already calling the shared validator are left intact on reruns.
     if target.proname in ('submit_public_query', 'submit_public_rebooking') then
-      definition := replace(
+      definition := regexp_replace(
         definition,
-        'if target_event_id is null then' || E'\n    raise exception ''The event code is invalid or the event is unavailable.'' using errcode = ''42501'';' || E'\n  end if;',
-        'if target_event_id is null then return; end if;'
+        'if[[:space:]]+target_event_id[[:space:]]+is[[:space:]]+null[[:space:]]+then[[:space:]]+raise[[:space:]]+exception[[:space:]]+''The event code is invalid or the event is unavailable.''[[:space:]]+using[[:space:]]+errcode[[:space:]]*=[[:space:]]*''42501'';[[:space:]]+end[[:space:]]+if;',
+        'if target_event_id is null then return; end if;', 'gi'
       );
     end if;
     if target.proname = 'escalate_public_query' then
-      definition := replace(
+      definition := regexp_replace(
         definition,
-        'if updated_id is null then' || E'\n    raise exception ''This query could not be escalated. Check the event, stand and query status.'';' || E'\n  end if;',
-        'if updated_id is null then return null; end if;'
+        'if[[:space:]]+updated_id[[:space:]]+is[[:space:]]+null[[:space:]]+then[[:space:]]+raise[[:space:]]+exception[[:space:]]+''This query could not be escalated. Check the event, stand and query status.'';[[:space:]]+end[[:space:]]+if;',
+        'if updated_id is null then return null; end if;', 'gi'
       );
     end if;
     if definition <> original_definition then
