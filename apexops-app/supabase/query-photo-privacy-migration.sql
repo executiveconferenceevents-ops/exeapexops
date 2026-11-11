@@ -1,5 +1,5 @@
 -- New query photos use a private bucket and code-bound object paths.
--- The legacy query-photos bucket remains readable for old links; new uploads are disabled there.
+-- Legacy public URLs are retained in rows but served only through short-lived signed URLs.
 
 create extension if not exists pgcrypto with schema extensions;
 
@@ -9,6 +9,8 @@ on conflict (id) do update
 set public = false,
     file_size_limit = excluded.file_size_limit,
     allowed_mime_types = excluded.allowed_mime_types;
+
+update storage.buckets set public = false where id = 'query-photos';
 
 create or replace function public.is_public_query_photo_path(object_path text)
 returns boolean
@@ -22,7 +24,7 @@ as $$
         from public.events event
         where event.id::text = split_part(object_path, '/', 1)
             and event.is_public
-            and encode(extensions.digest(upper(trim(event.exhibitor_code)), 'sha256'), 'hex') = split_part(object_path, '/', 2)
+            and encode(digest(upper(trim(event.exhibitor_code)), 'sha256'), 'hex') = split_part(object_path, '/', 2)
             and split_part(object_path, '/', 3) <> ''
             and split_part(object_path, '/', 4) <> ''
             and split_part(object_path, '/', 5) = ''
@@ -108,7 +110,7 @@ as $$
     select case
         when photo_reference like 'private://%' then
             split_part(substr(photo_reference, 11), '/', 1) = target_event_id::text
-            and split_part(substr(photo_reference, 11), '/', 2) = encode(extensions.digest(upper(trim(requested_code)), 'sha256'), 'hex')
+            and split_part(substr(photo_reference, 11), '/', 2) = encode(digest(upper(trim(requested_code)), 'sha256'), 'hex')
             and split_part(substr(photo_reference, 11), '/', 3) = requested_submission_id::text
             and split_part(substr(photo_reference, 11), '/', 4) <> ''
             and split_part(substr(photo_reference, 11), '/', 5) = ''
@@ -121,14 +123,46 @@ as $$
     end;
 $$;
 
+create or replace function public.can_read_legacy_query_photo(object_path text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+    select exists (
+        select 1
+        from public.queries query
+        join public.events event on event.id = query.event_id
+        cross join lateral unnest(query.photo_urls) photo_url
+        where query.event_id::text = (storage.foldername(object_path))[1]
+            and position('/storage/v1/object/public/query-photos/' || object_path in photo_url) > 0
+            and (
+                (auth.role() = 'anon' and event.is_public and query.source_tab = 'CLIENT')
+                or public.has_event_access(event.id, array['client_admin','event_admin','ops'])
+                or (
+                    public.has_event_access(event.id, array['staff'])
+                    and exists (
+                        select 1 from public.staff profile
+                        where profile.id = query.assigned_to
+                            and profile.event_id = query.event_id
+                            and lower(trim(coalesce(profile.email, ''))) = lower(trim(coalesce(auth.jwt() ->> 'email', '')))
+                    )
+                )
+            )
+    );
+$$;
+
 revoke all on function public.is_public_query_photo_path(text) from public;
 revoke all on function public.can_upload_query_photo(text) from public;
 revoke all on function public.can_read_query_photo(text) from public;
 revoke all on function public.valid_query_photo_reference(uuid, text, uuid, text) from public;
+revoke all on function public.can_read_legacy_query_photo(text) from public;
 grant execute on function public.is_public_query_photo_path(text) to anon, authenticated;
 grant execute on function public.can_upload_query_photo(text) to anon, authenticated;
 grant execute on function public.can_read_query_photo(text) to anon, authenticated;
 grant execute on function public.valid_query_photo_reference(uuid, text, uuid, text) to anon, authenticated;
+grant execute on function public.can_read_legacy_query_photo(text) to anon, authenticated;
 
 drop policy if exists "public can upload query photos" on storage.objects;
 drop policy if exists "public can read query photos" on storage.objects;
@@ -137,6 +171,7 @@ drop policy if exists "code holders can upload private query photos" on storage.
 drop policy if exists "code holders retry private query photo upload" on storage.objects;
 drop policy if exists "authorized viewers read private query photos" on storage.objects;
 drop policy if exists "event operations delete private query photos" on storage.objects;
+drop policy if exists "authorized viewers read legacy query photos" on storage.objects;
 
 create policy "code holders can upload private query photos"
 on storage.objects for insert to anon, authenticated
@@ -157,5 +192,9 @@ using (
     bucket_id = 'query-photos-private'
     and public.has_event_access(split_part(name, '/', 1)::uuid, array['client_admin','event_admin','ops'])
 );
+
+create policy "authorized viewers read legacy query photos"
+on storage.objects for select to anon, authenticated
+using (bucket_id = 'query-photos' and public.can_read_legacy_query_photo(name));
 
 drop policy if exists "public can upload query photos" on storage.objects;

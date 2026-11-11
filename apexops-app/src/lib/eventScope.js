@@ -1,10 +1,29 @@
 import { supabase } from './supabase';
 import { DEMO_MODE, getDemoCollection } from './demoStore';
+import { getCacheRecord, saveCacheRecord } from './offlineDb';
 
 const DEFAULT_EVENT_SLUG = process.env.REACT_APP_DEFAULT_EVENT_SLUG || 'esg-africa-2026';
 const ACTIVE_EVENT_KEY = 'apexops-active-event-v1';
 export const PRIVACY_NOTICE_VERSION = '2026-10-04-v1';
 let activeEvent = null;
+
+async function loadCachedPublicValue(key, loader) {
+  const cached = await getCacheRecord(key);
+  if (typeof navigator !== 'undefined' && navigator.onLine === false && cached) return cached.value;
+  try {
+    const value = await loader();
+    await saveCacheRecord({ key, value, savedAt:Date.now() });
+    return value;
+  } catch (error) {
+    if (cached && /failed to fetch|networkerror|network request failed|load failed|fetcherror|timeout/i.test(`${error?.name || ''} ${error?.message || ''}`)) return cached.value;
+    throw error;
+  }
+}
+
+async function hashCode(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '').trim().toUpperCase()));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 export function getEventSlug() {
   const querySlug = new URLSearchParams(window.location.search).get('event');
@@ -98,9 +117,11 @@ export async function getPublicEvents() {
     slug:event.slug, next_event_name:event.next_event_name, logo_url:event.logo_url || '',
   }));
   if (!supabase) return [];
-  const { data, error } = await supabase.rpc('list_public_events');
-  if (error) throw error;
-  return data || [];
+  return loadCachedPublicValue('public-events', async () => {
+    const { data, error } = await supabase.rpc('list_public_events');
+    if (error) throw error;
+    return data || [];
+  });
 }
 
 export async function resolvePublicEvent(slug = getEventSlug(), accessCode) {
@@ -111,10 +132,15 @@ export async function resolvePublicEvent(slug = getEventSlug(), accessCode) {
     return { ...event, accessCode:event.exhibitor_code };
   }
   if (!supabase) return null;
-  const { data, error } = await supabase.rpc('get_public_event', { requested_slug:requestedSlug, requested_code:String(accessCode || '').trim().toUpperCase() });
-  if (error) throw error;
-  const event = Array.isArray(data) ? data[0] || null : data;
-  return event ? { ...event, accessCode:String(accessCode).trim().toUpperCase() } : null;
+  const normalizedCode = String(accessCode || '').trim().toUpperCase();
+  if (!normalizedCode) return null;
+  const cacheKey = `public-event:${requestedSlug}:${await hashCode(normalizedCode)}`;
+  const event = await loadCachedPublicValue(cacheKey, async () => {
+    const { data, error } = await supabase.rpc('get_public_event', { requested_slug:requestedSlug, requested_code:normalizedCode });
+    if (error) throw error;
+    return Array.isArray(data) ? data[0] || null : data;
+  });
+  return event ? { ...event, accessCode:normalizedCode } : null;
 }
 
 export function getActiveClientId() {

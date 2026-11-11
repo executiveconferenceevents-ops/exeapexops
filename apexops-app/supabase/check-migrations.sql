@@ -67,11 +67,13 @@ from (values
   ('Event codes are random and guess attempts are rate-limited',
     exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'validate_public_event_code')
       and exists (select 1 from pg_class where relnamespace = 'public'::regnamespace and relname = 'event_code_attempts')
-      and exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'events_exhibitor_code_unique_idx'),
+      and exists (select 1 from pg_trigger where tgrelid = 'public.events'::regclass and tgname = 'events_set_exhibitor_code' and not tgisinternal),
     'event-code-hardening-migration.sql'),
   ('Query submission idempotency and durable consent',
     exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'queries' and column_name = 'client_submission_id')
       and exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'event_privacy_acknowledgements')
+      and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'queries' and column_name = 'privacy_acknowledgement_id')
+      and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'rebooking_requests' and column_name = 'privacy_acknowledgement_id')
       and exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'queries_event_submission_id_unique')
       and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'acknowledge_public_event_privacy'),
     'query-idempotency-consent-migration.sql'),

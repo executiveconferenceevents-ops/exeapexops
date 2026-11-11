@@ -106,7 +106,6 @@ export default function App() {
           setEventMemberships([]);
           setIsPlatformAdmin(false);
           setCanManageTenants(false);
-          clearActiveEvent();
           const availablePublicEvents = await getPublicEvents();
           if (cancelled) return;
           setPublicEvents(availablePublicEvents);
@@ -167,11 +166,20 @@ export default function App() {
     try {
       const publicEvent = await resolvePublicEvent(publicEventSlug, publicAccessCode);
       if (!publicEvent) throw new Error('That event code is not valid for the selected event.');
-      setSelectedEvent(publicEvent);
-      setActiveEvent(publicEvent);
+      const previousEvent = getActiveEvent();
+      const previouslyAcknowledged = previousEvent?.slug === publicEvent.slug
+        && previousEvent?.privacyNoticeVersion === PRIVACY_NOTICE_VERSION
+        && Boolean(previousEvent?.privacyAcknowledgementId);
+      const verifiedEvent = {
+        ...publicEvent,
+        privacyNoticeVersion:PRIVACY_NOTICE_VERSION,
+        privacyAcknowledgementId:previouslyAcknowledged ? previousEvent.privacyAcknowledgementId : crypto.randomUUID(),
+      };
+      setSelectedEvent(verifiedEvent);
+      setActiveEvent(verifiedEvent);
       setPublicAccessCode('');
-      setPrivacyAcknowledged(false);
-      setPrivacyAcknowledgementId(crypto.randomUUID());
+      setPrivacyAcknowledged(previouslyAcknowledged);
+      setPrivacyAcknowledgementId(verifiedEvent.privacyAcknowledgementId);
       setPrivacyNoticeChecked(false);
     } catch (verificationError) {
       setEventError(verificationError?.message || 'Could not verify this event code.');
@@ -218,7 +226,7 @@ export default function App() {
         return;
       }
     }
-    setActiveEvent({ ...selectedEvent, privacyAcknowledgementId });
+    setActiveEvent({ ...selectedEvent, privacyAcknowledgementId, privacyNoticeVersion:PRIVACY_NOTICE_VERSION });
     setPrivacyAcknowledged(true);
     setEventError('');
   }

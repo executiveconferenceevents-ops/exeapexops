@@ -1,7 +1,7 @@
--- Rotate predictable exhibitor codes and rate-limit invalid public code guesses.
 begin;
 
 revoke select on public.events from authenticated;
+revoke select (exhibitor_code) on public.events from authenticated;
 grant select (
   id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date,
   breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url
@@ -62,9 +62,8 @@ begin
     do update set attempt_count = public.event_code_attempts.attempt_count + 1
     returning attempt_count into current_attempts;
     perform set_config('apexops.event_code_attempt_recorded', '1', true);
-    if current_attempts > 10 then return null; end if;
-
     delete from public.event_code_attempts where window_start < now() - interval '1 day';
+    if current_attempts > 10 then return null; end if;
   end if;
 
   return null;
@@ -100,9 +99,9 @@ begin
 end;
 $$;
 
--- Rotate all existing codes once. Each active code is a random UUID token thereafter.
-update public.events set exhibitor_code = null;
-create unique index if not exists events_exhibitor_code_unique_idx on public.events(exhibitor_code);
+update public.events
+set exhibitor_code = null
+where exhibitor_code !~ '^APX-[A-F0-9]{32}$';
 
 create or replace function public.get_event_access_codes(requested_event_ids uuid[])
 returns table (event_id uuid, exhibitor_code text)
@@ -156,7 +155,10 @@ begin
         'submit_public_rebooking',
         'escalate_public_query'
       )
-      and p.prosrc like '%event.exhibitor_code = upper(trim(requested_code))%'
+      and (
+        p.prosrc like '%event.exhibitor_code = upper(trim(requested_code))%'
+        or p.prosrc like '%public.validate_public_event_code%'
+      )
   loop
     definition := pg_get_functiondef(target.oid);
     original_definition := definition;
@@ -170,18 +172,13 @@ begin
       'event.slug = lower(trim(requested_event_slug))' || E'\n    and event.exhibitor_code = upper(trim(requested_code))',
       'event.id = public.validate_public_event_code(requested_event_slug, requested_code)'
     );
-    if definition = original_definition then
-      raise exception 'Could not harden event-code validation for function %.', target.proname;
-    end if;
+    -- Functions already calling the shared validator are left intact on reruns.
     if target.proname in ('submit_public_query', 'submit_public_rebooking') then
       definition := replace(
         definition,
         'if target_event_id is null then' || E'\n    raise exception ''The event code is invalid or the event is unavailable.'' using errcode = ''42501'';' || E'\n  end if;',
         'if target_event_id is null then return; end if;'
       );
-      if position('The event code is invalid or the event is unavailable.' in definition) > 0 then
-        raise exception 'Could not preserve rate-limit attempts for invalid codes in function %.', target.proname;
-      end if;
     end if;
     if target.proname = 'escalate_public_query' then
       definition := replace(
@@ -189,13 +186,16 @@ begin
         'if updated_id is null then' || E'\n    raise exception ''This query could not be escalated. Check the event, stand and query status.'';' || E'\n  end if;',
         'if updated_id is null then return null; end if;'
       );
-      if position('This query could not be escalated.' in definition) > 0 then
-        raise exception 'Could not preserve rate-limit attempts for invalid codes in function %.', target.proname;
-      end if;
     end if;
-    definition := regexp_replace(definition, '\mSTABLE\M', 'VOLATILE', 'i');
-    execute definition;
-    replaced_count := replaced_count + 1;
+    if definition <> original_definition then
+      definition := regexp_replace(definition, '\mSTABLE\M', 'VOLATILE', 'i');
+      execute definition;
+    end if;
+    if definition like '%public.validate_public_event_code%' then
+      replaced_count := replaced_count + 1;
+    else
+      raise exception 'Could not harden event-code validation for function %.', target.proname;
+    end if;
   end loop;
   if replaced_count <> 6 then
     raise exception 'Expected to harden 6 public event-code functions, but updated %.', replaced_count;

@@ -320,6 +320,7 @@ export async function updateSupplierLogo(memberId, logoUrl) {
 }
 
 export async function submitRebookingRequest(request) {
+  const activeEvent = getActiveEvent();
   const row = {
     id: `rebook-${Date.now()}`,
     ...(supabase && { event_id:getActiveEventId() }),
@@ -337,6 +338,10 @@ export async function submitRebookingRequest(request) {
     discussion_topics: request.discussion_topics || [],
     notes: request.notes?.trim() || '',
     created_at: new Date().toISOString(),
+    ...(supabase && {
+      acknowledgement_id:activeEvent?.privacyAcknowledgementId || null,
+      privacy_notice_version:activeEvent?.privacyNoticeVersion || PRIVACY_NOTICE_VERSION,
+    }),
   };
   if (supabase) {
     const { data, error } = await supabase.rpc('submit_public_rebooking', {
@@ -866,9 +871,12 @@ export async function removeExhibitor(stand) {
 export async function getPublicStatus(stand) {
   const normalizedStand = normalizeStand(stand);
   if (supabase) {
-    const { data, error } = await supabase.rpc('get_public_stand_status', { requested_event_slug:getEventSlug(), requested_code:getActiveEventCode(), requested_stand:normalizedStand });
-    if (error) throw error;
-    return (data || []).map(fromRow);
+    const data = await cachedRead(eventCacheKey(`public-status:${normalizedStand}`), async () => {
+      const { data:rows, error } = await supabase.rpc('get_public_stand_status', { requested_event_slug:getEventSlug(), requested_code:getActiveEventCode(), requested_stand:normalizedStand });
+      if (error) throw error;
+      return rows || [];
+    });
+    return data.map(fromRow);
   }
   return getQueries().then(queries => queries.filter(query => normalizeStand(query.stand) === normalizedStand));
 }
@@ -878,9 +886,12 @@ export async function getPublicExhibitors() {
   const publicRow = row => ({ stand: row.stand, name: row.name, logo_url: row.logo_url || logoOverrides[normalizeStand(row.stand)] || '' });
   if (DEMO_MODE) return getDemoCollection('exhibitors', DEMO_EXHIBITORS).map(publicRow);
   if (supabase) {
-    const { data, error } = await supabase.rpc('get_public_exhibitors', { requested_event_slug:getEventSlug(), requested_code:getActiveEventCode() });
-    if (error) throw error;
-    return (data || []).map(publicRow);
+    const data = await cachedRead(eventCacheKey('public-exhibitors'), async () => {
+      const { data:rows, error } = await supabase.rpc('get_public_exhibitors', { requested_event_slug:getEventSlug(), requested_code:getActiveEventCode() });
+      if (error) throw error;
+      return rows || [];
+    });
+    return data.map(publicRow);
   }
   return mergeExhibitorRows([]).map(publicRow);
 }

@@ -10,10 +10,17 @@ export default function PhotoGallery({ urls, size = 72 }) {
     async function resolvePhotos() {
       const sourceUrls = urlKey ? urlKey.split('|') : [];
       const next = await Promise.all(sourceUrls.map(async source => {
-        if (!source.startsWith('private://')) return { source, url:source };
-        if (!supabase) return { source, url:'' };
-        const path = source.slice('private://'.length);
-        const { data, error } = await supabase.storage.from('query-photos-private').createSignedUrl(path, 300);
+        if (!supabase) return { source, url:source.startsWith('private://') ? '' : source };
+        if (source.startsWith('private://')) {
+          const path = source.slice('private://'.length);
+          const { data, error } = await supabase.storage.from('query-photos-private').createSignedUrl(path, 300);
+          return { source, url:error ? '' : data?.signedUrl || '' };
+        }
+        const legacyPrefix = '/storage/v1/object/public/query-photos/';
+        const legacyIndex = source.indexOf(legacyPrefix);
+        if (legacyIndex < 0) return { source, url:source };
+        const legacyPath = decodeURIComponent(source.slice(legacyIndex + legacyPrefix.length).split('?')[0]);
+        const { data, error } = await supabase.storage.from('query-photos').createSignedUrl(legacyPath, 300);
         return { source, url:error ? '' : data?.signedUrl || '' };
       }));
       if (!cancelled) setResolvedUrls(next);

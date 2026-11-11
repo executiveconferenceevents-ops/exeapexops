@@ -17,6 +17,7 @@ alter table public.event_privacy_acknowledgements enable row level security;
 revoke all on public.event_privacy_acknowledgements from public, anon, authenticated;
 
 alter table public.queries add column if not exists privacy_acknowledgement_id uuid;
+alter table public.rebooking_requests add column if not exists privacy_acknowledgement_id uuid;
 do $$
 begin
   if not exists (select 1 from pg_constraint where conrelid = 'public.queries'::regclass and conname = 'queries_privacy_acknowledgement_fk') then
@@ -24,6 +25,36 @@ begin
       foreign key (event_id, privacy_acknowledgement_id)
       references public.event_privacy_acknowledgements (event_id, acknowledgement_id);
   end if;
+  if not exists (select 1 from pg_constraint where conrelid = 'public.rebooking_requests'::regclass and conname = 'rebooking_privacy_acknowledgement_fk') then
+    alter table public.rebooking_requests add constraint rebooking_privacy_acknowledgement_fk
+      foreign key (event_id, privacy_acknowledgement_id)
+      references public.event_privacy_acknowledgements (event_id, acknowledgement_id);
+  end if;
+end;
+$$;
+
+create or replace function public.prevent_duplicate_client_query()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.source_tab = 'CLIENT' then
+    perform pg_advisory_xact_lock(hashtextextended(new.event_id::text || ':' || upper(trim(new.stand)), 0));
+    if exists (
+      select 1 from public.queries existing
+      where existing.event_id = new.event_id
+        and upper(trim(existing.stand)) = upper(trim(new.stand))
+        and lower(regexp_replace(trim(existing.exhibitor), '\s+', ' ', 'g')) = lower(regexp_replace(trim(new.exhibitor), '\s+', ' ', 'g'))
+        and lower(regexp_replace(trim(existing.description), '\s+', ' ', 'g')) = lower(regexp_replace(trim(new.description), '\s+', ' ', 'g'))
+        and existing.status <> 'COMPLETED'
+        and (new.client_submission_id is null or existing.client_submission_id is distinct from new.client_submission_id)
+    ) then
+      raise exception 'This issue has already been submitted for this exhibitor and stand.' using errcode = '23505';
+    end if;
+  end if;
+  return new;
 end;
 $$;
 
@@ -65,6 +96,62 @@ $$;
 
 revoke all on function public.acknowledge_public_event_privacy(text, text, uuid, text) from public;
 grant execute on function public.acknowledge_public_event_privacy(text, text, uuid, text) to anon, authenticated;
+
+create or replace function public.submit_public_rebooking(requested_event_slug text, requested_code text, request_payload jsonb)
+returns setof public.rebooking_requests
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  target_event_id uuid;
+  new_request_id text;
+  acknowledgement_id uuid;
+  notice_version text := nullif(trim(request_payload->>'privacy_notice_version'), '');
+  company_name text := trim(coalesce(request_payload->>'company', ''));
+  contact_name text := trim(coalesce(request_payload->>'contact_person', ''));
+  contact_email text := trim(coalesce(request_payload->>'email', ''));
+  current_stand text := upper(trim(coalesce(request_payload->>'current_stand', '')));
+begin
+  target_event_id := public.validate_public_event_code(requested_event_slug, requested_code);
+  if target_event_id is null then return; end if;
+  begin acknowledgement_id := nullif(request_payload->>'acknowledgement_id', '')::uuid;
+  exception when others then raise exception 'Invalid privacy acknowledgement.' using errcode = '22023'; end;
+  if acknowledgement_id is null or notice_version is null or not exists (
+    select 1 from public.event_privacy_acknowledgements acknowledgement
+    where acknowledgement.event_id = target_event_id
+      and acknowledgement.acknowledgement_id = acknowledgement_id
+      and acknowledgement.notice_version = notice_version
+  ) then
+    raise exception 'Please review and acknowledge the event privacy notice before submitting.' using errcode = '42501';
+  end if;
+  if company_name = '' or contact_name = '' or contact_email = '' or current_stand = '' then
+    raise exception 'Complete the company, contact, email and current stand fields before submitting.' using errcode = '22023';
+  end if;
+
+  new_request_id := 'rebook-' || replace(gen_random_uuid()::text, '-', '');
+  return query
+  insert into public.rebooking_requests (
+    event_id, id, company, contact_person, contact_title, email, mobile, current_stand,
+    interest, preferred_stand, stand_size, booth_type, sponsorship_interest,
+    discussion_topics, notes, created_at, privacy_acknowledgement_id
+  ) values (
+    target_event_id, new_request_id, company_name, contact_name,
+    trim(coalesce(request_payload->>'contact_title', '')), contact_email,
+    trim(coalesce(request_payload->>'mobile', '')), current_stand,
+    trim(coalesce(request_payload->>'interest', 'Rebook current stand')),
+    upper(trim(coalesce(request_payload->>'preferred_stand', ''))),
+    coalesce(nullif(trim(request_payload->>'stand_size'), ''), '6 sqm'),
+    coalesce(nullif(trim(request_payload->>'booth_type'), ''), 'Shell scheme'),
+    coalesce(nullif(trim(request_payload->>'sponsorship_interest'), ''), 'No'),
+    coalesce(request_payload->'discussion_topics', '[]'::jsonb),
+    trim(coalesce(request_payload->>'notes', '')), now(), acknowledgement_id
+  ) returning *;
+end;
+$$;
+
+revoke all on function public.submit_public_rebooking(text, text, jsonb) from public;
+grant execute on function public.submit_public_rebooking(text, text, jsonb) to anon, authenticated;
 
 create or replace function public.submit_public_query(requested_event_slug text, requested_code text, query_payload jsonb)
 returns setof public.queries
