@@ -29,7 +29,7 @@ as $$
     from public.events event
     where event.id = target_event_id
       and current_date <= coalesce(event.breakdown_end_date, event.event_end_date) + 30
-      and public.client_billing_is_current(event.client_id)
+      and (event.billing_exempt or public.client_billing_is_current(event.client_id))
   );
 $$;
 

@@ -42,7 +42,7 @@ test('expiry migration preserves rate limiting and closes writes after thirty da
       create schema storage;
       create function auth.jwt() returns jsonb language sql as $$ select '{"email":"staff@example.test"}'::jsonb $$;
       create table public.clients (id uuid primary key, name text);
-      create table public.events (id uuid primary key, client_id uuid, name text, slug text, exhibitor_code text, is_public boolean, event_start_date date, event_end_date date, build_up_start_date date, build_up_end_date date, breakdown_start_date date, breakdown_end_date date, next_event_name text, logo_url text);
+      create table public.events (id uuid primary key, client_id uuid, name text, slug text, exhibitor_code text, is_public boolean, event_start_date date, event_end_date date, build_up_start_date date, build_up_end_date date, breakdown_start_date date, breakdown_end_date date, next_event_name text, logo_url text, billing_exempt boolean not null default false);
       create table public.event_code_attempts (event_slug text, client_ip_hash text, window_start timestamptz, attempt_count integer not null default 0, primary key (event_slug, client_ip_hash, window_start));
       create table public.queries (id text primary key, event_id uuid, assigned_to text, status text);
       create table public.staff (id text, event_id uuid, email text);
@@ -214,6 +214,49 @@ test('billing requires active paid terms and consumes explicitly approved overag
     await assert.rejects(database.exec("insert into public.events (id,client_id) values ('00000000-0000-0000-0000-000000000013','00000000-0000-0000-0000-000000000010')"));
     await database.exec('update public.clients set term_started_at=current_date + 1, prepaid_event_credits=7');
     assert.equal((await database.query('select prepaid_event_credits from public.clients')).rows[0].prepaid_event_credits, 0);
+  } finally {
+    await database.close();
+  }
+});
+
+test('30-day trials expire and internal event exemptions are platform-admin-only and non-quota', async () => {
+  const database = new PGlite();
+  try {
+    await database.exec(`
+      create role authenticated;
+      create table public.clients (id uuid primary key);
+      create table public.events (id uuid primary key, client_id uuid, created_at timestamptz default now(), event_end_date date, breakdown_end_date date);
+      create table public.client_event_memberships (client_id uuid, event_id uuid, role text);
+      create table public.suppliers (client_id uuid);
+      insert into public.clients values ('00000000-0000-0000-0000-000000000010');
+      create function public.is_platform_admin() returns boolean language sql stable as $$ select coalesce(current_setting('request.platform_admin', true), 'false') = 'true' $$;
+      create function public.has_client_access(uuid, uuid, text[]) returns boolean language sql stable as $$ select true $$;
+    `);
+    await database.exec(await readFile(path.join(__dirname, '../supabase/client-event-limits-migration.sql'), 'utf8'));
+    await database.exec(await readFile(path.join(__dirname, '../supabase/client-billing-access-migration.sql'), 'utf8'));
+    const migration = await readFile(path.join(__dirname, '../supabase/client-trials-event-exemptions-migration.sql'), 'utf8');
+    await database.exec(migration);
+    await database.exec(migration);
+
+    await database.exec("update public.clients set billing_mode='trial', billing_status='active', trial_started_at=current_date, trial_ends_at=current_date + 30");
+    await database.exec('update public.clients set event_limit=2');
+    assert.equal((await database.query("select public.client_billing_is_current('00000000-0000-0000-0000-000000000010') as current")).rows[0].current, true);
+    await database.exec("insert into public.events (id,client_id,event_end_date,breakdown_end_date) values ('00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000010',current_date,current_date)");
+
+    await database.exec('update public.clients set trial_started_at=current_date - 30, trial_ends_at=current_date');
+    assert.equal((await database.query("select public.client_billing_is_current('00000000-0000-0000-0000-000000000010') as current")).rows[0].current, false);
+    await assert.rejects(database.exec("insert into public.events (id,client_id,event_end_date,breakdown_end_date) values ('00000000-0000-0000-0000-000000000012','00000000-0000-0000-0000-000000000010',current_date,current_date)"), /trial has ended/i);
+    await assert.rejects(database.exec("insert into public.events (id,client_id,event_end_date,breakdown_end_date,billing_exempt) values ('00000000-0000-0000-0000-000000000012','00000000-0000-0000-0000-000000000010',current_date,current_date,true)"), /only a platform administrator/i);
+
+    await database.query("select set_config('request.platform_admin', $1, false)", ['true']);
+    await database.exec("insert into public.events (id,client_id,event_end_date,breakdown_end_date,billing_exempt) values ('00000000-0000-0000-0000-000000000013','00000000-0000-0000-0000-000000000010',current_date,current_date,true)");
+    assert.equal((await database.query("select public.is_event_operational('00000000-0000-0000-0000-000000000013') as operational")).rows[0].operational, true);
+    await database.query("select set_config('request.platform_admin', $1, false)", ['false']);
+    await assert.rejects(database.exec("update public.events set billing_exempt=false where id='00000000-0000-0000-0000-000000000013'"), /only a platform administrator/i);
+
+    await database.exec("update public.clients set billing_mode='unmanaged', billing_status='active', event_limit=2");
+    await database.exec("insert into public.events (id,client_id,event_end_date,breakdown_end_date) values ('00000000-0000-0000-0000-000000000014','00000000-0000-0000-0000-000000000010',current_date,current_date)");
+    await assert.rejects(database.exec("insert into public.events (id,client_id,event_end_date,breakdown_end_date) values ('00000000-0000-0000-0000-000000000015','00000000-0000-0000-0000-000000000010',current_date,current_date)"), /reached its limit/i);
   } finally {
     await database.close();
   }

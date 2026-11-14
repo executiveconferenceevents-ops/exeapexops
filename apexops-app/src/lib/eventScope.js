@@ -91,7 +91,7 @@ export async function getAvailableEvents() {
   return loadCachedPublicValue(`available-events:${userId}`, async () => {
     const { data, error } = await supabase
       .from('events')
-      .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, clients(name)')
+      .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, billing_exempt, clients(name)')
       .order('name');
     if (error) throw error;
     return data || [];

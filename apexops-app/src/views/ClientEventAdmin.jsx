@@ -8,7 +8,7 @@ import { EVENT_TIERS, EXTRA_STAFF_SEAT_PRICE, INCLUDED_INTERNAL_SEATS, VOLUME_PL
 import { Building2, CalendarDays, LayoutDashboard, MailPlus, Pencil, Plus, RefreshCw, Trash2, Truck, Upload, X } from 'lucide-react';
 
 const emptyClient = { name:'', slug:'', adminEmail:'', eventLimit:1 };
-const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'', logo_file:null };
+const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'', billing_exempt:false, logo_file:null };
 const emptyInvite = { client_id:'', event_id:'', email:'', role:'staff' };
 const emptySupplier = { name:'', contact:'', email:'', mobile:'', category:'Other' };
 
@@ -60,7 +60,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
       if (DEMO_MODE) {
         platformAdmin = true;
         currentMemberships = getDemoCollection('memberships', [{ client_id:'demo-client-ece', event_id:null, role:'client_admin' }]);
-        visibleClients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events', event_limit:1, billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy', prepaid_event_credits:0 }]);
+        visibleClients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events', event_limit:1, billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy', prepaid_event_credits:0, trial_started_at:null, trial_ends_at:null }]);
       } else {
         const [membershipResult, adminResult] = await Promise.all([
           supabase.from('client_event_memberships').select('client_id, event_id, role'),
@@ -72,7 +72,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
         currentMemberships = membershipResult.data || [];
         if (platformAdmin) {
           const { data, error: clientsError } = await supabase.from('clients')
-            .select('id, name, slug, event_limit, billing_mode, billing_status, billing_plan, paid_through, term_started_at, term_ends_at, committed_events, prepaid_event_credits')
+            .select('id, name, slug, event_limit, billing_mode, billing_status, billing_plan, paid_through, term_started_at, term_ends_at, committed_events, prepaid_event_credits, trial_started_at, trial_ends_at')
             .order('name');
           if (clientsError) throw clientsError;
           visibleClients = data || [];
@@ -80,10 +80,10 @@ export default function ClientEventAdmin({ onEventCreated }) {
       }
       const managedClientId = currentMemberships.find(membership => membership.role === 'client_admin' && !membership.event_id)?.client_id || '';
       let managedClientEventLimit = 1;
-      let managedClientBilling = { billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy', paid_through:null, term_ends_at:null, committed_events:0, prepaid_event_credits:0 };
+      let managedClientBilling = { billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy', paid_through:null, term_ends_at:null, committed_events:0, prepaid_event_credits:0, trial_started_at:null, trial_ends_at:null };
       if (!DEMO_MODE && !platformAdmin && managedClientId) {
         const { data:managedClient, error:managedClientError } = await supabase.from('clients')
-          .select('event_limit, billing_mode, billing_status, billing_plan, paid_through, term_ends_at, committed_events, prepaid_event_credits')
+          .select('event_limit, billing_mode, billing_status, billing_plan, paid_through, term_ends_at, committed_events, prepaid_event_credits, trial_started_at, trial_ends_at')
           .eq('id', managedClientId).maybeSingle();
         if (managedClientError) throw managedClientError;
         managedClientEventLimit = managedClient?.event_limit || 1;
@@ -136,6 +136,10 @@ export default function ClientEventAdmin({ onEventCreated }) {
       const today = new Date().toISOString().slice(0, 10);
       return Boolean(account.paid_through && account.paid_through >= today && account.term_ends_at && account.term_ends_at >= today);
     }
+    if (account.billing_mode === 'trial') {
+      const today = new Date().toISOString().slice(0, 10);
+      return Boolean(account.trial_started_at && account.trial_started_at <= today && account.trial_ends_at && account.trial_ends_at > today);
+    }
     return account.billing_mode === 'unmanaged' || account.billing_mode === 'prepaid';
   };
   const canManageClient = clientId => isPlatformAdmin || (billingIsCurrent(clientId) && memberships.some(membership =>
@@ -162,6 +166,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
       breakdown_start_date:event.breakdown_start_date || '',
       breakdown_end_date:event.breakdown_end_date || '',
       next_event_name:event.next_event_name || '',
+      billing_exempt:Boolean(event.billing_exempt),
       logo_file:null,
     });
     setSection('events');
@@ -285,7 +290,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
         setDemoCollection('clients', current.map(item => item.id === clientId ? { ...item, ...saved } : item));
       } else {
         const { data, error: updateError } = await supabase.from('clients').update(patch).eq('id', clientId)
-          .select('billing_plan, billing_mode, billing_status, prepaid_event_credits, paid_through, term_started_at, term_ends_at, committed_events').single();
+          .select('billing_plan, billing_mode, billing_status, prepaid_event_credits, paid_through, term_started_at, term_ends_at, committed_events, trial_started_at, trial_ends_at').single();
         if (updateError) throw updateError;
         saved = data;
       }
@@ -317,6 +322,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
         breakdown_start_date:eventForm.breakdown_start_date,
         breakdown_end_date:eventForm.breakdown_end_date,
         next_event_name:eventForm.next_event_name.trim() || null,
+        billing_exempt:Boolean(isPlatformAdmin && eventForm.billing_exempt),
         is_public:true,
       };
       const existingEvents = DEMO_MODE ? getDemoCollection('events', []) : await getAvailableEvents();
@@ -332,7 +338,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
         setDemoCollection('events', [...currentEvents, data]);
       } else {
         const { data:createdEvent, error: createError } = await supabase.from('events').insert(eventValues)
-          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url').single();
+          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, billing_exempt').single();
         if (createError) throw createError;
         data = createdEvent;
       }
@@ -370,6 +376,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
         breakdown_end_date:eventForm.breakdown_end_date,
         next_event_name:eventForm.next_event_name.trim() || null,
       };
+      if (isPlatformAdmin) eventValues.billing_exempt = Boolean(eventForm.billing_exempt);
       if (events.some(item => item.id !== currentEvent.id && item.slug === eventValues.slug)) {
         throw new Error('That event URL slug is already in use.');
       }
@@ -382,7 +389,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
         setDemoCollection('events', currentEvents.map(item => item.id === currentEvent.id ? data : item));
       } else {
         const { data:updatedEvent, error:updateError } = await supabase.from('events').update(eventValues).eq('id', currentEvent.id)
-          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, clients(name)').single();
+          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, billing_exempt, clients(name)').single();
         if (updateError) throw updateError;
         data = updatedEvent;
       }
@@ -494,8 +501,8 @@ export default function ClientEventAdmin({ onEventCreated }) {
   const quotaClientId = isPlatformAdmin ? eventForm.client_id : managedClientId;
   const quotaClient = clients.find(client => client.id === quotaClientId);
   const currentEventLimit = isPlatformAdmin ? Number(quotaClient?.event_limit || 1) : managedClientEventLimit;
-  const currentClientEvents = events.filter(event => event.client_id === quotaClientId).length;
-  const eventLimitReached = Boolean(quotaClientId && currentClientEvents >= currentEventLimit);
+  const currentClientEvents = events.filter(event => event.client_id === quotaClientId && !event.billing_exempt).length;
+  const eventLimitReached = Boolean(quotaClientId && currentClientEvents >= currentEventLimit && !eventForm.billing_exempt);
 
   return (
     <div className="adm-shell">
@@ -565,7 +572,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
         <section className="tenant-section" hidden={section !== 'events'}>
           <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Event workspaces</h2><p>Each event has isolated staff, exhibitors, requests and reports.</p></div>{!showEventForm && <button className="tenant-add-event" type="button" onClick={()=>{setEditingEventId('');setShowEventForm(true);}}><Plus size={15} /> New event</button>}</div>
           <div className="tenant-list">
-            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span></div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code><button className="tenant-regenerate-code" type="button" disabled={saving} onClick={()=>rotateEventCode(event)}>Regenerate code</button></span><div className="tenant-event-actions"><button className="tenant-edit-event" type="button" disabled={saving} onClick={()=>beginEditEvent(event)}><Pencil size={14} /> Edit</button><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div></div>)}
+            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span>{event.billing_exempt && <span className="tenant-internal-badge">Internal ECE · non-billable</span>}</div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code><button className="tenant-regenerate-code" type="button" disabled={saving} onClick={()=>rotateEventCode(event)}>Regenerate code</button></span><div className="tenant-event-actions"><button className="tenant-edit-event" type="button" disabled={saving || (event.billing_exempt && !isPlatformAdmin)} onClick={()=>beginEditEvent(event)}><Pencil size={14} /> Edit</button><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div></div>)}
             {!events.length && <p className="tenant-empty">No events are assigned to your account.</p>}
           </div>
           {showEventForm && <form className="tenant-form tenant-inline-form" onSubmit={editingEventId ? updateEvent : createEvent}>
@@ -582,6 +589,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
             <label>Breakdown start<input type="date" required min={eventForm.event_end_date || eventForm.event_start_date || undefined} value={eventForm.breakdown_start_date} onChange={event=>setEventForm({ ...eventForm, breakdown_start_date:event.target.value })} /></label>
             <label>Breakdown end<input type="date" required min={eventForm.breakdown_start_date || undefined} value={eventForm.breakdown_end_date} onChange={event=>setEventForm({ ...eventForm, breakdown_end_date:event.target.value })} /></label>
             <label>Next event name<input maxLength="160" value={eventForm.next_event_name} onChange={event=>setEventForm({ ...eventForm, next_event_name:event.target.value })} placeholder="Optional rebooking destination" /></label>
+            {isPlatformAdmin && <label className="tenant-internal-toggle"><input type="checkbox" checked={Boolean(eventForm.billing_exempt)} onChange={event=>setEventForm({ ...eventForm, billing_exempt:event.target.checked })} /><span>Internal ECE event (non-billable)<small>Excluded from client billing and event quota. Platform Admin only.</small></span></label>}
             <button type="submit" disabled={saving || !eventForm.client_id || !canManageClient(eventForm.client_id) || (!editingEventId && eventLimitReached)}>{editingEventId ? <Pencil size={15} /> : <Plus size={15} />} {editingEventId ? 'Save changes' : eventLimitReached ? 'Event limit reached' : 'Create event'}</button>
             {editingEventId && <button className="tenant-cancel-edit" type="button" disabled={saving} onClick={cancelEditEvent}><X size={15} /> Cancel edit</button>}
           </form>}
@@ -625,15 +633,42 @@ export default function ClientEventAdmin({ onEventCreated }) {
 function BillingControls({ client, saving, onSave }) {
   const [form, setForm] = useState({
     billing_plan:client.billing_plan || 'legacy',
+    billing_mode:client.billing_mode || 'unmanaged',
     billing_status:client.billing_status || 'pending',
     prepaid_event_credits:client.prepaid_event_credits ?? 0,
     paid_through:client.paid_through || '',
     term_started_at:client.term_started_at || '',
     term_ends_at:client.term_ends_at || '',
     committed_events:client.committed_events ?? 0,
+    trial_started_at:client.trial_started_at || '',
+    trial_ends_at:client.trial_ends_at || '',
   });
   const [error, setError] = useState('');
-  const monthly = form.billing_plan !== 'legacy' && form.billing_plan !== 'pay_per_event';
+  const monthly = form.billing_mode === 'monthly';
+  const today = new Date().toISOString().slice(0, 10);
+  const trialActive = form.billing_mode === 'trial' && form.billing_status === 'active' && form.trial_started_at <= today && form.trial_ends_at > today;
+  const trialExpired = form.billing_mode === 'trial' && form.trial_ends_at && form.trial_ends_at <= today;
+
+  async function startDemoTrial() {
+    if (form.trial_started_at) return;
+    const trialStartedAt = new Date().toISOString().slice(0, 10);
+    const trialEnd = new Date(`${trialStartedAt}T00:00:00.000Z`);
+    trialEnd.setUTCDate(trialEnd.getUTCDate() + 30);
+    setError('');
+    const saved = await onSave(client.id, {
+      billing_mode:'trial',
+      billing_plan:'legacy',
+      billing_status:'active',
+      trial_started_at:trialStartedAt,
+      trial_ends_at:trialEnd.toISOString().slice(0, 10),
+      prepaid_event_credits:0,
+      paid_through:null,
+      term_started_at:null,
+      term_ends_at:null,
+      committed_events:0,
+    });
+    if (saved) setForm(current => ({ ...current, ...saved, paid_through:saved.paid_through || '', term_started_at:saved.term_started_at || '', term_ends_at:saved.term_ends_at || '', trial_started_at:saved.trial_started_at || '', trial_ends_at:saved.trial_ends_at || '' }));
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -655,21 +690,24 @@ function BillingControls({ client, saving, onSave }) {
     setError('');
     const saved = await onSave(client.id, {
       billing_plan:form.billing_plan,
-      billing_mode:monthly ? 'monthly' : form.billing_plan === 'legacy' ? 'unmanaged' : 'prepaid',
+      billing_mode:form.billing_mode,
       billing_status:form.billing_status,
       prepaid_event_credits:credits,
       paid_through:form.paid_through || null,
       term_started_at:form.term_started_at || null,
       term_ends_at:form.term_ends_at || null,
       committed_events:monthly ? committedEvents : 0,
+      trial_started_at:form.trial_started_at || null,
+      trial_ends_at:form.trial_ends_at || null,
     });
-    if (saved) setForm(current => ({ ...current, ...saved, paid_through:saved.paid_through || '', term_started_at:saved.term_started_at || '', term_ends_at:saved.term_ends_at || '' }));
+    if (saved) setForm(current => ({ ...current, ...saved, paid_through:saved.paid_through || '', term_started_at:saved.term_started_at || '', term_ends_at:saved.term_ends_at || '', trial_started_at:saved.trial_started_at || '', trial_ends_at:saved.trial_ends_at || '' }));
   }
 
   return <details>
-    <summary>Billing and access: {client.billing_status || 'pending'}</summary>
+    <summary>Billing and access: {trialActive ? '30-day trial' : trialExpired ? 'trial expired' : client.billing_status || 'pending'}</summary>
     <form className="tenant-form" onSubmit={submit}>
-      <label>Plan<select value={form.billing_plan} onChange={event=>{ const plan=VOLUME_PLANS.find(item=>item.id === event.target.value); setForm({ ...form, billing_plan:event.target.value, committed_events:plan?.eventsPerYear || 0 }); }}>
+      <label>Plan<select value={form.billing_mode === 'trial' ? 'trial' : form.billing_plan} onChange={event=>{ const nextPlan=event.target.value; const plan=VOLUME_PLANS.find(item=>item.id === nextPlan); const billingMode=nextPlan === 'trial' ? 'trial' : nextPlan === 'legacy' ? 'unmanaged' : nextPlan === 'pay_per_event' ? 'prepaid' : 'monthly'; setForm({ ...form, billing_plan:nextPlan === 'trial' ? 'legacy' : nextPlan, billing_mode:billingMode, committed_events:plan?.eventsPerYear || 0 }); }}>
+        {form.trial_started_at && <option value="trial">30-day demo trial</option>}
         <option value="legacy">Legacy / unmanaged</option><option value="pay_per_event">Pay per event</option>
         {VOLUME_PLANS.map(plan=><option key={plan.id} value={plan.id}>{plan.eventsPerYear}–{plan.maxEvents} events / year ({plan.discountPct}%)</option>)}
         {monthly && form.billing_plan !== 'enterprise' && !VOLUME_PLANS.some(plan=>plan.id === form.billing_plan) && <option value={form.billing_plan}>Previous plan ({form.billing_plan})</option>}
@@ -680,6 +718,8 @@ function BillingControls({ client, saving, onSave }) {
       </select></label>
       {form.billing_plan === 'pay_per_event' && <label>Prepaid event credits<input type="number" min="0" step="1" required value={form.prepaid_event_credits} onChange={event=>setForm({ ...form, prepaid_event_credits:event.target.value })} /></label>}
       {monthly && <><label>Committed events<input type="number" min="1" step="1" required value={form.committed_events} onChange={event=>setForm({ ...form, committed_events:event.target.value })} /></label><label>Approved additional event credits<input type="number" min="0" step="1" required value={form.prepaid_event_credits} onChange={event=>setForm({ ...form, prepaid_event_credits:event.target.value })} /><small>Credits reset when the term start changes.</small></label><label>Term start<input type="date" value={form.term_started_at} onChange={event=>setForm({ ...form, term_started_at:event.target.value })} /></label><label>Term end<input type="date" value={form.term_ends_at} onChange={event=>setForm({ ...form, term_ends_at:event.target.value })} /></label><label>Paid through<input type="date" value={form.paid_through} onChange={event=>setForm({ ...form, paid_through:event.target.value })} /></label></>}
+      {(trialActive || trialExpired) && <p className="tenant-trial-status">{trialActive ? `Demo trial active until ${form.trial_ends_at}.` : `Demo trial expired on ${form.trial_ends_at}; active access is off.`}</p>}
+      {!form.trial_started_at && <button className="tenant-start-trial" type="button" disabled={saving} onClick={startDemoTrial}><CalendarDays size={15} /> Start 30-day demo trial</button>}
       {error && <p className="tenant-error" role="alert">{error}</p>}
       <button type="submit" disabled={saving}>Save access settings</button>
     </form>
