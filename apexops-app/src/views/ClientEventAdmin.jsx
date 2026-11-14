@@ -5,7 +5,7 @@ import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStor
 import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
 import { enqueue, isNetworkError } from '../lib/offline';
 import { EVENT_TIERS, EXTRA_STAFF_SEAT_PRICE, INCLUDED_INTERNAL_SEATS, VOLUME_PLANS } from '../lib/pricing';
-import { Building2, CalendarDays, LayoutDashboard, MailPlus, Plus, RefreshCw, Trash2, Truck, Upload } from 'lucide-react';
+import { Building2, CalendarDays, LayoutDashboard, MailPlus, Pencil, Plus, RefreshCw, Trash2, Truck, Upload, X } from 'lucide-react';
 
 const emptyClient = { name:'', slug:'', adminEmail:'', eventLimit:1 };
 const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'', logo_file:null };
@@ -25,6 +25,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
   const [section, setSection] = useState('overview');
   const [clients, setClients] = useState([]);
   const [events, setEvents] = useState([]);
+  const [dashboardEventFilter, setDashboardEventFilter] = useState('');
   const [memberships, setMemberships] = useState([]);
   const [privateSuppliers, setPrivateSuppliers] = useState([]);
   const [supplierClientId, setSupplierClientId] = useState('');
@@ -34,6 +35,8 @@ export default function ClientEventAdmin({ onEventCreated }) {
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [clientForm, setClientForm] = useState(emptyClient);
   const [eventForm, setEventForm] = useState(emptyEvent);
+  const [editingEventId, setEditingEventId] = useState('');
+  const [showEventForm, setShowEventForm] = useState(false);
   const [inviteForm, setInviteForm] = useState(emptyInvite);
   const [supplierForm, setSupplierForm] = useState(emptySupplier);
   const [loading, setLoading] = useState(true);
@@ -144,6 +147,34 @@ export default function ClientEventAdmin({ onEventCreated }) {
       && (eventId || !membership.event_id)));
   const selectedEvent = events.find(event => event.id === inviteForm.event_id);
   const inviteClientEvents = events.filter(event => event.client_id === inviteForm.client_id);
+  const dashboardEvents = events.filter(event => !dashboardEventFilter || event.id === dashboardEventFilter);
+
+  function beginEditEvent(event) {
+    setEditingEventId(event.id);
+    setEventForm({
+      client_id:event.client_id,
+      name:event.name || '',
+      slug:event.slug || '',
+      event_start_date:event.event_start_date || '',
+      event_end_date:event.event_end_date || '',
+      build_up_start_date:event.build_up_start_date || '',
+      build_up_end_date:event.build_up_end_date || '',
+      breakdown_start_date:event.breakdown_start_date || '',
+      breakdown_end_date:event.breakdown_end_date || '',
+      next_event_name:event.next_event_name || '',
+      logo_file:null,
+    });
+    setSection('events');
+    setShowEventForm(true);
+    setError('');
+    setNotice('');
+  }
+
+  function cancelEditEvent() {
+    setEditingEventId('');
+    setShowEventForm(false);
+    setEventForm(current => ({ ...emptyEvent, client_id:current.client_id }));
+  }
 
   async function addPrivateSupplier(event) {
     event.preventDefault();
@@ -306,11 +337,63 @@ export default function ClientEventAdmin({ onEventCreated }) {
         data = createdEvent;
       }
       setEventForm(current => ({ ...emptyEvent, client_id:current.client_id }));
+      setShowEventForm(false);
       await refresh();
       onEventCreated(data);
       setNotice(`Event created. Public links can use ?event=${data.slug}.`);
     } catch (saveError) {
       setError(saveError?.message || 'Could not create the event.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateEvent(event) {
+    event.preventDefault();
+    const currentEvent = events.find(item => item.id === editingEventId);
+    if (!currentEvent) {
+      setError('That event is no longer available. Refresh and try again.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const eventValues = {
+        name:eventForm.name.trim(),
+        slug:eventForm.slug.trim().toLowerCase(),
+        event_start_date:eventForm.event_start_date,
+        event_end_date:eventForm.event_end_date,
+        build_up_start_date:eventForm.build_up_start_date,
+        build_up_end_date:eventForm.build_up_end_date,
+        breakdown_start_date:eventForm.breakdown_start_date,
+        breakdown_end_date:eventForm.breakdown_end_date,
+        next_event_name:eventForm.next_event_name.trim() || null,
+      };
+      if (events.some(item => item.id !== currentEvent.id && item.slug === eventValues.slug)) {
+        throw new Error('That event URL slug is already in use.');
+      }
+      if (eventForm.logo_file) eventValues.logo_url = await uploadPublicImage('event-logos', 'logo', eventForm.logo_file, eventValues.slug);
+
+      let data;
+      if (DEMO_MODE) {
+        const currentEvents = getDemoCollection('events', []);
+        data = { ...currentEvent, ...eventValues };
+        setDemoCollection('events', currentEvents.map(item => item.id === currentEvent.id ? data : item));
+      } else {
+        const { data:updatedEvent, error:updateError } = await supabase.from('events').update(eventValues).eq('id', currentEvent.id)
+          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, clients(name)').single();
+        if (updateError) throw updateError;
+        data = updatedEvent;
+      }
+      setEditingEventId('');
+      setEventForm(current => ({ ...emptyEvent, client_id:currentEvent.client_id }));
+      setShowEventForm(false);
+      await refresh();
+      onEventCreated(data);
+      setNotice(`Event details updated for ${data.name}.`);
+    } catch (saveError) {
+      setError(saveError?.message || 'Could not update the event.');
     } finally {
       setSaving(false);
     }
@@ -400,14 +483,14 @@ export default function ClientEventAdmin({ onEventCreated }) {
 
   const navItems = [
     ['overview', 'Overview', LayoutDashboard],
-    ...(isPlatformAdmin ? [['clients', 'Clients & access', Building2], ['pricing', 'Pricing', CalendarDays]] : [
+    ...(isPlatformAdmin ? [['events', 'Events', CalendarDays], ['clients', 'Clients & access', Building2], ['pricing', 'Pricing', CalendarDays]] : [
       ['events', 'Events', CalendarDays],
       ['suppliers', 'Suppliers', Truck],
       ['team', 'Team access', MailPlus],
     ]),
   ];
   const sectionTitle = navItems.find(([key]) => key === section)?.[1] || 'Overview';
-  const liveEvents = events.filter(event => eventStatus(event)[1] === 'live').length;
+  const liveEvents = dashboardEvents.filter(event => eventStatus(event)[1] === 'live').length;
   const quotaClientId = isPlatformAdmin ? eventForm.client_id : managedClientId;
   const quotaClient = clients.find(client => client.id === quotaClientId);
   const currentEventLimit = isPlatformAdmin ? Number(quotaClient?.event_limit || 1) : managedClientEventLimit;
@@ -438,15 +521,16 @@ export default function ClientEventAdmin({ onEventCreated }) {
         <section className="adm-overview" hidden={section !== 'overview'}>
           <div className="adm-stats">
             {isPlatformAdmin && <div className="adm-stat"><span>Clients</span><strong>{clients.length}</strong></div>}
-            <div className="adm-stat"><span>Events</span><strong>{events.length}</strong></div>
+            <div className="adm-stat"><span>Events shown</span><strong>{dashboardEvents.length}</strong></div>
             <div className="adm-stat"><span>Live now</span><strong>{liveEvents}</strong></div>
             <div className="adm-stat"><span>Private suppliers</span><strong>{privateSuppliers.length}</strong></div>
           </div>
           <div className="tenant-section">
             <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>{isPlatformAdmin ? 'Client events' : 'Your events'}</h2><p>{isPlatformAdmin ? 'Event overview across client accounts.' : 'Open the Events section to create or manage them.'}</p></div></div>
+            {isPlatformAdmin && <label className="tenant-admin-filter">Event<select aria-label="Filter dashboard events" value={dashboardEventFilter} onChange={event=>setDashboardEventFilter(event.target.value)}><option value="">All events</option>{events.map(event=><option key={event.id} value={event.id}>{event.clients?.name ? `${event.clients.name} · ` : ''}{event.name}</option>)}</select></label>}
             <div className="tenant-list">
-              {events.map(event => { const [label, tone] = eventStatus(event); return <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}</strong><span>{event.clients?.name ? `${event.clients.name} · ` : ''}{event.event_start_date} to {event.event_end_date}</span></div><span className={`adm-chip adm-chip-${tone}`}>{label}</span></div>; })}
-              {!events.length && <p className="tenant-empty">No events yet. Create your first one in Events.</p>}
+              {dashboardEvents.map(event => { const [label, tone] = eventStatus(event); return <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}</strong><span>{event.clients?.name ? `${event.clients.name} · ` : ''}{event.event_start_date} to {event.event_end_date}</span></div><span className={`adm-chip adm-chip-${tone}`}>{label}</span></div>; })}
+              {!dashboardEvents.length && <p className="tenant-empty">No events match this filter.</p>}
             </div>
           </div>
         </section>
@@ -479,17 +563,17 @@ export default function ClientEventAdmin({ onEventCreated }) {
         </section>}
 
         <section className="tenant-section" hidden={section !== 'events'}>
-          <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Event workspaces</h2><p>Each event has isolated staff, exhibitors, requests and reports.</p></div></div>
+          <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Event workspaces</h2><p>Each event has isolated staff, exhibitors, requests and reports.</p></div>{!showEventForm && <button className="tenant-add-event" type="button" onClick={()=>{setEditingEventId('');setShowEventForm(true);}}><Plus size={15} /> New event</button>}</div>
           <div className="tenant-list">
-            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span></div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code><button className="tenant-regenerate-code" type="button" disabled={saving} onClick={()=>rotateEventCode(event)}>Regenerate code</button></span><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div>)}
+            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span></div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code><button className="tenant-regenerate-code" type="button" disabled={saving} onClick={()=>rotateEventCode(event)}>Regenerate code</button></span><div className="tenant-event-actions"><button className="tenant-edit-event" type="button" disabled={saving} onClick={()=>beginEditEvent(event)}><Pencil size={14} /> Edit</button><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div></div>)}
             {!events.length && <p className="tenant-empty">No events are assigned to your account.</p>}
           </div>
-          <form className="tenant-form tenant-inline-form" onSubmit={createEvent}>
-            <h3>Create event</h3>
-            {isPlatformAdmin ? <label>Client<select required value={eventForm.client_id} onChange={event=>setEventForm({ ...eventForm, client_id:event.target.value })}><option value="">Select client</option>{clients.map(client=><option key={client.id} value={client.id}>{client.name}</option>)}</select></label> : <p className="tenant-scope-note">New events will be created within your assigned organization.</p>}
+          {showEventForm && <form className="tenant-form tenant-inline-form" onSubmit={editingEventId ? updateEvent : createEvent}>
+            <h3>{editingEventId ? 'Edit event' : 'Create event'}</h3>
+            {isPlatformAdmin ? <label>Client<select required value={eventForm.client_id} disabled={Boolean(editingEventId)} onChange={event=>setEventForm({ ...eventForm, client_id:event.target.value })}><option value="">Select client</option>{clients.map(client=><option key={client.id} value={client.id}>{client.name}</option>)}</select></label> : <p className="tenant-scope-note">New events will be created within your assigned organization.</p>}
             <label>Event name<input required maxLength="160" value={eventForm.name} onChange={event=>setEventForm({ ...eventForm, name:event.target.value })} /></label>
             {quotaClientId && <p className="tenant-scope-note">Event allowance: {currentClientEvents} of {currentEventLimit} used.</p>}
-            <label>URL slug<input required pattern="[a-z0-9]+(-[a-z0-9]+)*" value={eventForm.slug} onChange={event=>setEventForm({ ...eventForm, slug:event.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'') })} /></label>
+            <label>URL slug<input required pattern="[a-z0-9]+(-[a-z0-9]+)*" value={eventForm.slug} onChange={event=>setEventForm({ ...eventForm, slug:event.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'') })} />{editingEventId && <small>Changing this slug changes the event link.</small>}</label>
             <label>Event logo (optional)<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>setEventForm({ ...eventForm, logo_file:event.target.files?.[0] || null })} /><small>PNG, JPG, or WebP; maximum 2 MB.</small></label>
             <label>Event start date<input type="date" required value={eventForm.event_start_date} onChange={event=>setEventForm({ ...eventForm, event_start_date:event.target.value })} /></label>
             <label>Event end date<input type="date" required min={eventForm.event_start_date || undefined} value={eventForm.event_end_date} onChange={event=>setEventForm({ ...eventForm, event_end_date:event.target.value })} /></label>
@@ -498,8 +582,9 @@ export default function ClientEventAdmin({ onEventCreated }) {
             <label>Breakdown start<input type="date" required min={eventForm.event_end_date || eventForm.event_start_date || undefined} value={eventForm.breakdown_start_date} onChange={event=>setEventForm({ ...eventForm, breakdown_start_date:event.target.value })} /></label>
             <label>Breakdown end<input type="date" required min={eventForm.breakdown_start_date || undefined} value={eventForm.breakdown_end_date} onChange={event=>setEventForm({ ...eventForm, breakdown_end_date:event.target.value })} /></label>
             <label>Next event name<input maxLength="160" value={eventForm.next_event_name} onChange={event=>setEventForm({ ...eventForm, next_event_name:event.target.value })} placeholder="Optional rebooking destination" /></label>
-            <button type="submit" disabled={saving || !eventForm.client_id || !canManageClient(eventForm.client_id) || eventLimitReached}><Plus size={15} /> {eventLimitReached ? 'Event limit reached' : 'Create event'}</button>
-          </form>
+            <button type="submit" disabled={saving || !eventForm.client_id || !canManageClient(eventForm.client_id) || (!editingEventId && eventLimitReached)}>{editingEventId ? <Pencil size={15} /> : <Plus size={15} />} {editingEventId ? 'Save changes' : eventLimitReached ? 'Event limit reached' : 'Create event'}</button>
+            {editingEventId && <button className="tenant-cancel-edit" type="button" disabled={saving} onClick={cancelEditEvent}><X size={15} /> Cancel edit</button>}
+          </form>}
         </section>
 
         <section className="tenant-section" hidden={section !== 'suppliers'}>

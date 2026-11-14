@@ -250,7 +250,7 @@ export default function App() {
 
     if (loginDestination === 'clients') {
       if (isPlatformAdmin) setRole('tenant-admin');
-      else setEventError('This account does not have Admin access. Clients can manage their events from the Event Manager card after signing in on the Operations tab.');
+      else setEventError('This account is not assigned Platform Admin access. Ask the platform owner to grant this account access. Client administrators use Client Workspace; Operations accounts use Event Operations.');
     } else if (loginDestination === 'organiser') {
       if (!selectedEvent) {
         setEventError(events.length

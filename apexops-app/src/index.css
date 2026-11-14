@@ -495,12 +495,18 @@ textarea { resize: vertical; min-height: 60px; }
 .tenant-section-heading { display:flex; align-items:flex-start; gap:10px; margin-bottom:13px; color:#a18a61; }
 .tenant-section-heading h2 { color:#1c2b3a; font:600 17px/1.2 'Playfair Display',Georgia,serif; }
 .tenant-section-heading p { margin-top:4px; color:#64778a; font-size:10px; }
+.tenant-add-event { display:inline-flex; align-items:center; justify-content:center; gap:7px; flex:0 0 auto; min-height:34px; margin-left:auto; padding:7px 10px; border:1px solid #1c2b3a; border-radius:4px; background:#1c2b3a; color:#fff; font-size:11px; font-weight:700; cursor:pointer; }
 .tenant-list { display:grid; gap:6px; margin-bottom:13px; }
 .tenant-list-row { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; padding:9px 10px; border:1px solid #e3e6e8; background:#fbfaf7; font-size:11px; }
 .tenant-list-row strong { min-width:0; overflow-wrap:anywhere; }
 .tenant-event-details { display:grid; gap:4px; min-width:0; }
 .tenant-event-details > span { color:#64778a; font-size:10px; line-height:1.45; overflow-wrap:anywhere; }
 .tenant-list-row code { flex:0 0 auto; color:#64778a; font-size:10px; }
+.tenant-admin-filter { display:flex; align-items:center; justify-content:flex-end; gap:9px; margin:-2px 0 12px; color:#64778a; font-size:11px; font-weight:700; }
+.tenant-admin-filter select { min-width:min(100%,260px); min-height:34px; padding:6px 9px; border:1px solid #d5dae0; border-radius:4px; background:#fff; color:#1c2b3a; font-size:11px; }
+.tenant-event-actions { display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+.tenant-edit-event { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:32px; padding:5px 9px; border:1px solid #d5dae0; border-radius:4px; background:#fff; color:#384d60; font-size:10px; font-weight:700; cursor:pointer; }
+.tenant-edit-event:disabled { opacity:.55; cursor:wait; }
 .tenant-event-logo-action { position:relative; display:inline-flex; align-items:center; gap:6px; flex:0 0 auto; min-height:32px; padding:5px 8px; border:1px solid #d5dae0; background:#fff; color:#384d60; font-size:9px; cursor:pointer; }
 .tenant-event-logo-action img { width:22px; height:22px; object-fit:contain; }
 .tenant-event-logo-action input { position:absolute; width:1px; height:1px; opacity:0; }
@@ -518,6 +524,7 @@ textarea { resize: vertical; min-height: 60px; }
 .tenant-form input,.tenant-form select { min-height:36px; border-color:#d5dae0; border-radius:3px; font-size:11px; }
 .tenant-form button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:36px; align-self:end; padding:8px 11px; border:1px solid #1c2b3a; border-radius:3px; background:#1c2b3a; color:#fff; font-size:11px; font-weight:700; cursor:pointer; }
 .tenant-form button:disabled { opacity:.55; }
+.tenant-form button.tenant-cancel-edit { border-color:#d5dae0; background:#fff; color:#384d60; }
 .tenant-invite-form { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .tenant-scope-note { align-self:center; color:#64778a; font-size:10px; }
 .tenant-pricing-table-wrap { min-width:0; max-width:100%; overflow-x:auto; margin:12px 0; }
@@ -546,8 +553,13 @@ textarea { resize: vertical; min-height: 60px; }
 .adm-main .tenant-section { margin-bottom:20px; padding:24px; border:1px solid #e4e8ef; border-radius:12px; background:#fff; box-shadow:0 1px 3px rgba(20,32,60,.06); }
 .adm-main .tenant-section-heading h2 { font:700 17px/1.25 'Inter','Segoe UI',system-ui,sans-serif; }
 .adm-main .tenant-section-heading p { font-size:13px; }
+.adm-main .tenant-add-event { min-height:40px; padding:8px 13px; border-radius:8px; font-size:13px; }
 .adm-main .tenant-list-row { padding:13px 14px; border:1px solid #e9edf3; border-radius:10px; background:#fafbfd; font-size:14px; }
 .adm-main .tenant-event-details > span,.adm-main .tenant-list-row code { font-size:12px; }
+.adm-main .tenant-admin-filter { font-size:13px; }
+.adm-main .tenant-admin-filter select { min-height:40px; min-width:min(100%,320px); border-radius:8px; font-size:13px; }
+.adm-main .tenant-edit-event { min-height:38px; padding:7px 11px; border-radius:8px; font-size:12px; }
+.adm-main .tenant-event-actions .tenant-event-logo-action { min-height:38px; border-radius:8px; font-size:12px; }
 .adm-main .tenant-empty,.adm-main .tenant-scope-note { font-size:13px; }
 .adm-main .tenant-form { gap:14px; padding-top:18px; }
 .adm-main .tenant-form h3 { font-size:14px; }
@@ -573,6 +585,11 @@ textarea { resize: vertical; min-height: 60px; }
   .adm-topbar { flex-direction:column; padding-right:0 !important; }
   .adm-main .tenant-section { padding:16px; }
   .adm-main .tenant-form { grid-template-columns:1fr; }
+  .adm-main .tenant-admin-filter { align-items:stretch; flex-direction:column; }
+  .adm-main .tenant-admin-filter select { width:100%; }
+  .adm-main .tenant-event-actions { flex-wrap:wrap; }
+  .adm-main .tenant-section-heading { flex-wrap:wrap; }
+  .adm-main .tenant-add-event { margin-left:0; }
 }
 @media (max-width:620px) {
   .public-event-filters { grid-template-columns:1fr; }
