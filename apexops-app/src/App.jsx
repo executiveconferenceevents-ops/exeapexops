@@ -95,14 +95,17 @@ export default function App() {
             setEventError(eventLoadError?.message || 'Could not load events for this account.');
           }
           if (cancelled) return;
+          const workspaceEvents = platformAdmin
+            ? availableEvents.filter(event => event.billing_exempt)
+            : availableEvents;
           setIsPlatformAdmin(platformAdmin);
           setCanManageTenants(platformAdmin || organizationAdmin);
           setEventMemberships(currentMemberships);
-          setEvents(availableEvents);
+          setEvents(workspaceEvents);
           const currentEvent = getActiveEvent();
-          const nextEvent = availableEvents.find(event => event.slug === getEventSlug())
-            || availableEvents.find(event => event.id === currentEvent?.id)
-            || (availableEvents.length === 1 ? availableEvents[0] : null);
+          const nextEvent = workspaceEvents.find(event => event.slug === getEventSlug())
+            || workspaceEvents.find(event => event.id === currentEvent?.id)
+            || (workspaceEvents.length === 1 ? workspaceEvents[0] : null);
           setSelectedEvent(nextEvent);
           setActiveEvent(nextEvent);
         } else {
@@ -136,6 +139,10 @@ export default function App() {
 
   async function signOut() {
     if (supabase) await supabase.auth.signOut();
+    const homeUrl = new URL(window.location.href);
+    homeUrl.searchParams.delete('admin');
+    homeUrl.searchParams.delete('event');
+    window.history.replaceState(window.history.state, '', `${homeUrl.pathname}${homeUrl.search}${homeUrl.hash}`);
     setSession(null);
     setRole(null);
     setPublicAccessView('events');
@@ -152,9 +159,13 @@ export default function App() {
   }
 
   function handleEventCreated(event) {
-    setEvents(current => [...current.filter(item => item.id !== event.id), event]);
-    setSelectedEvent(event);
-    setActiveEvent(event);
+    const canOpenEventOperations = !isPlatformAdmin || Boolean(event.billing_exempt);
+    setEvents(current => {
+      const updatedEvents = [...current.filter(item => item.id !== event.id), event];
+      return isPlatformAdmin ? updatedEvents.filter(item => item.billing_exempt) : updatedEvents;
+    });
+    setSelectedEvent(canOpenEventOperations ? event : null);
+    setActiveEvent(canOpenEventOperations ? event : null);
   }
 
   function selectPublicEvent(slug) {
@@ -254,14 +265,19 @@ export default function App() {
   const activeEventMemberships = eventMemberships.filter(membership => selectedEvent
     && membership.client_id === selectedEvent.client_id
     && (!membership.event_id || membership.event_id === selectedEvent.id));
-  const canOpenOps = Boolean(selectedEvent && (isPlatformAdmin || activeEventMemberships.some(membership => ['client_admin','event_admin','ops'].includes(membership.role))));
-  const canOpenQueue = Boolean(selectedEvent && (isPlatformAdmin || activeEventMemberships.some(membership => ['client_admin','event_admin','ops','staff'].includes(membership.role))));
+  const canOpenOps = Boolean(selectedEvent && ((isPlatformAdmin && selectedEvent.billing_exempt) || activeEventMemberships.some(membership => ['client_admin','event_admin','ops'].includes(membership.role))));
+  const canOpenQueue = Boolean(selectedEvent && ((isPlatformAdmin && selectedEvent.billing_exempt) || activeEventMemberships.some(membership => ['client_admin','event_admin','ops','staff'].includes(membership.role))));
 
   useEffect(() => {
     if (!session || !loginDestination || eventLoading || eventContextReadyFor !== session.user?.id) return;
 
     if (loginDestination === 'clients') {
-      if (isPlatformAdmin) setRole('tenant-admin');
+      if (isPlatformAdmin) {
+        const workspaceUrl = new URL(window.location.href);
+        workspaceUrl.searchParams.delete('admin');
+        window.history.replaceState(window.history.state, '', `${workspaceUrl.pathname}${workspaceUrl.search}${workspaceUrl.hash}`);
+        setRole('tenant-admin');
+      }
       else setEventError('This account is not assigned Platform Admin access. Ask the platform owner to grant this account access. Client administrators use Client Workspace; Operations accounts use Event Operations.');
     } else if (loginDestination === 'organiser') {
       if (!selectedEvent) {

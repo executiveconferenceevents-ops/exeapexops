@@ -32,6 +32,72 @@ test('event codes lock after ten failures and remain scoped to IP and event', as
   }
 });
 
+test('event code rotation returns the new code atomically and requires admin scope', async () => {
+  const database = new PGlite();
+  try {
+    await database.exec(`
+      create role authenticated;
+      create role anon;
+      create schema auth;
+      create table public.events (id uuid primary key, client_id uuid, exhibitor_code text, event_start_date date, event_end_date date, build_up_start_date date, build_up_end_date date, breakdown_start_date date, breakdown_end_date date);
+      create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.user_id', true), '')::uuid $$;
+      create function public.is_platform_admin() returns boolean language sql stable as $$ select coalesce(current_setting('request.platform_admin', true), 'false') = 'true' $$;
+      create function public.has_event_access(uuid, text[]) returns boolean language sql stable as $$ select coalesce(current_setting('request.event_access', true), 'false') = 'true' $$;
+      create function public.is_event_operational(uuid) returns boolean language sql stable as $$ select coalesce(current_setting('request.event_active', true), 'false') = 'true' $$;
+      create function public.test_set_event_code() returns trigger language plpgsql as $$ begin if new.exhibitor_code is null then new.exhibitor_code := 'APX-' || md5(random()::text); end if; return new; end $$;
+      create trigger test_event_code before update of exhibitor_code on public.events for each row execute function public.test_set_event_code();
+      insert into public.events (id, client_id, exhibitor_code) values ('00000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-000000000010','APX-OLD');
+    `);
+    await database.exec(await readFile(path.join(__dirname, '../supabase/event-code-rotation-migration.sql'), 'utf8'));
+    await database.query("select set_config('request.user_id', $1, false)", ['00000000-0000-0000-0000-000000000020']);
+    await database.query("select set_config('request.platform_admin', $1, false)", ['true']);
+    const { rows } = await database.query("select public.rotate_event_exhibitor_code('00000000-0000-0000-0000-000000000011') as code");
+    assert.match(rows[0].code, /^APX-[a-f0-9]{32}$/i);
+    assert.notEqual(rows[0].code, 'APX-OLD');
+
+    await database.query("select set_config('request.platform_admin', $1, false)", ['false']);
+    await assert.rejects(database.query("select public.rotate_event_exhibitor_code('00000000-0000-0000-0000-000000000011')"), /permission/i);
+    await database.query("select set_config('request.event_access', $1, false)", ['true']);
+    await database.query("select set_config('request.event_active', $1, false)", ['false']);
+    await assert.rejects(database.query("select public.rotate_event_exhibitor_code('00000000-0000-0000-0000-000000000011')"), /no longer open/i);
+  } finally {
+    await database.close();
+  }
+});
+
+test('platform pricing is seeded, hidden from non-admins, and editable by admins', async () => {
+  const database = new PGlite();
+  try {
+    await database.exec(`
+      create role authenticated;
+      create role anon;
+      create schema auth;
+      create table auth.users (id uuid primary key);
+      insert into auth.users values ('00000000-0000-0000-0000-000000000020');
+      create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.user_id', true), '')::uuid $$;
+      create function public.is_platform_admin() returns boolean language sql stable as $$ select coalesce(current_setting('request.platform_admin', true), 'false') = 'true' $$;
+      grant usage on schema auth to authenticated;
+      grant execute on function auth.uid() to authenticated;
+    `);
+    const migration = await readFile(path.join(__dirname, '../supabase/platform-pricing-migration.sql'), 'utf8');
+    await database.exec(migration);
+    await database.exec(migration);
+    assert.equal((await database.query('select jsonb_array_length(event_tiers) as tiers, jsonb_array_length(volume_plans) as plans from public.platform_pricing')).rows[0].tiers, 6);
+    assert.equal((await database.query('select jsonb_array_length(event_tiers) as tiers, jsonb_array_length(volume_plans) as plans from public.platform_pricing')).rows[0].plans, 5);
+
+    await database.exec('set role authenticated');
+    await database.query("select set_config('request.platform_admin', $1, false)", ['false']);
+    assert.equal((await database.query('select count(*) as count from public.platform_pricing')).rows[0].count, 0);
+    await database.query("select set_config('request.platform_admin', $1, false)", ['true']);
+    await database.query("select set_config('request.user_id', $1, false)", ['00000000-0000-0000-0000-000000000020']);
+    await database.exec("update public.platform_pricing set event_tiers=jsonb_set(event_tiers, '{0,listPrice}', '16000'::jsonb) where id=true");
+    await database.exec('reset role');
+    assert.equal((await database.query("select event_tiers->0->>'listPrice' as price from public.platform_pricing")).rows[0].price, '16000');
+  } finally {
+    await database.close();
+  }
+});
+
 test('expiry migration preserves rate limiting and closes writes after thirty days', async () => {
   const database = new PGlite();
   try {

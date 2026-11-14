@@ -115,5 +115,16 @@ from (values
       and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'client_event_memberships' and policyname = 'active client admins manage memberships' and with_check like '%is_event_operational%')
       and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'events' and policyname = 'active client admins update events')
       and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'queries' and policyname = 'ops and admins insert event queries'),
-    'event-expiration-migration.sql')
+    'event-expiration-migration.sql'),
+  ('Platform Admin pricing configuration',
+    exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'platform_pricing')
+      and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'platform_pricing' and policyname = 'platform admins manage pricing')
+      and (select count(*) = 2 from information_schema.columns where table_schema = 'public' and table_name = 'platform_pricing' and column_name in ('event_tiers','volume_plans'))
+      and (select count(distinct privilege_type) = 3 from information_schema.table_privileges where table_schema = 'public' and table_name = 'platform_pricing' and grantee = 'authenticated' and privilege_type in ('SELECT','INSERT','UPDATE')),
+    'platform-pricing-migration.sql'),
+  ('Atomic event-code rotation',
+    exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'rotate_event_exhibitor_code')
+      and exists (select 1 from information_schema.routine_privileges where specific_schema = 'public' and routine_name = 'rotate_event_exhibitor_code' and grantee = 'authenticated' and privilege_type = 'EXECUTE')
+      and exists (select 1 from pg_trigger event_trigger join pg_proc trigger_function on trigger_function.oid = event_trigger.tgfoid where event_trigger.tgrelid = 'public.events'::regclass and event_trigger.tgname = 'events_set_exhibitor_code' and not event_trigger.tgisinternal and pg_get_triggerdef(event_trigger.oid) like '%exhibitor_code%' and trigger_function.prosrc like '%gen_random_uuid%'),
+    'event-code-rotation-migration.sql')
 ) as checks(check_name, ok, fix);

@@ -4,8 +4,8 @@ import { getAvailableEvents, getEventAccessCode } from '../lib/eventScope';
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
 import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
 import { enqueue, isNetworkError } from '../lib/offline';
-import { EVENT_TIERS, EXTRA_STAFF_SEAT_PRICE, INCLUDED_INTERNAL_SEATS, VOLUME_PLANS } from '../lib/pricing';
-import { Building2, CalendarDays, LayoutDashboard, MailPlus, Pencil, Plus, RefreshCw, Trash2, Truck, Upload, X } from 'lucide-react';
+import { EVENT_TIERS, EXTRA_STAFF_SEAT_PRICE, getDefaultPricingConfig, INCLUDED_INTERNAL_SEATS, validatePricingConfig, VOLUME_PLANS } from '../lib/pricing';
+import { Building2, CalendarDays, Check, LayoutDashboard, MailPlus, Pencil, Plus, RefreshCw, Trash2, Truck, Upload, X } from 'lucide-react';
 
 const emptyClient = { name:'', slug:'', adminEmail:'', eventLimit:1 };
 const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'', billing_exempt:false, logo_file:null };
@@ -26,6 +26,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
   const [clients, setClients] = useState([]);
   const [events, setEvents] = useState([]);
   const [dashboardEventFilter, setDashboardEventFilter] = useState('');
+  const [pricingConfig, setPricingConfig] = useState(getDefaultPricingConfig);
   const [memberships, setMemberships] = useState([]);
   const [privateSuppliers, setPrivateSuppliers] = useState([]);
   const [supplierClientId, setSupplierClientId] = useState('');
@@ -57,10 +58,13 @@ export default function ClientEventAdmin({ onEventCreated }) {
       let currentMemberships = [];
       let platformAdmin = false;
       let visibleClients = [];
+      let nextPricingConfig = getDefaultPricingConfig();
+      let pricingLoadError = '';
       if (DEMO_MODE) {
         platformAdmin = true;
         currentMemberships = getDemoCollection('memberships', [{ client_id:'demo-client-ece', event_id:null, role:'client_admin' }]);
         visibleClients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events', event_limit:1, billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy', prepaid_event_credits:0, trial_started_at:null, trial_ends_at:null }]);
+        nextPricingConfig = getDemoCollection('pricing', nextPricingConfig);
       } else {
         const [membershipResult, adminResult] = await Promise.all([
           supabase.from('client_event_memberships').select('client_id, event_id, role'),
@@ -76,6 +80,10 @@ export default function ClientEventAdmin({ onEventCreated }) {
             .order('name');
           if (clientsError) throw clientsError;
           visibleClients = data || [];
+          const { data:pricing, error:pricingError } = await supabase.from('platform_pricing')
+            .select('event_tiers, volume_plans').eq('id', true).maybeSingle();
+          if (pricingError) pricingLoadError = 'Pricing settings are unavailable. Apply supabase/platform-pricing-migration.sql to enable the editor.';
+          else if (pricing?.event_tiers && pricing?.volume_plans) nextPricingConfig = { eventTiers:pricing.event_tiers, volumePlans:pricing.volume_plans };
         }
       }
       const managedClientId = currentMemberships.find(membership => membership.role === 'client_admin' && !membership.event_id)?.client_id || '';
@@ -107,6 +115,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
       }
       setClients(visibleClients);
       setEvents(managedEvents);
+      setPricingConfig(nextPricingConfig);
       setMemberships(currentMemberships);
       setIsPlatformAdmin(platformAdmin);
       setManagedClientId(managedClientId);
@@ -117,6 +126,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
       const supplierScope = platformAdmin ? supplierClientId || visibleClients[0]?.id || '' : managedClientId;
       setSupplierClientId(supplierScope);
       setPrivateSuppliers(supplierScope ? await getSuppliers(supplierScope) : []);
+      if (pricingLoadError) setError(pricingLoadError);
     } catch (loadError) {
       setError(loadError?.message || 'Could not load client and event access.');
     } finally {
@@ -305,6 +315,47 @@ export default function ClientEventAdmin({ onEventCreated }) {
     }
   }
 
+  function updatePricingTier(index, field, value) {
+    setPricingConfig(current => ({
+      ...current,
+      eventTiers:current.eventTiers.map((tier, tierIndex) => tierIndex === index ? { ...tier, [field]:value } : tier),
+    }));
+  }
+
+  function updateVolumePlan(index, field, value) {
+    setPricingConfig(current => ({
+      ...current,
+      volumePlans:current.volumePlans.map((plan, planIndex) => planIndex === index ? { ...plan, [field]:value } : plan),
+    }));
+  }
+
+  async function savePricingConfig() {
+    const validationError = validatePricingConfig(pricingConfig);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      if (DEMO_MODE) {
+        setDemoCollection('pricing', pricingConfig);
+      } else {
+        const { data, error:saveError } = await supabase.from('platform_pricing')
+          .upsert({ id:true, event_tiers:pricingConfig.eventTiers, volume_plans:pricingConfig.volumePlans }, { onConflict:'id' })
+          .select('event_tiers, volume_plans').single();
+        if (saveError) throw saveError;
+        setPricingConfig({ eventTiers:data.event_tiers, volumePlans:data.volume_plans });
+      }
+      setNotice('Pricing tiers and annual discounts saved.');
+    } catch (saveError) {
+      setError(saveError?.message || 'Could not save pricing settings.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function createEvent(event) {
     event.preventDefault();
     setSaving(true);
@@ -430,17 +481,23 @@ export default function ClientEventAdmin({ onEventCreated }) {
   }
 
   async function rotateEventCode(event) {
-    if (!window.confirm(`Regenerate the exhibitor code for ${event.name}? The current code will stop working immediately.`)) return;
+    if (!window.confirm(`Rotate the exhibitor code for ${event.name}? The current code will stop working immediately.`)) return;
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      const { error: rotateError } = await supabase.from('events').update({ exhibitor_code:null }).eq('id', event.id);
-      if (rotateError) throw rotateError;
-      const code = await getEventAccessCode(event.id);
+      let code;
+      if (DEMO_MODE) {
+        code = `APX-${crypto.randomUUID().replace(/-/g, '').toUpperCase()}`;
+        setDemoCollection('events', getDemoCollection('events', []).map(item => item.id === event.id ? { ...item, exhibitor_code:code } : item));
+      } else {
+        const { data, error:rotateError } = await supabase.rpc('rotate_event_exhibitor_code', { target_event_id:event.id });
+        if (rotateError) throw rotateError;
+        code = data;
+      }
       if (!code) throw new Error('The new exhibitor code was generated but could not be retrieved. Refresh the page to load it.');
       setEvents(current => current.map(item => item.id === event.id ? { ...item, exhibitor_code:code } : item));
-      setNotice(`Exhibitor code for ${event.name} was regenerated. Share the new code with exhibitors.`);
+      setNotice(`Code rotated for ${event.name}. The previous code is no longer valid; share the new code with exhibitors.`);
     } catch (rotateError) {
       setError(rotateError?.message || 'Could not regenerate the exhibitor code.');
     } finally {
@@ -544,7 +601,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
         {isPlatformAdmin && <section className="tenant-section" hidden={section !== 'clients'}>
           <div className="tenant-section-heading"><Building2 size={17} /><div><h2>Client organizations</h2><p>{clients.length} available to your account</p></div></div>
           <div className="tenant-list">
-            {clients.map(client => <div key={client.id}><div className="tenant-list-row"><div className="tenant-event-details"><strong>{client.name}</strong><span>{client.slug} · {events.filter(event => event.client_id === client.id).length} of {client.event_limit || 1} events used</span></div><label className="tenant-quota-control">Event limit<input type="number" min="1" max="1000" value={client.event_limit || 1} disabled={saving} onChange={event=>setClients(current=>current.map(item=>item.id === client.id ? { ...item, event_limit:event.target.value } : item))} onBlur={event=>updateClientEventLimit(client.id, event.target.value)} /></label></div><BillingControls client={client} saving={saving} onSave={updateClientBilling} /></div>)}
+            {clients.map(client => <div key={client.id}><div className="tenant-list-row"><div className="tenant-event-details"><strong>{client.name}</strong><span>{client.slug} · {events.filter(event => event.client_id === client.id && !event.billing_exempt).length} of {client.event_limit || 1} billable events used</span></div><label className="tenant-quota-control">Event limit<input type="number" min="1" max="1000" value={client.event_limit || 1} disabled={saving} onChange={event=>setClients(current=>current.map(item=>item.id === client.id ? { ...item, event_limit:event.target.value } : item))} onBlur={event=>updateClientEventLimit(client.id, event.target.value)} /></label></div><BillingControls client={client} saving={saving} onSave={updateClientBilling} volumePlans={pricingConfig.volumePlans} /></div>)}
             {!clients.length && <p className="tenant-empty">No organizations are assigned to your account.</p>}
           </div>
           {isPlatformAdmin && <form className="tenant-form tenant-inline-form" onSubmit={createClient}>
@@ -558,21 +615,30 @@ export default function ClientEventAdmin({ onEventCreated }) {
         </section>}
 
         {isPlatformAdmin && <section className="tenant-section" hidden={section !== 'pricing'}>
-          <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Proposed launch pricing</h2><p>ZAR per event. VAT, if applicable, is additional.</p></div></div>
+          <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Proposed launch pricing</h2><p>Edit event size bands and annual discounts. ZAR per event; VAT, if applicable, is additional.</p></div><button className="tenant-add-event" type="button" disabled={saving} onClick={savePricingConfig}><Check size={15} /> Save pricing</button></div>
           <div className="tenant-pricing-table-wrap"><table className="tenant-pricing-table">
-            <thead><tr><th>Event category</th><th>Stands / build locations</th><th>Per event</th></tr></thead>
-            <tbody>{EVENT_TIERS.map(tier=><tr key={tier.id}><td>{tier.name}</td><td>{tier.maxLocations ? `${tier.minLocations}–${tier.maxLocations}` : `${tier.minLocations}+`}</td><td>{tier.listPrice === null ? 'Custom quote' : `R${tier.listPrice.toLocaleString('en-ZA')}`}</td></tr>)}</tbody>
+            <thead><tr><th>Event category</th><th>Minimum stands / build locations</th><th>Maximum</th><th>Price (ZAR)</th></tr></thead>
+            <tbody>{pricingConfig.eventTiers.map((tier,index)=><tr key={tier.id}>
+              <td><input aria-label={`Category ${tier.id}`} value={tier.name} onChange={event=>updatePricingTier(index,'name',event.target.value)} /></td>
+              <td><input aria-label={`Minimum locations ${tier.id}`} type="number" min="1" step="1" value={tier.minLocations} onChange={event=>updatePricingTier(index,'minLocations',event.target.value === '' ? '' : Number(event.target.value))} /></td>
+              <td><input aria-label={`Maximum locations ${tier.id}`} type="number" min="1" step="1" placeholder="No limit" value={tier.maxLocations ?? ''} onChange={event=>updatePricingTier(index,'maxLocations',event.target.value === '' ? null : Number(event.target.value))} /></td>
+              <td><input aria-label={`Price ZAR ${tier.id}`} type="number" min="0" step="1" placeholder="Custom quote" value={tier.listPrice ?? ''} onChange={event=>updatePricingTier(index,'listPrice',event.target.value === '' ? null : Number(event.target.value))} /></td>
+            </tr>)}</tbody>
           </table></div>
           <p className="tenant-scope-note">Floor area, halls, operational zones and complexity also require assessment; a custom quote may apply.</p>
           <h3>Annual commitment</h3>
-          <div className="tenant-pricing-table-wrap"><table className="tenant-pricing-table"><thead><tr><th>Events per year</th><th>Discount</th></tr></thead><tbody><tr><td>1–11</td><td>None</td></tr>{VOLUME_PLANS.map(plan=><tr key={plan.id}><td>{plan.eventsPerYear}–{plan.maxEvents}</td><td>{plan.discountPct}%</td></tr>)}</tbody></table></div>
+          <div className="tenant-pricing-table-wrap"><table className="tenant-pricing-table"><thead><tr><th>Minimum events / year</th><th>Maximum</th><th>Discount (%)</th></tr></thead><tbody><tr><td>1</td><td>11</td><td>0</td></tr>{pricingConfig.volumePlans.map((plan,index)=><tr key={plan.id}>
+            <td><input aria-label={`Minimum annual events ${plan.id}`} type="number" min="1" step="1" value={plan.eventsPerYear} onChange={event=>updateVolumePlan(index,'eventsPerYear',event.target.value === '' ? '' : Number(event.target.value))} /></td>
+            <td><input aria-label={`Maximum annual events ${plan.id}`} type="number" min="1" step="1" value={plan.maxEvents} onChange={event=>updateVolumePlan(index,'maxEvents',event.target.value === '' ? '' : Number(event.target.value))} /></td>
+            <td><input aria-label={`Discount percent ${plan.id}`} type="number" min="0" max="100" step="0.1" value={plan.discountPct} onChange={event=>updateVolumePlan(index,'discountPct',event.target.value === '' ? '' : Number(event.target.value))} /></td>
+          </tr>)}</tbody></table></div>
           <p className="tenant-scope-note">Includes {INCLUDED_INTERNAL_SEATS} internal operational accounts; additional internal accounts are R{EXTRA_STAFF_SEAT_PRICE} per user per event. External participant access is free.</p>
         </section>}
 
         <section className="tenant-section" hidden={section !== 'events'}>
           <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Event workspaces</h2><p>Each event has isolated staff, exhibitors, requests and reports.</p></div>{!showEventForm && <button className="tenant-add-event" type="button" onClick={()=>{setEditingEventId('');setShowEventForm(true);}}><Plus size={15} /> New event</button>}</div>
           <div className="tenant-list">
-            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span>{event.billing_exempt && <span className="tenant-internal-badge">Internal ECE · non-billable</span>}</div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code><button className="tenant-regenerate-code" type="button" disabled={saving} onClick={()=>rotateEventCode(event)}>Regenerate code</button></span><div className="tenant-event-actions"><button className="tenant-edit-event" type="button" disabled={saving || (event.billing_exempt && !isPlatformAdmin)} onClick={()=>beginEditEvent(event)}><Pencil size={14} /> Edit</button><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div></div>)}
+            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span>{event.billing_exempt && <span className="tenant-internal-badge">Internal ECE · non-billable</span>}</div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code><button className="tenant-regenerate-code" type="button" disabled={saving || (!isPlatformAdmin && !canInviteToScope(event.client_id, event.id))} onClick={()=>rotateEventCode(event)}><RefreshCw size={12} /> Rotate code</button></span><div className="tenant-event-actions"><button className="tenant-edit-event" type="button" disabled={saving || (event.billing_exempt && !isPlatformAdmin)} onClick={()=>beginEditEvent(event)}><Pencil size={14} /> Edit</button><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div></div>)}
             {!events.length && <p className="tenant-empty">No events are assigned to your account.</p>}
           </div>
           {showEventForm && <form className="tenant-form tenant-inline-form" onSubmit={editingEventId ? updateEvent : createEvent}>
@@ -630,7 +696,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
   );
 }
 
-function BillingControls({ client, saving, onSave }) {
+function BillingControls({ client, saving, onSave, volumePlans = VOLUME_PLANS }) {
   const [form, setForm] = useState({
     billing_plan:client.billing_plan || 'legacy',
     billing_mode:client.billing_mode || 'unmanaged',
@@ -681,7 +747,7 @@ function BillingControls({ client, saving, onSave }) {
       setError('Enter valid term dates and a paid-through date before activating a monthly plan.');
       return;
     }
-    const plan = VOLUME_PLANS.find(item => item.id === form.billing_plan);
+    const plan = volumePlans.find(item => item.id === form.billing_plan);
     const committedEvents = Number(form.committed_events);
     if (monthly && (!Number.isInteger(committedEvents) || committedEvents < 1 || (plan && (committedEvents < plan.eventsPerYear || committedEvents > plan.maxEvents)))) {
       setError(plan ? `Enter a commitment from ${plan.eventsPerYear} to ${plan.maxEvents} events.` : 'Enter a positive number of committed events.');
@@ -706,11 +772,11 @@ function BillingControls({ client, saving, onSave }) {
   return <details>
     <summary>Billing and access: {trialActive ? '30-day trial' : trialExpired ? 'trial expired' : client.billing_status || 'pending'}</summary>
     <form className="tenant-form" onSubmit={submit}>
-      <label>Plan<select value={form.billing_mode === 'trial' ? 'trial' : form.billing_plan} onChange={event=>{ const nextPlan=event.target.value; const plan=VOLUME_PLANS.find(item=>item.id === nextPlan); const billingMode=nextPlan === 'trial' ? 'trial' : nextPlan === 'legacy' ? 'unmanaged' : nextPlan === 'pay_per_event' ? 'prepaid' : 'monthly'; setForm({ ...form, billing_plan:nextPlan === 'trial' ? 'legacy' : nextPlan, billing_mode:billingMode, committed_events:plan?.eventsPerYear || 0 }); }}>
+      <label>Plan<select value={form.billing_mode === 'trial' ? 'trial' : form.billing_plan} onChange={event=>{ const nextPlan=event.target.value; const plan=volumePlans.find(item=>item.id === nextPlan); const billingMode=nextPlan === 'trial' ? 'trial' : nextPlan === 'legacy' ? 'unmanaged' : nextPlan === 'pay_per_event' ? 'prepaid' : 'monthly'; setForm({ ...form, billing_plan:nextPlan === 'trial' ? 'legacy' : nextPlan, billing_mode:billingMode, committed_events:plan?.eventsPerYear || 0 }); }}>
         {form.trial_started_at && <option value="trial">30-day demo trial</option>}
         <option value="legacy">Legacy / unmanaged</option><option value="pay_per_event">Pay per event</option>
-        {VOLUME_PLANS.map(plan=><option key={plan.id} value={plan.id}>{plan.eventsPerYear}–{plan.maxEvents} events / year ({plan.discountPct}%)</option>)}
-        {monthly && form.billing_plan !== 'enterprise' && !VOLUME_PLANS.some(plan=>plan.id === form.billing_plan) && <option value={form.billing_plan}>Previous plan ({form.billing_plan})</option>}
+        {volumePlans.map(plan=><option key={plan.id} value={plan.id}>{plan.eventsPerYear}–{plan.maxEvents} events / year ({plan.discountPct}%)</option>)}
+        {monthly && form.billing_plan !== 'enterprise' && !volumePlans.some(plan=>plan.id === form.billing_plan) && <option value={form.billing_plan}>Previous plan ({form.billing_plan})</option>}
         <option value="enterprise">Enterprise / negotiated</option>
       </select></label>
       <label>Access status<select value={form.billing_status} onChange={event=>setForm({ ...form, billing_status:event.target.value })}>

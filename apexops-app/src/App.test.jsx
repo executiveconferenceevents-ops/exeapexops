@@ -11,6 +11,7 @@ jest.mock('./lib/supabase', () => ({
       getSession:jest.fn().mockResolvedValue({ data:{ session:{ user:{ id:'client-user' } } } }),
       onAuthStateChange:jest.fn().mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } }),
       signInWithPassword:jest.fn(),
+      signOut:jest.fn().mockResolvedValue({ error:null }),
     },
   },
 }));
@@ -114,7 +115,10 @@ test('platform-admin login opens the admin dashboard without the workspace choos
   supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
   supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'platform-admin' } } }, error:null });
   supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
-  getAvailableEvents.mockResolvedValue([{ id:'event-1', client_id:'client-1', slug:'event-1', name:'Admin event' }]);
+  getAvailableEvents.mockResolvedValue([
+    { id:'internal-1', client_id:'ece', slug:'internal-event', name:'Internal event', billing_exempt:true },
+    { id:'client-1', client_id:'client', slug:'client-event', name:'Client event', billing_exempt:false },
+  ]);
   getUserEventAccess.mockResolvedValue({ platformAdmin:true, memberships:[] });
   getPublicEvents.mockResolvedValue([]);
   const container = document.createElement('div');
@@ -135,6 +139,15 @@ test('platform-admin login opens the admin dashboard without the workspace choos
 
   expect(container.textContent).toContain('Create test event');
   expect(container.textContent).not.toContain('Choose your workspace');
+  expect(window.location.search).not.toContain('admin');
+  await act(async () => { buttonWithText(container, 'Back to workspace').click(); });
+  const activeEventOptions = [...container.querySelector('#active-event').options].map(option => option.textContent);
+  expect(activeEventOptions).toContain('Internal event');
+  expect(activeEventOptions).not.toContain('Client event');
+  expect(container.textContent).toContain('Event Operations');
+  await act(async () => { buttonWithText(container, 'Sign out').click(); });
+  expect(window.location.search).not.toContain('admin');
+  expect(window.location.search).not.toContain('event');
   await act(async () => { root.unmount(); });
   container.remove();
   window.history.replaceState({}, '', '/');
