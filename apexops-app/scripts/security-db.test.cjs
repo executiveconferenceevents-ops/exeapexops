@@ -88,9 +88,9 @@ test('expiry migration preserves rate limiting and closes writes after thirty da
     await database.exec(expiryMigration);
     await database.exec(expiryMigration);
     const checks = await database.query(await readFile(path.join(__dirname, '../supabase/check-migrations.sql'), 'utf8'));
-    assert.equal(checks.rows.find(row => row.item === 'Event-code lockout validator installed').status, 'OK');
-    assert.match(checks.rows.find(row => row.item === 'Event-code rate limiting in the deployed environment').status, /^MANUAL REVIEW/);
-    assert.equal(checks.rows.find(row => row.item === '30-day event expiry and twelve-month archive policies').status, 'OK');
+    assert.equal(checks.rows.find(row => row.check_name === 'Event-code lockout validator installed').status, 'OK');
+    assert.match(checks.rows.find(row => row.check_name === 'Event-code rate limiting in the deployed environment').status, /^MANUAL REVIEW/);
+    assert.equal(checks.rows.find(row => row.check_name === '30-day event expiry and twelve-month archive policies').status, 'OK');
     await database.query("select set_config('request.headers', $1, false)", [JSON.stringify({ 'x-real-ip':'192.0.2.10' })]);
     const active = await database.query("select public.validate_public_event_code('active', 'ACTIVE') as id");
     const expired = await database.query("select public.validate_public_event_code('expired', 'EXPIRED') as id");

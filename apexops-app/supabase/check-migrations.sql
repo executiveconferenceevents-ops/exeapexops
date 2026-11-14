@@ -2,7 +2,7 @@
 -- Paste the whole file into the Supabase SQL Editor and click Run.
 -- Apply required schema, entitlement, lifecycle and security migrations before deploying the app.
 
-select item, case when fix like 'MANUAL: %' then 'MANUAL REVIEW - ' || substr(fix, 9) when ok then 'OK' else 'MISSING - run ' || fix end as status
+select checks.check_name, case when fix like 'MANUAL: %' then 'MANUAL REVIEW - ' || substr(fix, 9) when ok then 'OK' else 'MISSING - run ' || fix end as status
 from (values
   ('Base tables (queries, staff, exhibitors, suppliers)',
     (select count(*) = 4 from information_schema.tables where table_schema = 'public' and table_name in ('queries', 'staff', 'exhibitors', 'suppliers')),
@@ -107,4 +107,4 @@ from (values
       and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'events' and policyname = 'active client admins update events')
       and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'queries' and policyname = 'ops and admins insert event queries'),
     'event-expiration-migration.sql')
-) as checks(item, ok, fix);
+) as checks(check_name, ok, fix);
