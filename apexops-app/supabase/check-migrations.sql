@@ -102,6 +102,7 @@ from (values
     (select count(*) = 2 from information_schema.columns where table_schema = 'public' and table_name = 'clients' and column_name in ('trial_started_at','trial_ends_at'))
       and exists (select 1 from pg_constraint where conrelid = 'public.clients'::regclass and conname = 'clients_trial_dates_check' and pg_get_constraintdef(oid) like '%trial_ends_at > trial_started_at%')
       and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'events' and column_name = 'billing_exempt')
+      and exists (select 1 from information_schema.column_privileges where table_schema = 'public' and table_name = 'events' and column_name = 'billing_exempt' and grantee = 'authenticated' and privilege_type = 'SELECT')
       and exists (select 1 from pg_trigger where tgrelid = 'public.events'::regclass and tgname = 'events_guard_billing_exemption' and not tgisinternal)
       and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'client_billing_is_current' and p.prosrc like '%trial_ends_at%')
       and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'enforce_client_event_limit' and p.prosrc like '%billing_exempt%'),

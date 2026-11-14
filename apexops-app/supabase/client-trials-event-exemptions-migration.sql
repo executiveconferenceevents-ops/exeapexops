@@ -4,6 +4,7 @@ begin;
 alter table public.clients add column if not exists trial_started_at date;
 alter table public.clients add column if not exists trial_ends_at date;
 alter table public.events add column if not exists billing_exempt boolean not null default false;
+grant select (billing_exempt) on public.events to authenticated;
 
 alter table public.clients drop constraint if exists clients_billing_mode_check;
 alter table public.clients add constraint clients_billing_mode_check

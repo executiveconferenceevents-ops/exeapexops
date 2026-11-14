@@ -30,6 +30,7 @@ export default function App() {
   const [canManageTenants, setCanManageTenants] = useState(false);
   const [events, setEvents] = useState([]);
   const [eventMemberships, setEventMemberships] = useState([]);
+  const [eventContextReadyFor, setEventContextReadyFor] = useState('');
   const [publicEvents, setPublicEvents] = useState([]);
   const [publicEventSlug, setPublicEventSlug] = useState('');
   const [publicAccessView, setPublicAccessView] = useState(() => new URLSearchParams(window.location.search).has('admin') ? 'clients' : 'events');
@@ -65,13 +66,12 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    setEventContextReadyFor('');
     setEventLoading(true);
     setEventError('');
     const loadEventContext = async () => {
       try {
         if (session) {
-          const availableEvents = await getAvailableEvents();
-          if (cancelled) return;
           let platformAdmin = false;
           let organizationAdmin = false;
           let currentMemberships = [];
@@ -84,8 +84,17 @@ export default function App() {
           } else if (DEMO_MODE) {
             platformAdmin = true;
             organizationAdmin = true;
-            currentMemberships = [{ client_id:availableEvents[0]?.client_id || 'demo-client-ece', event_id:null, role:'client_admin' }];
+            currentMemberships = [{ client_id:'demo-client-ece', event_id:null, role:'client_admin' }];
           }
+          if (cancelled) return;
+          let availableEvents = [];
+          try {
+            availableEvents = await getAvailableEvents();
+          } catch (eventLoadError) {
+            if (!platformAdmin) throw eventLoadError;
+            setEventError(eventLoadError?.message || 'Could not load events for this account.');
+          }
+          if (cancelled) return;
           setIsPlatformAdmin(platformAdmin);
           setCanManageTenants(platformAdmin || organizationAdmin);
           setEventMemberships(currentMemberships);
@@ -115,7 +124,10 @@ export default function App() {
       } catch (eventLoadError) {
         if (!cancelled) setEventError(eventLoadError?.message || 'Could not load events for this account.');
       } finally {
-        if (!cancelled) setEventLoading(false);
+          if (!cancelled) {
+            setEventContextReadyFor(session?.user?.id || '');
+            setEventLoading(false);
+          }
       }
     };
     loadEventContext();
@@ -246,7 +258,7 @@ export default function App() {
   const canOpenQueue = Boolean(selectedEvent && (isPlatformAdmin || activeEventMemberships.some(membership => ['client_admin','event_admin','ops','staff'].includes(membership.role))));
 
   useEffect(() => {
-    if (!session || !loginDestination || eventLoading) return;
+    if (!session || !loginDestination || eventLoading || eventContextReadyFor !== session.user?.id) return;
 
     if (loginDestination === 'clients') {
       if (isPlatformAdmin) setRole('tenant-admin');
@@ -274,7 +286,7 @@ export default function App() {
     }
 
     setLoginDestination(null);
-  }, [session, loginDestination, eventLoading, isPlatformAdmin, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue]);
+  }, [session, loginDestination, eventLoading, eventContextReadyFor, isPlatformAdmin, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue]);
 
   useEffect(() => {
     if (!session || eventLoading || !role) return;

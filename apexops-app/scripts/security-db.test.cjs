@@ -234,9 +234,11 @@ test('30-day trials expire and internal event exemptions are platform-admin-only
     `);
     await database.exec(await readFile(path.join(__dirname, '../supabase/client-event-limits-migration.sql'), 'utf8'));
     await database.exec(await readFile(path.join(__dirname, '../supabase/client-billing-access-migration.sql'), 'utf8'));
+    await database.exec('grant select (id, client_id, created_at, event_end_date, breakdown_end_date) on public.events to authenticated');
     const migration = await readFile(path.join(__dirname, '../supabase/client-trials-event-exemptions-migration.sql'), 'utf8');
     await database.exec(migration);
     await database.exec(migration);
+    assert.equal((await database.query("select has_column_privilege('authenticated', 'public.events', 'billing_exempt', 'SELECT') as allowed")).rows[0].allowed, true);
 
     await database.exec("update public.clients set billing_mode='trial', billing_status='active', trial_started_at=current_date, trial_ends_at=current_date + 30");
     await database.exec('update public.clients set event_limit=2');

@@ -10,6 +10,7 @@ jest.mock('./lib/supabase', () => ({
     auth:{
       getSession:jest.fn().mockResolvedValue({ data:{ session:{ user:{ id:'client-user' } } } }),
       onAuthStateChange:jest.fn().mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } }),
+      signInWithPassword:jest.fn(),
     },
   },
 }));
@@ -105,4 +106,36 @@ test('staff-only members do not see platform or Operations workspaces', async ()
   expect(container.textContent).not.toContain('Client Workspace');
   await act(async () => { root.unmount(); });
   container.remove();
+});
+
+test('platform-admin login opens the admin dashboard without the workspace chooser', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/?admin');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'platform-admin' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'event-1', client_id:'client-1', slug:'event-1', name:'Admin event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:true, memberships:[] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  await act(async () => { root.render(<App />); });
+  expect(container.textContent).toContain('Admin sign in');
+  const email = container.querySelector('input[aria-label="Work email"]');
+  const password = container.querySelector('input[aria-label="Password"]');
+  await act(async () => {
+    email.value = 'didi@executiveconferenceevents.com';
+    email.dispatchEvent(new Event('input', { bubbles:true }));
+    password.value = 'test-password';
+    password.dispatchEvent(new Event('input', { bubbles:true }));
+  });
+  await act(async () => { buttonWithText(container, 'Sign in').click(); });
+
+  expect(container.textContent).toContain('Create test event');
+  expect(container.textContent).not.toContain('Choose your workspace');
+  await act(async () => { root.unmount(); });
+  container.remove();
+  window.history.replaceState({}, '', '/');
 });
