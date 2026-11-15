@@ -11,14 +11,10 @@ import ClientQuery from './views/ClientQuery';
 import { supabase } from './lib/supabase';
 import { DEMO_MODE } from './lib/demoStore';
 import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventAccessCode, getEventSlug, getPublicEvents, getUserEventAccess, PRIVACY_NOTICE_VERSION, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
-import { ArrowLeft, Building2, CheckCircle2, ClipboardPlus, HardHat, LayoutDashboard, LogIn, LogOut, Monitor } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Building2, CalendarDays, CheckCircle2, ClipboardPlus, HardHat, LayoutDashboard, LogIn, LogOut, Mail, Monitor } from 'lucide-react';
 import { AppShell, PageHeader, ServiceCard, StatusBadge } from './components/AppShell';
 import LoginLayout from './components/LoginLayout';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, FONT, DISPLAY_FONT } from './theme';
-
-// ── Role selector / login screen ──────────────────────────────────────────────
-// In production this becomes a real Supabase auth login.
-// For now: pick your role to enter the right view.
 
 export default function App() {
   const [role, setRole] = useState(null);
@@ -33,7 +29,11 @@ export default function App() {
   const [eventContextReadyFor, setEventContextReadyFor] = useState('');
   const [publicEvents, setPublicEvents] = useState([]);
   const [publicEventSlug, setPublicEventSlug] = useState('');
-  const [publicAccessView, setPublicAccessView] = useState(() => new URLSearchParams(window.location.search).has('admin') ? 'clients' : 'events');
+  const [publicAccessView, setPublicAccessView] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.has('admin') ? 'clients' : params.has('event') ? 'events' : 'home';
+  });
+  const [adminReturnView, setAdminReturnView] = useState('home');
   const [publicEventSearch, setPublicEventSearch] = useState('');
   const [publicEventMonth, setPublicEventMonth] = useState('');
   const [publicAccessCode, setPublicAccessCode] = useState('');
@@ -145,7 +145,8 @@ export default function App() {
     window.history.replaceState(window.history.state, '', `${homeUrl.pathname}${homeUrl.search}${homeUrl.hash}`);
     setSession(null);
     setRole(null);
-    setPublicAccessView('events');
+    setPublicAccessView('home');
+    setAdminReturnView('home');
     setSelectedEvent(null);
     setEventMemberships([]);
     clearActiveEvent();
@@ -372,6 +373,41 @@ export default function App() {
     );
   }
 
+  if (!session && publicAccessView === 'home') return (
+    <LoginLayout
+      title="Event operations"
+      accent="under control."
+      subtitle="APEXOPS brings organizers, operations teams, staff, and exhibitors into one clear workspace for every event."
+      bullets={['Coordinate event requests and service delivery', 'Give each team access only to the events they support', 'Keep exhibitors informed from build-up to breakdown']}
+      onAdmin={()=>{ setAdminReturnView('home'); setPublicAccessView('clients'); }}
+    >
+      <div className="lg-journey">
+        <div className="lg-journey-intro">
+          <span className="lg-eyebrow">APEXOPS EVENT PLATFORM</span>
+          <h2>Welcome to APEXOPS</h2>
+          <p>Choose the path that fits your role. Your event organizer controls access to event-specific tools and information.</p>
+        </div>
+        <button className="lg-journey-primary" type="button" onClick={()=>setPublicAccessView('events')}>
+          <span><CalendarDays size={18} /><span><strong>Find your event</strong><small>Access exhibitor services with your event code.</small></span></span>
+          <ArrowRight size={17} />
+        </button>
+        <div className="lg-journey-divider"><span>FOR EVENT TEAMS</span></div>
+        <div className="lg-journey-grid">
+          <button type="button" className="lg-journey-option" onClick={()=>setPublicAccessView('organiser')}>
+            <Monitor size={18} /><strong>Organizer sign in</strong><small>Manage operations for your assigned events.</small>
+          </button>
+          <button type="button" className="lg-journey-option" onClick={()=>setPublicAccessView('team')}>
+            <HardHat size={18} /><strong>Staff sign in</strong><small>View your assignments and update work status.</small>
+          </button>
+        </div>
+        <div className="lg-journey-contact">
+          <span><Building2 size={16} /><span><strong>New to APEXOPS?</strong><small>Request a guided demo for your organization.</small></span></span>
+          <a href="mailto:didi@executiveconferenceevents.com?subject=APEXOPS%20guided%20demo%20request"><Mail size={15} /> Request a demo</a>
+        </div>
+      </div>
+    </LoginLayout>
+  );
+
   if (!session && publicAccessView === 'events' && selectedEvent?.accessCode) {
     const servicesReady = privacyAcknowledged;
     const exhibitorNav = [
@@ -414,7 +450,7 @@ export default function App() {
     <LoginLayout title="Platform" accent="admin." subtitle="Sign in to manage client accounts and access.">
       <TeamLogin onSignedIn={nextSession=>{ setLoginDestination('clients'); setSession(nextSession); }} initiallyOpen title="Admin sign in" />
       {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
-      <button type="button" className="lg-link" onClick={()=>setPublicAccessView('events')}><ArrowLeft size={14} /> Back to events</button>
+      <button type="button" className="lg-link" onClick={()=>setPublicAccessView(adminReturnView)}><ArrowLeft size={14} /> Back</button>
     </LoginLayout>
   );
 
@@ -434,7 +470,7 @@ export default function App() {
       accent={headAccent}
       subtitle={headSubtitle}
       bullets={publicAccessView === 'events' && !publicEventSlug ? ['Report and track issues at your stand', 'See which requests are resolved', 'Plan your next event'] : null}
-      onAdmin={()=>setPublicAccessView('clients')}
+      onAdmin={()=>{ setAdminReturnView(publicAccessView); setPublicAccessView('clients'); }}
     >
       <nav className="lg-tabs" aria-label="Access options">
         {[['events','Exhibitors'],['team','Staff'],['organiser','Operations']].map(([view,label]) => (

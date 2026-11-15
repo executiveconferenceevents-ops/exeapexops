@@ -148,6 +148,39 @@ test('platform-admin login opens the admin dashboard without the workspace choos
   await act(async () => { buttonWithText(container, 'Sign out').click(); });
   expect(window.location.search).not.toContain('admin');
   expect(window.location.search).not.toContain('event');
+  expect(container.textContent).toContain('Welcome to APEXOPS');
+  await act(async () => { root.unmount(); });
+  container.remove();
+  window.history.replaceState({}, '', '/');
+});
+
+test('public home explains the product and routes event attendees to event code access', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getPublicEvents.mockResolvedValue([{
+    client_name:'Example Organizer', event_name:'Example Expo', slug:'example-expo',
+    event_start_date:'2027-05-01', event_end_date:'2027-05-02',
+    build_up_start_date:'2027-04-29', build_up_end_date:'2027-04-30',
+    breakdown_start_date:'2027-05-03', breakdown_end_date:'2027-05-03', logo_url:'',
+  }]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  await act(async () => { root.render(<App />); });
+  expect(container.textContent).toContain('Welcome to APEXOPS');
+  expect(container.textContent).toContain('Organizer sign in');
+  expect(container.textContent).toContain('Staff sign in');
+  expect(container.textContent).toContain('Request a demo');
+
+  await act(async () => { buttonWithText(container, 'Find your event').click(); });
+  expect(container.textContent).toContain('Example Expo');
+  await act(async () => { buttonWithText(container, 'Example Expo').click(); });
+  expect(container.querySelector('#public-event-code')).not.toBeNull();
+  expect(window.location.search).toContain('event=example-expo');
+
   await act(async () => { root.unmount(); });
   container.remove();
   window.history.replaceState({}, '', '/');
