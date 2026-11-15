@@ -33,6 +33,7 @@ export function validatePricingConfig(config) {
 
   const tiers = [...config.eventTiers].sort((left, right) => Number(left.minLocations) - Number(right.minLocations));
   if (new Set(tiers.map(tier => tier.id)).size !== tiers.length) return 'Event tier identifiers must be unique.';
+  if (Number(tiers[0].minLocations) !== 1) return 'The first event size band must start at 1 location.';
   for (let index = 0; index < tiers.length; index += 1) {
     const tier = tiers[index];
     const minimum = Number(tier.minLocations);
@@ -44,11 +45,13 @@ export function validatePricingConfig(config) {
     if (index > 0) {
       const previousMaximum = tiers[index - 1].maxLocations == null || tiers[index - 1].maxLocations === '' ? null : Number(tiers[index - 1].maxLocations);
       if (previousMaximum === null || minimum <= previousMaximum) return 'Event tier sizes cannot overlap; adjust the minimum and maximum values.';
+      if (minimum !== previousMaximum + 1) return 'Event tier sizes must be continuous; close the gap between bands.';
     }
   }
 
   const plans = [...config.volumePlans].sort((left, right) => Number(left.eventsPerYear) - Number(right.eventsPerYear));
   if (new Set(plans.map(plan => plan.id)).size !== plans.length) return 'Annual discount band identifiers must be unique.';
+  if (Number(plans[0].eventsPerYear) !== 12) return 'The first discount band must start at 12 annual events; 1–11 events have no discount.';
   for (let index = 0; index < plans.length; index += 1) {
     const plan = plans[index];
     const minimum = Number(plan.eventsPerYear);
@@ -57,6 +60,7 @@ export function validatePricingConfig(config) {
     if (!Number.isInteger(minimum) || minimum < 12 || !Number.isInteger(maximum) || maximum < minimum) return 'Annual discount bands must start at 12 events and have valid event ranges.';
     if (!Number.isFinite(discount) || discount < 0 || discount > 100) return 'Annual discounts must be from 0% to 100%.';
     if (index > 0 && minimum <= Number(plans[index - 1].maxEvents)) return 'Annual event ranges cannot overlap.';
+    if (index > 0 && minimum !== Number(plans[index - 1].maxEvents) + 1) return 'Annual discount bands must be continuous; close the gap between ranges.';
   }
   return '';
 }

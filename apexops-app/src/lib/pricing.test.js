@@ -27,5 +27,7 @@ test('editable pricing config drives tier, discount and annual quote calculation
   expect(getVolumePlan(11, volumePlans)).toBeNull();
   expect(getAnnualQuote([{ tierId:'custom', count:12 }], eventTiers, volumePlans)).toEqual({ eventCount:12, discountPct:10, annualCents:21600000, monthlyCents:1800000, finalMonthCents:1800000 });
   expect(validatePricingConfig({ eventTiers:[...eventTiers, { id:'overlap', name:'Overlap', minLocations:8, maxLocations:20, listPrice:30000 }], volumePlans })).toMatch(/overlap/);
-  expect(validatePricingConfig({ eventTiers, volumePlans:[{ id:'invalid', eventsPerYear:11, maxEvents:15, discountPct:8 }] })).toMatch(/12 events/);
+  expect(validatePricingConfig({ eventTiers:[{ id:'first', name:'First', minLocations:1, maxLocations:10, listPrice:10000 }, { id:'gap', name:'Gap', minLocations:12, maxLocations:null, listPrice:20000 }], volumePlans })).toMatch(/continuous/);
+  expect(validatePricingConfig({ eventTiers, volumePlans:[{ id:'first', eventsPerYear:12, maxEvents:14, discountPct:5 }, { id:'gap', eventsPerYear:16, maxEvents:20, discountPct:8 }] })).toMatch(/continuous/);
+  expect(validatePricingConfig({ eventTiers, volumePlans:[{ id:'invalid', eventsPerYear:11, maxEvents:15, discountPct:8 }] })).toMatch(/12 annual events/);
 });
