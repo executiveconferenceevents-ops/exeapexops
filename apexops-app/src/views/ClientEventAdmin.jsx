@@ -605,11 +605,11 @@ export default function ClientEventAdmin({ onEventCreated }) {
             {!clients.length && <p className="tenant-empty">No organizations are assigned to your account.</p>}
           </div>
           {isPlatformAdmin && <form className="tenant-form tenant-inline-form" onSubmit={createClient}>
-            <h3>Create organization after payment confirmation</h3>
+            <h3>Create client workspace</h3>
             <label>Organization name<input required maxLength="160" value={clientForm.name} onChange={event=>setClientForm({ ...clientForm, name:event.target.value })} /></label>
             <label>URL slug<input required pattern="[a-z0-9]+(-[a-z0-9]+)*" value={clientForm.slug} onChange={event=>setClientForm({ ...clientForm, slug:event.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'') })} /></label>
             <label>Event limit<input required type="number" min="1" max="1000" value={clientForm.eventLimit} onChange={event=>setClientForm({ ...clientForm, eventLimit:event.target.value })} /><small>Maximum number of events this client can create.</small></label>
-            <label>First admin email (optional)<input type="email" value={clientForm.adminEmail} onChange={event=>setClientForm({ ...clientForm, adminEmail:event.target.value })} /></label>
+            <label>First client admin email<input required type="email" value={clientForm.adminEmail} onChange={event=>setClientForm({ ...clientForm, adminEmail:event.target.value })} /><small>We’ll invite this person to manage the client’s events and team.</small></label>
             <button type="submit" disabled={saving}><Plus size={15} /> Create client</button>
           </form>}
         </section>}

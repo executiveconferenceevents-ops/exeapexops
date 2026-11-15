@@ -60,7 +60,7 @@ Deno.serve(async request => {
   if (!Number.isInteger(eventLimit) || eventLimit < 1 || eventLimit > 1000) {
     return respond(400, { message:'Set an event limit from 1 to 1000.' });
   }
-  if (adminEmail && !adminEmail.includes('@')) return respond(400, { message:'Provide a valid admin email.' });
+  if (!adminEmail.includes('@')) return respond(400, { message:'Provide a valid first client admin email.' });
 
   const { data: existing, error: existingError } = await adminClient
     .from('clients').select('id, slug').or(`id.eq.${id},slug.eq.${slug}`).limit(1).maybeSingle();
