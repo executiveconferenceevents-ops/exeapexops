@@ -14,6 +14,7 @@ import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventAccessCod
 import { ArrowLeft, ArrowRight, Building2, CalendarDays, CheckCircle2, ClipboardPlus, HardHat, LayoutDashboard, LogIn, LogOut, Mail, Monitor } from 'lucide-react';
 import { AppShell, PageHeader, ServiceCard, StatusBadge } from './components/AppShell';
 import LoginLayout from './components/LoginLayout';
+import ClientRegistrationForm from './components/ClientRegistrationForm';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, FONT, DISPLAY_FONT } from './theme';
 
 export default function App() {
@@ -280,8 +281,13 @@ export default function App() {
         setRole('tenant-admin');
       }
       else setEventError('This account is not assigned Platform Admin access. Ask the platform owner to grant this account access. Client administrators use Client Workspace; Operations accounts use Event Operations.');
+    } else if (loginDestination === 'client') {
+      if (canManageTenants) setRole('tenant-admin');
+      else setEventError('This account does not have organisation-wide client administrator access. Use Operations or Staff sign in for your assigned event role.');
     } else if (loginDestination === 'organiser') {
-      if (!selectedEvent) {
+      if (canManageTenants) {
+        setRole('tenant-admin');
+      } else if (!selectedEvent) {
         setEventError(events.length
           ? 'Choose an event from Event workspace to continue.'
           : 'No event access is assigned to this account. Ask the platform owner to invite this email.');
@@ -380,6 +386,7 @@ export default function App() {
       subtitle="APEXOPS brings organizers, operations teams, staff, and exhibitors into one clear workspace for every event."
       bullets={['Coordinate event requests and service delivery', 'Give each team access only to the events they support', 'Keep exhibitors informed from build-up to breakdown']}
       onAdmin={()=>{ setAdminReturnView('home'); setPublicAccessView('clients'); }}
+      onClient={()=>setPublicAccessView('client')}
     >
       <div className="lg-journey">
         <div className="lg-journey-intro">
@@ -393,18 +400,25 @@ export default function App() {
         </button>
         <div className="lg-journey-divider"><span>FOR EVENT TEAMS</span></div>
         <div className="lg-journey-grid">
-          <button type="button" className="lg-journey-option" onClick={()=>setPublicAccessView('organiser')}>
-            <Monitor size={18} /><strong>Organizer sign in</strong><small>Manage operations for your assigned events.</small>
-          </button>
           <button type="button" className="lg-journey-option" onClick={()=>setPublicAccessView('team')}>
             <HardHat size={18} /><strong>Staff sign in</strong><small>View your assignments and update work status.</small>
           </button>
+          <button type="button" className="lg-journey-option" onClick={()=>setPublicAccessView('organiser')}>
+            <Monitor size={18} /><strong>Operations sign in</strong><small>Run event operations for your assigned events.</small>
+          </button>
         </div>
         <div className="lg-journey-contact">
-          <span><Building2 size={16} /><span><strong>New to APEXOPS?</strong><small>Request a guided demo for your organization.</small></span></span>
+          <span><Building2 size={16} /><span><strong>New to APEXOPS?</strong><small>Request a guided demo for your organisation.</small></span></span>
           <a href="mailto:didi@executiveconferenceevents.com?subject=APEXOPS%20guided%20demo%20request"><Mail size={15} /> Request a demo</a>
         </div>
+        <button type="button" className="lg-link lg-registration-link" onClick={()=>setPublicAccessView('registration')}>Request a client account</button>
       </div>
+    </LoginLayout>
+  );
+
+  if (!session && publicAccessView === 'registration') return (
+    <LoginLayout title="Client account" accent="request." subtitle="Submit your organization details for review.">
+      <ClientRegistrationForm onBack={()=>setPublicAccessView('home')} />
     </LoginLayout>
   );
 
@@ -455,7 +469,8 @@ export default function App() {
   );
 
   const loginCopy = {
-    organiser: ['Operations', 'sign in.', 'Sign in to run requests and operations for your event.'],
+    client: ['Client / Organiser', 'sign in.', 'Manage your organisation, event setup, and team access.'],
+    organiser: ['Event operations', 'sign in.', 'Sign in to run requests and operations for your assigned event.'],
     team: ['Staff', 'sign in.', 'Sign in to see and update the jobs assigned to you.'],
   };
   const [headTitle, headAccent, headSubtitle] = publicAccessView === 'events'
@@ -472,17 +487,17 @@ export default function App() {
       bullets={publicAccessView === 'events' && !publicEventSlug ? ['Report and track issues at your stand', 'See which requests are resolved', 'Plan your next event'] : null}
       onAdmin={()=>{ setAdminReturnView(publicAccessView); setPublicAccessView('clients'); }}
     >
-      <nav className="lg-tabs" aria-label="Access options">
+      {publicAccessView !== 'client' && <nav className="lg-tabs" aria-label="Event access options">
         {[['events','Exhibitors'],['team','Staff'],['organiser','Operations']].map(([view,label]) => (
           <button key={view} type="button" className={publicAccessView === view ? 'active' : ''} aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)}>{label}</button>
         ))}
-      </nav>
+      </nav>}
 
       {publicAccessView === 'events' ? (publicEventSlug ? (
         <div className="lg-code">
           <div className="lg-selected">
             <div><strong>{selectedPublicEvent?.event_name || publicEventSlug}</strong><span>{formatEventDateRange(selectedPublicEvent?.event_start_date, selectedPublicEvent?.event_end_date)}</span></div>
-            <button type="button" className="lg-secondary" onClick={()=>selectPublicEvent('')} disabled={verifyingPublicEvent}>Change</button>
+            <button type="button" className="lg-secondary lg-back-event" onClick={()=>selectPublicEvent('')} disabled={verifyingPublicEvent}><ArrowLeft size={15} aria-hidden="true" /> Back to event list</button>
           </div>
           <label className="lg-label" htmlFor="public-event-code">Event code</label>
           <input id="public-event-code" autoComplete="off" value={publicAccessCode} onChange={event=>setPublicAccessCode(event.target.value.toUpperCase())} onKeyDown={event=>{ if (event.key === 'Enter') verifyPublicEvent(); }} placeholder="Enter the code from your organiser" disabled={eventLoading || verifyingPublicEvent} />
@@ -515,8 +530,9 @@ export default function App() {
           </div>}
         </>
       )) : (
-        <TeamLogin onSignedIn={nextSession=>{ setLoginDestination(publicAccessView); setSession(nextSession); }} initiallyOpen title={{ organiser:'Operations sign in', team:'Staff sign in' }[publicAccessView]} />
+        <TeamLogin onSignedIn={nextSession=>{ setLoginDestination(publicAccessView); setSession(nextSession); }} initiallyOpen title={{ client:'Client / Organiser sign in', organiser:'Operations sign in', team:'Staff sign in' }[publicAccessView]} />
       )}
+      {publicAccessView === 'client' && <button type="button" className="lg-link lg-back-home" onClick={()=>setPublicAccessView('home')}><ArrowLeft size={14} /> Back to home</button>}
       {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
     </LoginLayout>
   );

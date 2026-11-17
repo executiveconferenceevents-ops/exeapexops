@@ -98,6 +98,47 @@ test('platform pricing is seeded, hidden from non-admins, and editable by admins
   }
 });
 
+test('manual invoices are platform-admin-only and payments settle atomically', async () => {
+  const database = new PGlite();
+  try {
+    await database.exec(`
+      create role authenticated;
+      create role anon;
+      create schema auth;
+      create table auth.users (id uuid primary key);
+      create table public.clients (id uuid primary key, name text);
+      insert into auth.users values ('00000000-0000-0000-0000-000000000020');
+      insert into public.clients values ('00000000-0000-0000-0000-000000000010', 'Client');
+      create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.user_id', true), '')::uuid $$;
+      create function public.is_platform_admin() returns boolean language sql stable as $$ select coalesce(current_setting('request.platform_admin', true), 'false') = 'true' $$;
+      grant usage on schema auth to authenticated;
+      grant execute on function auth.uid() to authenticated;
+    `);
+    const migration = await readFile(path.join(__dirname, '../supabase/platform-invoicing-migration.sql'), 'utf8');
+    await database.exec(migration);
+    await database.exec(migration);
+
+    await database.exec('set role authenticated');
+    await database.query("select set_config('request.user_id', $1, false), set_config('request.platform_admin', $2, false)", ['00000000-0000-0000-0000-000000000020', 'false']);
+    assert.equal((await database.query('select count(*) as count from public.client_invoices')).rows[0].count, 0);
+    await assert.rejects(database.query("insert into public.client_invoices (client_id, invoice_number, description, amount_cents, status) values ('00000000-0000-0000-0000-000000000010', 'INV-001', 'Event services', 1000, 'issued')"), /row-level security/);
+    await assert.rejects(database.query("select public.record_client_invoice_payment('00000000-0000-0000-0000-000000000030', 1000, current_date, 'eft')"), /platform administrator/);
+
+    await database.query("select set_config('request.platform_admin', $1, false)", ['true']);
+    const invoice = await database.query("insert into public.client_invoices (client_id, invoice_number, description, amount_cents, status) values ('00000000-0000-0000-0000-000000000010', 'INV-001', 'Event services', 1000, 'issued') returning id");
+    const invoiceId = invoice.rows[0].id;
+    assert.equal((await database.query("select public.record_client_invoice_payment($1, 400, current_date, 'eft', 'EFT-REF') as status", [invoiceId])).rows[0].status, 'partially_paid');
+    assert.equal((await database.query('select count(*) as count from public.client_invoice_payments where invoice_id = $1', [invoiceId])).rows[0].count, 1);
+    assert.equal((await database.query("select public.record_client_invoice_payment($1, 600, current_date, 'eft') as status", [invoiceId])).rows[0].status, 'paid');
+    await assert.rejects(database.query("select public.record_client_invoice_payment($1, 1, current_date, 'eft')", [invoiceId]), /Only issued or partially paid/);
+    await database.exec('reset role');
+    assert.equal((await database.query('select status from public.client_invoices where id = $1', [invoiceId])).rows[0].status, 'paid');
+    assert.equal(Number((await database.query('select sum(amount_cents) as total from public.client_invoice_payments where invoice_id = $1', [invoiceId])).rows[0].total), 1000);
+  } finally {
+    await database.close();
+  }
+});
+
 test('expiry migration preserves rate limiting and closes writes after thirty days', async () => {
   const database = new PGlite();
   try {

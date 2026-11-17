@@ -1,7 +1,7 @@
 import './login.css';
 import { CheckCircle2 } from 'lucide-react';
 
-export default function LoginLayout({ title, accent, subtitle, bullets, children, onAdmin }) {
+export default function LoginLayout({ title, accent, subtitle, bullets, children, onAdmin, onClient }) {
   return (
     <div className="lg-page">
       <aside className="lg-brand">
@@ -13,7 +13,8 @@ export default function LoginLayout({ title, accent, subtitle, bullets, children
         </div>
         <div className="lg-brand-foot">APEXOPS™ © 2026 Executive Conference Events (Pty) Ltd · All rights reserved</div>
       </aside>
-      <main className="lg-main">
+      <main className={`lg-main${onClient ? ' lg-main-has-client-entry' : ''}`}>
+        {onClient && <button type="button" className="lg-client-entry" onClick={onClient}>Client / Organiser</button>}
         <div className="lg-card">{children}</div>
         {onAdmin && <button type="button" className="lg-admin" onClick={onAdmin}>Admin</button>}
       </main>

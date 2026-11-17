@@ -164,6 +164,11 @@ test('public home explains the product and routes event attendees to event code 
     event_start_date:'2027-05-01', event_end_date:'2027-05-02',
     build_up_start_date:'2027-04-29', build_up_end_date:'2027-04-30',
     breakdown_start_date:'2027-05-03', breakdown_end_date:'2027-05-03', logo_url:'',
+  }, {
+    client_name:'Second Organizer', event_name:'Second Expo', slug:'second-expo',
+    event_start_date:'2027-06-01', event_end_date:'2027-06-02',
+    build_up_start_date:'2027-05-30', build_up_end_date:'2027-05-31',
+    breakdown_start_date:'2027-06-03', breakdown_end_date:'2027-06-03', logo_url:'',
   }]);
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -171,16 +176,102 @@ test('public home explains the product and routes event attendees to event code 
 
   await act(async () => { root.render(<App />); });
   expect(container.textContent).toContain('Welcome to APEXOPS');
-  expect(container.textContent).toContain('Organizer sign in');
+  expect(container.textContent).toContain('Client / Organiser');
   expect(container.textContent).toContain('Staff sign in');
+  expect(container.textContent).toContain('Operations sign in');
   expect(container.textContent).toContain('Request a demo');
+  await act(async () => { buttonWithText(container, 'Request a client account').click(); });
+  expect(container.textContent).toContain('Request an account');
+  expect(container.textContent).toContain('This is an account request only.');
+  await act(async () => { buttonWithText(container, 'Back to sign in').click(); });
+
+  await act(async () => { buttonWithText(container, 'Client / Organiser').click(); });
+  expect(container.textContent).toContain('Client / Organiser sign in');
+  expect(container.querySelector('.lg-tabs')).toBeNull();
+  await act(async () => { buttonWithText(container, 'Back to home').click(); });
 
   await act(async () => { buttonWithText(container, 'Find your event').click(); });
+  expect(container.querySelectorAll('.lg-tabs button')).toHaveLength(3);
+  expect(container.querySelector('.lg-tabs').textContent).not.toContain('Organiser');
   expect(container.textContent).toContain('Example Expo');
   await act(async () => { buttonWithText(container, 'Example Expo').click(); });
   expect(container.querySelector('#public-event-code')).not.toBeNull();
   expect(window.location.search).toContain('event=example-expo');
+  await act(async () => { buttonWithText(container, 'Back to event list').click(); });
+  expect(container.textContent).toContain('Choose your event');
+  expect(container.querySelector('#public-event-code')).toBeNull();
+  expect(window.location.search).not.toContain('event=');
+  await act(async () => { buttonWithText(container, 'Second Expo').click(); });
+  expect(container.querySelector('#public-event-code')).not.toBeNull();
+  expect(window.location.search).toContain('event=second-expo');
 
+  await act(async () => { root.unmount(); });
+  container.remove();
+  window.history.replaceState({}, '', '/');
+});
+
+test('organization client admins enter the Client Workspace before Event Operations', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'client-admin' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'client-event', client_id:'client', slug:'client-event', name:'Client event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:false, memberships:[{ client_id:'client', event_id:null, role:'client_admin' }] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  await act(async () => { root.render(<App />); });
+  await act(async () => { buttonWithText(container, 'Client / Organiser').click(); });
+  const email = container.querySelector('input[aria-label="Work email"]');
+  const password = container.querySelector('input[aria-label="Password"]');
+  await act(async () => {
+    email.value = 'admin@example.test';
+    email.dispatchEvent(new Event('input', { bubbles:true }));
+    password.value = 'test-password';
+    password.dispatchEvent(new Event('input', { bubbles:true }));
+  });
+  await act(async () => { buttonWithText(container, 'Sign in').click(); });
+
+  expect(container.textContent).toContain('Create test event');
+  expect(container.textContent).not.toContain('Operations event:');
+  await act(async () => { root.unmount(); });
+  container.remove();
+  window.history.replaceState({}, '', '/');
+});
+
+test('event Operations users still enter the Operations workspace', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  let activeEvent = null;
+  getActiveEvent.mockImplementation(() => activeEvent);
+  setActiveEvent.mockImplementation(event => { activeEvent = event; });
+  getEventSlug.mockReturnValue('ops-event');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'ops-user' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'ops-event', client_id:'client', slug:'ops-event', name:'Operations event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:false, memberships:[{ client_id:'client', event_id:'ops-event', role:'ops' }] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  await act(async () => { root.render(<App />); });
+  await act(async () => { buttonWithText(container, 'Operations sign in').click(); });
+  const email = container.querySelector('input[aria-label="Work email"]');
+  const password = container.querySelector('input[aria-label="Password"]');
+  await act(async () => {
+    email.value = 'ops@example.test';
+    email.dispatchEvent(new Event('input', { bubbles:true }));
+    password.value = 'test-password';
+    password.dispatchEvent(new Event('input', { bubbles:true }));
+  });
+  await act(async () => { buttonWithText(container, 'Sign in').click(); });
+
+  expect(container.textContent).toContain('Operations event: Operations event');
   await act(async () => { root.unmount(); });
   container.remove();
   window.history.replaceState({}, '', '/');

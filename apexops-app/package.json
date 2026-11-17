@@ -10,6 +10,8 @@
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "exceljs": "^4.4.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.9",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -21,7 +23,7 @@
     "start:demo:secure": "node scripts/start-demo.js --https",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "test:security": "node --test scripts/security-db.test.cjs",
+    "test:security": "node --test --test-concurrency=1 scripts/security-db.test.cjs scripts/billing-foundation-db.test.cjs scripts/invoice-records-db.test.cjs scripts/invoice-payments-db.test.cjs scripts/payfast-helper.test.cjs scripts/registration-access-db.test.cjs",
     "desktop": "electron .",
     "desktop:dist": "react-scripts build && electron-builder --win"
   },

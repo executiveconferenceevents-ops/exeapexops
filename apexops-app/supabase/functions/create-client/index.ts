@@ -68,7 +68,7 @@ Deno.serve(async request => {
   if (existing && existing.id !== id) return respond(409, { message:'That organization URL slug is already in use.' });
 
   if (!existing) {
-    const { error: insertError } = await adminClient.from('clients').insert({ id, name, slug, event_limit:eventLimit });
+    const { error: insertError } = await adminClient.from('clients').insert({ id, name, slug, event_limit:eventLimit, account_status:'active' });
     if (insertError) return respond(500, { message:'Could not create the client organization.' });
   }
 
