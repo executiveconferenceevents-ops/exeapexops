@@ -121,7 +121,7 @@ export default function OpsBoard({ rows, staff, onOpen, onPatch, isOverdue }) {
                   onOpen={() => onOpen(q)} onAssign={id => assign(q, id)}
                   onStart={() => moveTo(q, 'busy')} onDone={() => moveTo(q, 'done')} />
               ))}
-              {!grouped[col.id].length && <div className="ob-empty">{col.id === 'new' ? 'Nothing waiting. 👍' : 'Empty'}</div>}
+              {!grouped[col.id].length && <div className="ob-empty">{col.id === 'new' ? 'Nothing waiting' : 'Empty'}</div>}
             </div>
           </section>
         ))}

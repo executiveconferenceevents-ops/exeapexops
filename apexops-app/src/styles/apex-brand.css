@@ -1,0 +1,100 @@
+/* ─── APEXOPS brand layer (approved "Look & Feel", 18 Nov 2026) ────────────────
+   Loaded LAST (from App.jsx) so it refines every screen without changing logic.
+   Signature: navy #14243D · blue #2E6FA3 · gold #B49A6A
+   Fonts: APEXOPS wordmark = Cormorant Garamond · titles = Playfair Display
+          (gold italic accent) · everything else = Inter
+   Feel: rounded (cards 20–24px, buttons/inputs 14–16px), soft shadows,
+         thin gold line icons, italic Playfair subtitles.                      */
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,500;1,600&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --apex-navy: #14243d;
+  --apex-navy-deep: #0e1a2e;
+  --apex-blue: #2e6fa3;
+  --apex-gold: #b49a6a;
+  --apex-gold-dark: #8d7448;
+  --apex-gold-pale: #d7c5a0;
+  --apex-cream: #fbf8f1;
+  --apex-stone: #f7f6f2;
+  --apex-line: #ece8df;
+  --apex-shadow: 0 1px 2px rgba(20, 36, 61, .04), 0 12px 32px rgba(20, 36, 61, .05);
+  --apex-shadow-lg: 0 2px 4px rgba(20, 36, 61, .04), 0 24px 60px rgba(20, 36, 61, .08);
+}
+
+/* ── Sign-in & event access ─────────────────────────────────────────────── */
+.lg-brand { background: radial-gradient(circle at 85% 12%, rgba(46, 111, 163, .38), transparent 46%), radial-gradient(circle at 10% 95%, rgba(180, 154, 106, .12), transparent 40%), linear-gradient(160deg, #101d33 0%, #14243d 60%, #1a2f50 100%); }
+.lg-brand p { font-size: 18px; }
+.lg-brand li { font-size: 16px; gap: 14px; }
+.lg-brand li svg { color: var(--apex-gold); stroke-width: 1.6; }
+.lg-main { background: var(--apex-stone); }
+.lg-card { max-width: 560px; padding: 38px; border: 1px solid var(--apex-line); border-radius: 24px; box-shadow: var(--apex-shadow-lg); }
+.lg-admin { border-radius: 10px; }
+
+.lg-eyebrow { font-size: 11px; }
+.lg-journey { gap: 20px; }
+.lg-journey-intro h2, .lg-title { margin: 0; color: var(--apex-navy); font: 600 32px/1.12 'Playfair Display', Georgia, serif; }
+.lg-title { font-size: 26px; }
+.lg-journey-intro h2 em, .lg-title em { color: var(--apex-gold); font-style: italic; font-weight: 500; }
+.lg-journey-intro p, .lg-sub { color: #5d6b73; font: italic 16px/1.5 'Playfair Display', Georgia, serif; }
+.lg-journey-primary { min-height: 82px; padding: 18px 20px; border-radius: 18px; box-shadow: 0 10px 24px rgba(20, 36, 61, .18); transition: transform .15s ease, box-shadow .15s ease; }
+.lg-journey-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(20, 36, 61, .24); }
+.lg-journey-primary > span > svg { width: 40px; height: 40px; padding: 9px; border-radius: 12px; background: rgba(215, 197, 160, .14); stroke-width: 1.5; }
+.lg-journey-primary strong { font-size: 16px; }
+.lg-journey-primary small { font-size: 13px; }
+.lg-journey-divider { font-size: 10px; letter-spacing: 1.6px; }
+.lg-journey-option { border-radius: 18px; }
+.lg-journey-contact { padding: 16px 18px; border-color: #efe6d3; border-radius: 18px; background: var(--apex-cream); }
+.lg-journey-contact strong { font-size: 15px; }
+.lg-journey-contact small { font-size: 13px; }
+.lg-journey-contact a { min-height: 40px; padding: 0 14px; border-color: var(--apex-gold-pale); border-radius: 12px; font-size: 13px; }
+.lg-journey-contact > span > svg { stroke-width: 1.5; }
+
+.lg-tabs { padding: 5px; border-radius: 16px; }
+.lg-tabs button { min-height: 42px; border-radius: 12px; }
+.lg-card input, .lg-card select, .lg-input { min-height: 50px; padding: 0 16px; border: 1px solid #dcd8ce; border-radius: 14px; font-size: 15px; }
+.lg-card input:focus, .lg-card select:focus { outline: none; border-color: var(--apex-blue); box-shadow: 0 0 0 3px rgba(46, 111, 163, .18); }
+.lg-primary { min-height: 52px; border-radius: 16px; font-weight: 700; }
+.lg-primary:hover:not(:disabled) { background: var(--apex-navy-deep); }
+.lg-secondary { min-height: 40px; border-radius: 12px; font-weight: 700; }
+.lg-link { color: var(--apex-blue); text-decoration: none; font-weight: 600; }
+.lg-form { gap: 14px; margin-top: 4px; }
+.lg-form.is-compact { margin-top: 0; }
+.lg-form-hint { display: flex; align-items: center; gap: 8px; margin: 0; color: #5d6b73; font-size: 13px; line-height: 1.5; }
+.lg-form-hint svg { flex: 0 0 auto; color: var(--apex-gold-dark); }
+.lg-event, .lg-selected, .lg-empty { border-radius: 16px; }
+.lg-selected { border: 1px solid var(--apex-line); background: var(--apex-cream); }
+.lg-event-logo { border-radius: 12px; }
+.lg-alert { border-radius: 14px; border-left-width: 1px; }
+
+/* ── Top bar above Ops / Queue / Exhibitor pages ───────────────────────── */
+.ax-topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px 24px; background: #fff; border-bottom: 1px solid var(--apex-line); font-family: 'Inter', 'Segoe UI', sans-serif; }
+.ax-topbar .ax-wordmark { margin-right: auto; }
+.ax-topbar-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border: 1px solid #dcd8ce; border-radius: 14px; background: #fff; color: var(--apex-navy); font: 700 14px/1 'Inter', 'Segoe UI', sans-serif; cursor: pointer; }
+.ax-topbar-btn:hover { border-color: var(--apex-gold); }
+.ax-topbar-btn.is-primary { border-color: var(--apex-navy); background: var(--apex-navy); color: #fff; }
+.ax-topbar-btn.is-primary:hover { background: var(--apex-navy-deep); }
+@media (max-width: 640px) { .ax-topbar { padding: 8px 12px; } .ax-topbar .ax-wordmark-by { display: none; } .ax-topbar-btn span { display: none; } }
+
+/* ── Ops portal: same fonts, rounding and buttons (structure unchanged) ── */
+.ops-app-shell { font-family: 'Inter', 'Segoe UI', sans-serif; }
+.ops-brand-name { font: 700 17px/1 'Cormorant Garamond', Georgia, serif !important; letter-spacing: 2.2px !important; }
+.ops-brand-mark { border-radius: 10px; }
+.ops-nav-item { min-height: 40px; margin: 1px 8px; width: calc(100% - 16px); border-radius: 12px; border-right: 0 !important; font-size: 13px; }
+.ops-nav-item.active { box-shadow: inset 3px 0 0 var(--apex-gold); }
+.ops-page-heading h1 { font-size: 30px !important; }
+.ops-new-query, .ops-quiet-action { border-radius: 14px !important; min-height: 42px; }
+.ops-kpi-card, .ops-filter-card { border-radius: 16px !important; box-shadow: var(--apex-shadow) !important; }
+.ops-alert-bar, .ops-error-banner, .ops-filter-summary { border-radius: 14px; }
+.ops-query-workspace { border-radius: 20px !important; overflow: hidden; box-shadow: var(--apex-shadow) !important; }
+.ops-workspace-toolbar select { border-radius: 10px !important; }
+
+/* ── Platform admin / Client workspace: same fonts and rounding ─────────── */
+.adm-shell { font-family: 'Inter', 'Segoe UI', sans-serif; }
+.adm-brand { font: 700 20px/1 'Cormorant Garamond', Georgia, serif !important; letter-spacing: 2.4px !important; }
+.adm-sidebar nav button { border-radius: 12px !important; }
+.adm-shell button, .adm-shell input, .adm-shell select { border-radius: 12px; }
+
+/* ── Older service screens (directories, rebooking, client query) ──────── */
+.apex-service-screen h1, .apex-service-screen h2 { font-family: 'Playfair Display', Georgia, serif !important; }
+.apex-service-panel { border-radius: 20px !important; }
