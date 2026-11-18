@@ -139,7 +139,7 @@ const DEPARTMENT_ICONS = {
   Organiser: Users,
 };
 
-export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
+export default function OpsPortal({ onOpenStaff, onOpenExhibitors, initialQueryId, onInitialQueryOpened }) {
   const activeEvent = getActiveEvent();
   const eventName = activeEvent?.name || 'Event workspace';
   const [menuOpen, setMenuOpen] = useState(false);
@@ -246,6 +246,14 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
       if (channel) supabase.removeChannel(channel);
     };
   }, []);
+
+  useEffect(() => {
+    if (initialLoading || !initialQueryId) return;
+    const query = queries.find(item => item.id === initialQueryId);
+    if (query) setSelected(query);
+    else setError('This request is no longer available in the selected event.');
+    onInitialQueryOpened?.();
+  }, [initialLoading, initialQueryId, queries, onInitialQueryOpened]);
 
   function exportOperationsReport(format) {
     try {

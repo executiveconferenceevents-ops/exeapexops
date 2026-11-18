@@ -2,7 +2,7 @@
 // One frame for every signed-in page: left menu with the wordmark, event chip and
 // user, plus a calm content area. Same exports and props as before, so existing
 // screens keep working; new optional props add the finishing touches:
-//   AppShell: eventMeta, userLabel, userRole, topActions
+//   AppShell: eventMeta, userLabel, userRole, topActions, wide (full-width pages), onEventClick
 //   PageHeader: eyebrow, accent (gold italic words after the title)
 //   ServiceCard: cta (defaults to "Open")
 import { ArrowRight, LogOut } from 'lucide-react';
@@ -21,16 +21,16 @@ function initials(value) {
   return String(value || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
 }
 
-export function AppShell({ eventName, eventMeta, badge, nav = [], onSignOut, topActions, userLabel, userRole, children }) {
+export function AppShell({ eventName, eventMeta, badge, nav = [], onSignOut, topActions, userLabel, userRole, wide = false, onEventClick, children }) {  // [APEX look 2] wide, onEventClick
   return (
     <div className="shell">
       <aside className="shell-side">
         <div className="shell-side-brand"><Wordmark byline={false} /><span className="ax-eyebrow">by Executive Conference Events</span></div>
         {eventName && (
-          <div className="shell-event-chip" title={eventName}>
+          <button type="button" className="shell-event-chip" title={onEventClick ? 'Change event' : eventName} onClick={onEventClick} disabled={!onEventClick}>
             <span className="shell-event-mark" aria-hidden="true">{initials(eventName).slice(0, 3)}</span>
             <span className="shell-event-text"><strong>{eventName}</strong>{eventMeta && <small>{eventMeta}</small>}</span>
-          </div>
+          </button>
         )}
         <nav className="shell-nav" aria-label="Main navigation">
           {nav.map(({ key, label, Icon, onClick, active, disabled, count }) => (
@@ -50,7 +50,7 @@ export function AppShell({ eventName, eventMeta, badge, nav = [], onSignOut, top
       </aside>
       <div className="shell-content">
         {(topActions || badge) && <header className="shell-top">{badge}{topActions}</header>}
-        <main className="shell-main">{children}</main>
+        <main className={`shell-main${wide ? ' is-wide' : ''}`}>{children}</main>
       </div>
     </div>
   );

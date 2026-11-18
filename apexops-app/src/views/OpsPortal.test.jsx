@@ -56,3 +56,26 @@ test('organizer can mark an event notification read without removing it', async(
     container.remove();
   }
 });
+
+test('opening a Home attention item selects its exact Ops request', async()=>{
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  getExhibitors.mockResolvedValue([]);
+  getQueries.mockResolvedValue([{id:'Q-HOME-1',stand:'A01',exhibitor:'Example',status:'LOGGED',category:'Electrical',description:'No power',loggedAt:new Date().toISOString()}]);
+  getRebookingRequests.mockResolvedValue([]);
+  getStaff.mockResolvedValue([]);
+  getOpsNotifications.mockResolvedValue([]);
+  const opened=jest.fn();
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<OpsPortal initialQueryId="Q-HOME-1" onInitialQueryOpened={opened} />);});
+    await act(async()=>{await Promise.resolve();await Promise.resolve();});
+    expect(container.textContent).toContain('Q-HOME-1 — Example');
+    expect(container.textContent).toContain('Assign To — Electrical department');
+    expect(opened).toHaveBeenCalled();
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+  }
+});

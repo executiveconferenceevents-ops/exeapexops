@@ -98,3 +98,57 @@
 /* ── Older service screens (directories, rebooking, client query) ──────── */
 .apex-service-screen h1, .apex-service-screen h2 { font-family: 'Playfair Display', Georgia, serif !important; }
 .apex-service-panel { border-radius: 20px !important; }
+
+/* ── [APEX look 2] Screens that now open INSIDE the app frame ─────────────
+   One left menu everywhere: hide each screen's own sidebar / header and let
+   the frame do the job. Logic and data are untouched.                      */
+
+/* Event operations: the frame's menu replaces the Ops sidebar.
+   (Dashboard / Completed / Escalations / Notifications are still the tabs on
+   the page, departments are the area tiles + Department filter.)           */
+.shell .ops-app-shell { display: block !important; min-height: 0 !important; background: transparent !important; }
+.shell .ops-sidebar { display: none !important; }
+.shell .ops-main { min-width: 0; }
+.shell .ops-topbar { min-height: 0 !important; padding: 28px 32px 18px !important; background: transparent !important; border-bottom: 0 !important; }
+.shell .ops-breadcrumb { color: var(--apex-gold-dark) !important; font-size: 11px !important; font-weight: 700 !important; letter-spacing: 1.6px !important; text-transform: uppercase; }
+.shell .ops-page-heading h1 { font: 600 34px/1.1 'Playfair Display', Georgia, serif !important; color: var(--apex-navy) !important; }
+.shell .ops-page-heading p { font: italic 16px/1.5 'Playfair Display', Georgia, serif !important; color: #5d6b73 !important; }
+.shell .ops-content { padding: 0 32px 48px !important; }
+
+/* Supplier & staff / exhibitor directories: the frame replaces their navy header bar */
+.shell .apex-service-screen { min-height: 0 !important; background: transparent !important; }
+.shell .apex-service-screen > .apex-service-header { display: none !important; }
+.shell .directory-main { width: 100% !important; max-width: none !important; padding: 28px 32px 56px !important; }
+.shell .directory-form, .shell .directory-row, .shell .directory-search { border-radius: 20px !important; border-top-width: 1px !important; border-top-color: var(--apex-line) !important; box-shadow: var(--apex-shadow) !important; }
+.shell .directory-form button, .shell .directory-row button, .shell .directory-main > div:first-child button { border-radius: 14px !important; min-height: 42px; }
+.shell .directory-main input, .shell .directory-main select { border-radius: 12px !important; min-height: 44px; }
+.shell .directory-main > div:first-child h2 { font: 600 34px/1.1 'Playfair Display', Georgia, serif !important; }
+
+/* My queue (staff): keep its own top strip, but in brand colours */
+.shell .sq { min-height: 0; }
+.shell .sq-top { position: static; background: #fff; color: var(--apex-navy); border-bottom: 1px solid var(--apex-line); box-shadow: none; }
+.shell .sq-brand-mark { color: var(--apex-navy); font: 700 15px/1 'Cormorant Garamond', Georgia, serif; letter-spacing: 2px; }
+.shell .sq-brand-sub { color: var(--apex-gold-dark); }
+.shell .sq-me-text small { color: #5d6b73; }
+
+/* Client workspace / Platform admin: its own menu becomes tabs across the top */
+.shell .adm-shell { display: block !important; min-height: 0 !important; background: transparent !important; }
+.shell .adm-sidebar { position: static !important; height: auto !important; padding: 24px 32px 0 !important; background: transparent !important; color: var(--apex-navy) !important; }
+.shell .adm-brand-lockup, .shell .adm-sidebar-foot, .shell .adm-nav-label { display: none !important; }
+.shell .adm-sidebar nav { display: flex !important; flex-wrap: wrap; gap: 6px !important; margin: 0 !important; padding: 6px; border-radius: 18px; background: #efece4; }
+.shell .adm-nav-group { display: contents !important; }
+.shell .adm-sidebar nav button { min-height: 40px !important; padding: 0 14px !important; border-radius: 14px !important; background: transparent !important; color: #3d4c5c !important; font-size: 13px !important; box-shadow: none !important; }
+.shell .adm-sidebar nav button:hover { background: rgba(255, 255, 255, .7) !important; color: var(--apex-navy) !important; }
+.shell .adm-sidebar nav button.active { background: #fff !important; color: var(--apex-navy) !important; box-shadow: 0 1px 3px rgba(20, 36, 61, .12) !important; }
+.shell .adm-main { padding: 24px 32px 56px !important; background: transparent !important; }
+.shell .adm-topbar { padding: 0 0 18px !important; background: transparent !important; border: 0 !important; }
+.shell .tenant-admin-kicker { color: var(--apex-gold-dark) !important; font-size: 11px !important; font-weight: 700 !important; letter-spacing: 1.6px !important; }
+.shell .tenant-admin-heading h1 { font: 600 34px/1.1 'Playfair Display', Georgia, serif !important; }
+.shell .tenant-admin-heading p { font: italic 16px/1.5 'Playfair Display', Georgia, serif !important; color: #5d6b73 !important; }
+.shell .adm-stat, .shell .adm-panel, .shell .tenant-section { border-radius: 20px !important; box-shadow: var(--apex-shadow) !important; }
+
+@media (max-width: 860px) {
+  .shell .ops-topbar, .shell .adm-sidebar { padding-left: 16px !important; padding-right: 16px !important; }
+  .shell .ops-content, .shell .adm-main, .shell .directory-main { padding-left: 16px !important; padding-right: 16px !important; }
+}
+.shell .directory-row { border-left-width: 1px !important; border-left-color: var(--apex-line) !important; }

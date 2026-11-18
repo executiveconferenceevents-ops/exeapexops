@@ -11,15 +11,17 @@ import ClientQuery from './views/ClientQuery';
 import { supabase } from './lib/supabase';
 import { DEMO_MODE } from './lib/demoStore';
 import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventAccessCode, getEventSlug, getPublicEvents, getUserEventAccess, PRIVACY_NOTICE_VERSION, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
-import { ArrowLeft, ArrowRight, Building2, CheckCircle2, ClipboardPlus, HardHat, LayoutDashboard, LogIn, LogOut, Mail, Monitor, ShieldCheck, Ticket } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Building2, CheckCircle2, ClipboardPlus, Eye, HardHat, Home, LayoutDashboard, LogIn, LogOut, Mail, Monitor, ShieldCheck, Ticket, Truck, Users } from 'lucide-react';
 import { AppShell, PageHeader, ServiceCard, StatusBadge, Wordmark } from './components/AppShell';
 import LoginLayout from './components/LoginLayout';
 import ClientRegistrationForm from './components/ClientRegistrationForm';
+import HomeOverview from './components/HomeOverview';
 import { forgetExhibitorPass, loadExhibitorPass, saveExhibitorPass } from './lib/exhibitorPass';
 import './styles/apex-brand.css';
 
 export default function App() {
   const [role, setRole] = useState(null);
+  const [openOpsQueryId, setOpenOpsQueryId] = useState('');
   const [session, setSession] = useState(null);
   const [loginDestination, setLoginDestination] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -359,9 +361,32 @@ export default function App() {
 
   if (!authReady) return null;
   if (session && recovering) return <SetPasswordScreen onDone={()=>{ setRecovering(false); window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); }} />;
-  if (role === 'exhibitor' && (!session || canOpenOps)) return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ExhibitorStatus onForgetDevice={session ? undefined : ()=>{ setRole(null); selectPublicEvent(''); setPublicAccessView('events'); }} /></WithBack>;
-  if (role === 'client-query' && (!session || canOpenOps)) return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ClientQuery /></WithBack>;
-  if (role === 'rebooking') {
+  const needsEvent = !selectedEvent || eventLoading;
+  const mainNav = activeKey => [
+    { key:'home', label:'Home', Icon:Home, onClick:()=>setRole(null) },
+    canOpenOps && { key:'ops', label:'Event operations', Icon:LayoutDashboard, onClick:()=>setRole('ops'), disabled:needsEvent },
+    canOpenQueue && { key:'dept', label:'My queue', Icon:HardHat, onClick:()=>setRole('dept'), disabled:needsEvent },
+    canOpenOps && { key:'staff', label:'Suppliers & staff', Icon:Truck, onClick:()=>setRole('staff'), disabled:needsEvent },
+    canOpenOps && { key:'people', label:'People', Icon:Users, onClick:()=>setRole('people'), disabled:needsEvent },
+    canOpenOps && { key:'exhibitors', label:'Exhibitors', Icon:Building2, onClick:()=>setRole('exhibitors'), disabled:needsEvent },
+    canOpenOps && { key:'exhibitor', label:'Exhibitor view', Icon:Eye, onClick:()=>openStaffExhibitorView('exhibitor'), disabled:needsEvent },
+    canOpenOps && { key:'client-query', label:'Log a query', Icon:ClipboardPlus, onClick:()=>openStaffExhibitorView('client-query'), disabled:needsEvent },
+    canOpenOps && { key:'rebooking', label:'Rebooking', Icon:Building2, onClick:()=>openStaffExhibitorView('rebooking'), disabled:needsEvent },
+    canManageTenants && { key:'tenant-admin', label:'Events & team', Icon:Users, onClick:()=>setRole('tenant-admin') },
+    isPlatformAdmin && role === 'platform-admin' && { key:'platform-admin', label:'Platform admin', Icon:Building2, onClick:()=>setRole('platform-admin') },
+  ].filter(Boolean).map(item=>({ ...item, active:item.key === activeKey }));
+  const roleLabel = isPlatformAdmin ? 'Platform owner' : canManageTenants ? 'Organiser' : canOpenOps ? 'Operations' : 'Staff';
+  const framed = (activeKey, content, wide = true) => <AppShell
+    eventName={selectedEvent?.name} eventMeta={selectedEvent ? formatEventDateRange(selectedEvent.event_start_date, selectedEvent.event_end_date) : undefined}
+    onEventClick={()=>setRole(null)} nav={mainNav(activeKey)} onSignOut={signOut}
+    userLabel={session?.user?.email || 'Signed in'} userRole={roleLabel} wide={wide}>{content}</AppShell>;
+
+  if (role === 'exhibitor' && session && canOpenOps) return framed('exhibitor', <ExhibitorStatus />);
+  if (role === 'client-query' && session && canOpenOps) return framed('client-query', <ClientQuery />);
+  if (role === 'exhibitor' && !session) return <WithBack onBack={()=>setRole(null)}><ExhibitorStatus onForgetDevice={()=>{ setRole(null); selectPublicEvent(''); setPublicAccessView('events'); }} /></WithBack>;
+  if (role === 'client-query' && !session) return <WithBack onBack={()=>setRole(null)}><ClientQuery /></WithBack>;
+  if (role === 'rebooking' && session && canOpenOps) return framed('rebooking', <RebookingForm />);
+  if (role === 'rebooking' && !session) {
     const rebookingNav = [
       { key:'overview', label:session ? 'Workspace' : 'Overview', Icon:LayoutDashboard, onClick:()=>setRole(null) },
       { key:'query', label:'Log a Query', Icon:ClipboardPlus, onClick:()=>setRole('client-query') },
@@ -370,13 +395,13 @@ export default function App() {
     ];
     return <AppShell eventName={selectedEvent?.name} nav={rebookingNav} onSignOut={session ? signOut : undefined}><RebookingForm /></AppShell>;
   }
-  if (session && role === 'platform-admin' && isPlatformAdmin) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><ClientEventAdmin onEventCreated={handleEventCreated} /></WithBack>;
-  if (session && role === 'tenant-admin' && canManageTenants) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><ClientEventAdmin onEventCreated={handleEventCreated} clientWorkspaceOnly currentUserId={session.user?.id} /></WithBack>;
-  if (session && role === 'ops' && canOpenOps) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><OpsPortal onOpenStaff={()=>setRole('staff')} onOpenExhibitors={()=>setRole('exhibitors')} /></WithBack>;
-  if (session && role === 'staff' && canOpenOps) return <WithBack backLabel="Back to Operations" onBack={()=>setRole('ops')} onSignOut={signOut}><StaffSetup /></WithBack>;
-  if (session && role === 'people' && canOpenOps) return <WithBack showBack={false} onBack={()=>setRole('ops')} onSignOut={signOut}><PeopleSetup onBack={()=>setRole('ops')} /></WithBack>;
-  if (session && role === 'exhibitors' && canOpenOps) return <WithBack showBack={false} onBack={()=>setRole('ops')} onSignOut={signOut}><ExhibitorSetup onBack={()=>setRole('ops')} /></WithBack>;
-  if (session && role === 'dept' && canOpenQueue) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><DeptQueue allowStaffPicker={canOpenOps} /></WithBack>;
+  if (session && role === 'platform-admin' && isPlatformAdmin) return framed('platform-admin', <ClientEventAdmin onEventCreated={handleEventCreated} />);
+  if (session && role === 'tenant-admin' && canManageTenants) return framed('tenant-admin', <ClientEventAdmin onEventCreated={handleEventCreated} clientWorkspaceOnly currentUserId={session.user?.id} />);
+  if (session && role === 'ops' && canOpenOps) return framed('ops', <OpsPortal onOpenStaff={()=>setRole('staff')} onOpenExhibitors={()=>setRole('exhibitors')} initialQueryId={openOpsQueryId} onInitialQueryOpened={()=>setOpenOpsQueryId('')} />);
+  if (session && role === 'staff' && canOpenOps) return framed('staff', <StaffSetup />);
+  if (session && role === 'people' && canOpenOps) return framed('people', <PeopleSetup onBack={()=>setRole('ops')} />);
+  if (session && role === 'exhibitors' && canOpenOps) return framed('exhibitors', <ExhibitorSetup onBack={()=>setRole('ops')} />);
+  if (session && role === 'dept' && canOpenQueue) return framed('dept', <DeptQueue allowStaffPicker={canOpenOps} />);
 
   if (session && !role) {
     const hubItems = [
@@ -386,12 +411,9 @@ export default function App() {
       selectedEvent && canOpenOps && { key:'exhibitor', label:'Exhibitor Status', Icon:Monitor, description:'See what exhibitors see for this event', action:()=>openStaffExhibitorView('exhibitor') },
       selectedEvent && canOpenOps && { key:'query', label:'Log a Query', Icon:ClipboardPlus, description:'Log a query on behalf of an exhibitor', action:()=>openStaffExhibitorView('client-query') },
     ].filter(Boolean);
-    const hubNav = [
-      { key:'overview', label:'Overview', Icon:LayoutDashboard, active:true },
-      ...hubItems.map(item => ({ key:item.key, label:item.label, Icon:item.Icon, onClick:item.action, disabled:item.needsEvent && (!selectedEvent || eventLoading) })),
-    ];
+    const hubNav = mainNav('home');
     return (
-      <AppShell eventName={selectedEvent?.name} eventMeta={selectedEvent ? formatEventDateRange(selectedEvent.event_start_date, selectedEvent.event_end_date) : undefined} nav={hubNav} onSignOut={signOut} userLabel={session.user?.email || 'Signed in'} userRole={isPlatformAdmin ? 'Platform owner' : canManageTenants ? 'Organiser' : canOpenOps ? 'Operations' : 'Staff'}>
+      <AppShell eventName={selectedEvent?.name} eventMeta={selectedEvent ? formatEventDateRange(selectedEvent.event_start_date, selectedEvent.event_end_date) : undefined} onEventClick={()=>setRole(null)} nav={hubNav} onSignOut={signOut} userLabel={session.user?.email || 'Signed in'} userRole={roleLabel}>
         <PageHeader eyebrow={selectedEvent?.name || 'APEXOPS'} title={`${greeting()},`} accent={`${firstNameFrom(session.user?.email)}.`} subtitle="Everything you can do for this event, in one place." />
         <div className="event-card">
           <div>
@@ -408,6 +430,8 @@ export default function App() {
         {eventError && <div className="shell-alert" role="alert">{eventError}</div>}
         {!eventLoading && !events.length && !canManageTenants && <p className="shell-note">No event access is assigned to this account.</p>}
         {selectedEvent && !canOpenOps && !canOpenQueue && <p className="shell-note">No staff access is assigned to this event. Contact your client administrator.</p>}
+        {selectedEvent && canOpenOps && <HomeOverview key={selectedEvent.id} eventId={selectedEvent.id} onOpenOps={queryId=>{setOpenOpsQueryId(queryId || '');setRole('ops');}} />}
+        <h2 className="ho-section-title">Your <em>tools.</em></h2>
         <div className="svc-grid">
           {hubItems.map(item => <ServiceCard key={item.key} icon={item.Icon} title={item.label} description={item.description} onClick={item.action} disabled={item.needsEvent && (!selectedEvent || eventLoading)} />)}
         </div>
