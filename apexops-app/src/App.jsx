@@ -40,7 +40,7 @@ export default function App() {
   const [publicEventSlug, setPublicEventSlug] = useState('');
   const [publicAccessView, setPublicAccessView] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.has('admin') ? 'clients' : params.has('event') ? 'events' : 'home';
+    return !DEMO_MODE && params.has('admin') ? 'clients' : params.has('event') ? 'events' : 'home';
   });
   const [adminReturnView, setAdminReturnView] = useState('home');
   const [publicEventSearch, setPublicEventSearch] = useState('');
@@ -523,9 +523,9 @@ export default function App() {
           <p>Sign in through the workspace that matches your responsibilities.</p>
         </div>
         <div className="lg-journey-grid" aria-label="Choose a portal">
-          <button className="lg-journey-option" type="button" onClick={()=>{ setAdminReturnView('home'); setPublicAccessView('clients'); }}>
+          {!DEMO_MODE && <button className="lg-journey-option" type="button" onClick={()=>{ setAdminReturnView('home'); setPublicAccessView('clients'); }}>
             <ShieldCheck size={19} /><span><strong>Platform Admin</strong><small>Manage client accounts, billing, and activation.</small></span>
-          </button>
+          </button>}
           <button className="lg-journey-option" type="button" onClick={()=>setPublicAccessView('client')}>
             <Building2 size={19} /><span><strong>Client / Organiser</strong><small>Set up events, teams, and organisation details.</small></span>
           </button>
@@ -595,7 +595,7 @@ export default function App() {
     );
   }
 
-  if (!session && publicAccessView === 'clients') return (
+  if (!session && !DEMO_MODE && publicAccessView === 'clients') return (
     <LoginLayout title="Platform" accent="admin." subtitle="Sign in to manage client accounts and access.">
       <TeamLogin onSignedIn={nextSession=>{ setLoginDestination('clients'); setSession(nextSession); }} initiallyOpen title="Admin sign in" demoPortal="admin" />
       {eventError && <div className="lg-alert" role="alert">{eventError}</div>}

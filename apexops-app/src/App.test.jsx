@@ -274,6 +274,31 @@ test('public home provides separate role portals and routes exhibitors to event 
   window.history.replaceState({}, '', '/');
 });
 
+test('demo portal hides Platform Admin and ignores direct admin links', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  global.__DEMO_MODE__ = true;
+  window.history.replaceState({}, '', '/?admin');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  try {
+    await act(async () => { root.render(<App />); });
+    expect(container.textContent).toContain('Select your portal.');
+    expect(container.textContent).not.toContain('Platform Admin');
+    expect(container.textContent).not.toContain('Admin sign in');
+    expect(container.querySelector('input[aria-label="Work email"]')).toBeNull();
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+    global.__DEMO_MODE__ = false;
+    window.history.replaceState({}, '', '/');
+  }
+});
+
 test('organization client admins enter the Client Workspace before Event Operations', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   window.history.replaceState({}, '', '/');
@@ -550,7 +575,6 @@ test('delivery-only users enter deliveries from the Staff & Delivery portal', as
 });
 
 test.each([
-  ['Platform Admin', 'admin@apexops.demo', 'Owner dashboard fixture', null],
   ['Client / Organiser', 'organiser@apexops.demo', 'Client workspace fixture', 'Event Operations'],
   ['Event Operations', 'operations@apexops.demo', 'Operations event: ESG Africa 2026', 'Client Workspace'],
   ['Staff & Delivery', 'staff@apexops.demo', 'Staff queue fixture', 'Event Operations'],
