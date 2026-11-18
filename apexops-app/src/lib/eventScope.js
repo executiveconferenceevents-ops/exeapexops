@@ -79,9 +79,9 @@ export async function getAvailableEvents() {
     const clients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events' }]);
     return getDemoCollection('events', [{
       id:'demo-event-esg-africa-2026', client_id:clients[0]?.id || 'demo-client-ece', clients:clients[0], name:'ESG Africa 2026',
-      event_start_date:'2026-09-30', event_end_date:'2026-10-01', build_up_start_date:'2026-09-29', build_up_end_date:'2026-09-29',
-      breakdown_start_date:'2026-10-01', breakdown_end_date:'2026-10-01', next_event_name:'ESG Africa 2027',
-      slug:DEFAULT_EVENT_SLUG, exhibitor_code:'ESGAF-20260930', is_public:true, logo_url:'',
+      event_start_date:'2026-11-18', event_end_date:'2026-11-20', build_up_start_date:'2026-11-17', build_up_end_date:'2026-11-17',
+      breakdown_start_date:'2026-11-21', breakdown_end_date:'2026-11-21', next_event_name:'ESG Africa 2027',
+      slug:DEFAULT_EVENT_SLUG, exhibitor_code:'ESGAF-20260930', is_public:true, billing_exempt:true, logo_url:'',
     }]).map(event => ({ ...event, clients:clients.find(client => client.id === event.client_id) || event.clients }));
   }
   if (!supabase) return [];
