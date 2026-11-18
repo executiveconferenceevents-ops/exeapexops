@@ -2,12 +2,13 @@
 // Opened with ?portal=<token>. Only the exhibitor who receives the link can see it.
 // [APEX exhibitor services 1]
 import React, { useCallback, useEffect, useState } from 'react';
-import { Check, FileText, ImagePlus, Info, Lock, Upload } from 'lucide-react';
-import { formatDay, formatDayTime, getExhibitorPortal, rand, saveExhibitorFascia, uploadExhibitorFile } from '../lib/exhibitorServices';
+import { Check, Download, FileText, ImagePlus, Info, Lock, Upload } from 'lucide-react';
+import { formatDay, formatDayTime, getExhibitorInvoices, getExhibitorPortal, rand, saveExhibitorFascia, startExhibitorPayfastCheckout, startExhibitorYocoCheckout, submitExhibitorEftProof, uploadExhibitorFile } from '../lib/exhibitorServices';
 import './exhibitor-services.css';
 
 const LOGO_TYPES = '.ai,.eps,.pdf,.svg,.png,.jpg,.jpeg,.tif,.tiff';
 const DOC_TYPES = '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip';
+const ARTWORK_TYPES = '.ai,.eps,.pdf,.svg,.png,.jpg,.jpeg,.tif,.tiff,.zip';
 
 export default function ExhibitorPortal({ token, onOrderFurniture }) {
   const [data, setData] = useState(null);
@@ -15,9 +16,15 @@ export default function ExhibitorPortal({ token, onOrderFurniture }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
+  const [invoices, setInvoices] = useState([]);
+  const [eftProof, setEftProof] = useState(null);
+  const [eftReference, setEftReference] = useState('');
 
   const load = useCallback(async () => {
-    try { const d = await getExhibitorPortal(token); setData(d); setFascia(d.fascia_name || ''); setError(''); }
+    try {
+      const [d,invoiceRows] = await Promise.all([getExhibitorPortal(token),getExhibitorInvoices(token)]);
+      setData(d); setFascia(d.fascia_name || ''); setInvoices(invoiceRows); setError('');
+    }
     catch (e) { setError(e.message); }
   }, [token]);
   useEffect(() => { load(); }, [load]);
@@ -33,6 +40,34 @@ export default function ExhibitorPortal({ token, onOrderFurniture }) {
     try { for (const f of files) await uploadExhibitorFile(token, kind, f); setNotice(`${files.length} file${files.length === 1 ? '' : 's'} uploaded.`); await load(); }
     catch (e) { setError(e.message); } finally { setBusy(''); }
   };
+  const submitEft = async invoiceId => {
+    if (!eftReference.trim()||!eftProof) { setError('Add a bank reference and proof of payment.'); return; }
+    setBusy('eft'); setNotice(''); setError('');
+    try {
+      await submitExhibitorEftProof(token,invoiceId,eftReference.trim(),eftProof);
+      setEftReference(''); setEftProof(null);
+      setNotice('Proof submitted for organiser approval.');
+      await load();
+    } catch (e) { setError(e.message); } finally { setBusy(''); }
+  };
+  const startPayfast = async invoiceId => {
+    setBusy('payfast'); setError('');
+    try { await startExhibitorPayfastCheckout(token,invoiceId); }
+    catch (e) { setError(e.message); setBusy(''); }
+  };
+  const startYoco = async invoiceId => {
+    setBusy('yoco'); setError('');
+    try { await startExhibitorYocoCheckout(token,invoiceId); }
+    catch (e) { setError(e.message); setBusy(''); }
+  };
+  const downloadInvoice = async invoice => {
+    try {
+      const { downloadExhibitorInvoicePdf } = await import('../lib/exhibitorInvoicePdf');
+      downloadExhibitorInvoicePdf(invoice);
+    } catch (e) {
+      setError(e.message || 'Could not download the invoice.');
+    }
+  };
 
   if (error && !data) {
     return <div className="es es-public"><header className="es-hero"><div className="es-eyebrow">Exhibitor services</div><h1>Link <em>not valid</em></h1><p>{error}</p></header>
@@ -42,6 +77,8 @@ export default function ExhibitorPortal({ token, onOrderFurniture }) {
 
   const closed = data.open === false;
   const logos = data.files.filter(f => f.kind === 'logo');
+  const vinylArtwork = data.files.filter(f => f.kind === 'artwork_vinyl');
+  const fabricArtwork = data.files.filter(f => f.kind === 'artwork_fabric');
   const docs = data.files.filter(f => f.kind === 'document');
 
   return (
@@ -101,6 +138,24 @@ export default function ExhibitorPortal({ token, onOrderFurniture }) {
           {logos.map(f => <div key={f.file_name + f.uploaded_at} className="es-small"><Check size={14} color="#1f9d5b" style={{ verticalAlign: -2 }} /> {f.file_name} <span className="es-muted">· {formatDayTime(f.uploaded_at)}</span></div>)}
         </div>
 
+        {/* Artwork */}
+        <div className="es-card es-pad es-stack">
+          <div className="es-eyebrow">Print artwork</div>
+          <h2 className="es-h2">Stand <em>graphics</em></h2>
+          <p className="es-small es-muted" style={{ margin: 0 }}>Upload print-ready artwork for vinyl graphics or fabric banners. Operations can download these files for production.</p>
+          <div className="es-grid2">
+            <label className={`es-btn es-file ${closed ? '' : 'es-btn--blue'}`} aria-disabled={closed}>
+              <Upload size={16} /> {busy === 'artwork_vinyl' ? 'Uploading…' : 'Upload vinyl artwork'}
+              <input type="file" multiple accept={ARTWORK_TYPES} disabled={closed || Boolean(busy)} onChange={e => { upload('artwork_vinyl', [...e.target.files]); e.target.value = ''; }} />
+            </label>
+            <label className={`es-btn es-file ${closed ? '' : 'es-btn--blue'}`} aria-disabled={closed}>
+              <Upload size={16} /> {busy === 'artwork_fabric' ? 'Uploading…' : 'Upload fabric banner artwork'}
+              <input type="file" multiple accept={ARTWORK_TYPES} disabled={closed || Boolean(busy)} onChange={e => { upload('artwork_fabric', [...e.target.files]); e.target.value = ''; }} />
+            </label>
+          </div>
+          {[...vinylArtwork, ...fabricArtwork].map(file => <div key={file.file_name + file.uploaded_at} className="es-small"><FileText size={14} style={{ verticalAlign: -2 }} /> {file.file_name} <span className="es-muted">· {file.kind === 'artwork_vinyl' ? 'Vinyl' : 'Fabric banner'} · {formatDayTime(file.uploaded_at)}</span></div>)}
+        </div>
+
         {/* Documents */}
         <div className="es-card es-pad es-stack">
           <div className="es-eyebrow">Documents</div>
@@ -114,6 +169,42 @@ export default function ExhibitorPortal({ token, onOrderFurniture }) {
         </div>
 
         {/* Orders */}
+        {invoices.length > 0 && (
+          <div className="es-card es-pad es-stack">
+            <div className="es-eyebrow">Invoices</div>
+            {invoices.map(invoice => (
+              <div key={invoice.id} className="es-stack" style={{ borderTop:'1px solid #e3eaed', paddingTop:12 }}>
+                <div className="es-summary-line">
+                  <strong>{invoice.invoice_number}</strong>
+                  <span className="es-grow es-small es-muted">{invoice.invoice_date}</span>
+                  <span className="es-badge">{invoice.status === 'proof_uploaded' ? 'Proof submitted' : invoice.status}</span>
+                  <strong>{rand(invoice.total_cents/100)}</strong>
+                </div>
+                <button className="es-btn es-btn--quiet es-invoice-download" type="button" onClick={()=>downloadInvoice(invoice)}><Download size={15}/> Download invoice</button>
+                {invoice.items?.length>0&&<div className="es-small es-muted">{invoice.items.map(item=>`${item.quantity}× ${item.description}`).join(' · ')}</div>}
+                {invoice.status==='proof_uploaded'&&<p className="es-small es-muted" role="status">Your EFT proof is with the Operations team for review.</p>}
+                {invoice.status==='unpaid' ? (
+                  <div className="es-grid2">
+                    {invoice.payment_methods?.payfast&&<button className="es-btn es-btn--primary" disabled={Boolean(busy)} onClick={()=>startPayfast(invoice.id)}>{busy==='payfast'?'Opening…':'Pay with PayFast'}</button>}
+                    {invoice.payment_methods?.yoco&&<button className="es-btn" disabled={Boolean(busy)} onClick={()=>startYoco(invoice.id)}>{busy==='yoco'?'Opening…':'Pay with Yoco'}</button>}
+                    {invoice.payment_methods?.eft&&<>
+                      <div className="es-alert es-alert--note es-payment-bank-details">
+                        <strong>Bank transfer details</strong>
+                        <span>{invoice.bank_details?.account_name||'Account holder not set'} · {invoice.bank_details?.bank_name||'Bank not set'}</span>
+                        <span>Account: {invoice.bank_details?.account_number||'Not set'}{invoice.bank_details?.branch_code?` · Branch: ${invoice.bank_details.branch_code}`:''}</span>
+                        {invoice.bank_details?.reference_prefix&&<span>Use reference: {invoice.bank_details.reference_prefix}{invoice.invoice_number}</span>}
+                      </div>
+                      <input className="es-input" maxLength={160} value={eftReference} onChange={e=>setEftReference(e.target.value)} placeholder="Bank / EFT reference" aria-label="Bank EFT reference" />
+                      <label className="es-btn es-file"><Upload size={16}/> {eftProof?eftProof.name:'Attach proof'}<input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e=>setEftProof(e.target.files?.[0]||null)} /></label>
+                      <button className="es-btn" disabled={Boolean(busy)||!eftReference.trim()||!eftProof} onClick={()=>submitEft(invoice.id)}>{busy==='eft'?'Submitting…':'Submit EFT proof'}</button>
+                    </>}
+                    {!invoice.payment_methods?.eft&&!invoice.payment_methods?.payfast&&!invoice.payment_methods?.yoco&&<p className="es-small es-muted">Payment methods are not available yet. Please contact the organiser.</p>}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
         {data.orders?.length > 0 && (
           <div className="es-card es-pad">
             <div className="es-eyebrow">Your orders</div>

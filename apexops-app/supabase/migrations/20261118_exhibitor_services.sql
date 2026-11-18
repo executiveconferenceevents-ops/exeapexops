@@ -219,10 +219,10 @@ begin
     'items', coalesce((select jsonb_agg(jsonb_build_object(
         'id', c.id, 'category', c.category, 'code', c.code, 'name', c.name, 'options', c.options,
         'size', c.size, 'photo_url', c.photo_url,
-        -- exhibitor price only: price (+VAT) + platform fee, rounded to the rand
+        -- exhibitor price only: price (+VAT if registered) + 3% platform fee, rounded to the rand
         'price', round(c.price_excl_vat
-                 * (1 + case when coalesce(v_settings.prices_exclude_vat, true) then coalesce(v_settings.vat_rate, 0.15) else 0 end)
-                 * (1 + coalesce(v_settings.platform_fee_rate, 0.03)))
+                 * (1 + case when coalesce(v_settings.supplier_vat_registered, coalesce(v_settings.prices_exclude_vat, false), false) then coalesce(v_settings.vat_rate, 0.15) else 0 end)
+                 * 1.03)
       ) order by c.sort_order, c.name)
       from public.catalogue_items c where c.event_id = v_event and c.active), '[]'::jsonb)
   );
@@ -253,8 +253,8 @@ begin
   end if;
 
   select * into v_settings from public.event_order_settings where event_id = v_event;
-  v_vat := case when coalesce(v_settings.prices_exclude_vat, true) then coalesce(v_settings.vat_rate, 0.15) else 0 end;
-  v_fee := coalesce(v_settings.platform_fee_rate, 0.03);
+  v_vat := case when coalesce(v_settings.supplier_vat_registered, coalesce(v_settings.prices_exclude_vat, false), false) then coalesce(v_settings.vat_rate, 0.15) else 0 end;
+  v_fee := 0.03;
 
   insert into public.service_orders (event_id, stand, exhibitor_name, contact_name, contact_email, contact_phone, delivery_at, notes, terms_accepted_at)
   values (v_event, v_stand, v_name, left(payload->>'contact_name', 120), left(payload->>'contact_email', 200),
@@ -274,7 +274,7 @@ begin
 
   update public.service_orders
      set total_excl_vat = round(v_ex, 2), total_vat = round(v_ex * v_vat, 2),
-         total_fee = round(v_pay - v_ex * (1 + v_vat), 2), total_payable = round(v_pay, 2)
+         total_fee = round(v_ex * (1 + v_vat) * v_fee, 2), total_payable = round(v_pay, 2)
    where id = v_order.id;
 
   return jsonb_build_object('ref', v_order.ref, 'edit_token', v_order.edit_token, 'total_payable', round(v_pay, 2), 'exhibitor_name', v_name);

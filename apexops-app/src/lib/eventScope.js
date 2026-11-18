@@ -81,6 +81,8 @@ export async function getAvailableEvents() {
     return getDemoCollection('events', [{
       id:DEMO_EVENT_ID, client_id:clients[0]?.id || DEMO_CLIENT_ID, clients:clients[0], name:'ESG Africa 2026',
       event_start_date:'2026-11-18', event_end_date:'2026-11-20', build_up_start_date:'2026-11-17', build_up_end_date:'2026-11-17',
+      event_start_time:'09:00', event_end_time:'17:00', build_up_start_time:'08:00', build_up_end_time:'18:00',
+      breakdown_start_time:'17:00', breakdown_end_time:'20:00',
       breakdown_start_date:'2026-11-21', breakdown_end_date:'2026-11-21', next_event_name:'ESG Africa 2027',
       slug:DEFAULT_EVENT_SLUG, exhibitor_code:'ESGAF-20260930', is_public:true, billing_exempt:true, logo_url:'',
     }]).map(event => ({ ...event, clients:clients.find(client => client.id === event.client_id) || event.clients }));
@@ -92,7 +94,7 @@ export async function getAvailableEvents() {
   return loadCachedPublicValue(`available-events:${userId}`, async () => {
     const { data, error } = await supabase
       .from('events')
-      .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, billing_exempt, clients(name)')
+      .select('id, client_id, name, event_start_date, event_start_time, event_end_date, event_end_time, build_up_start_date, build_up_start_time, build_up_end_date, build_up_end_time, breakdown_start_date, breakdown_start_time, breakdown_end_date, breakdown_end_time, next_event_name, slug, is_public, logo_url, billing_exempt, clients(name)')
       .order('name');
     if (error) throw error;
     return data || [];

@@ -24,7 +24,7 @@
     "start:demo:secure": "node scripts/start-demo.js --https",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "test:security": "node --test --test-concurrency=1 scripts/security-db.test.cjs scripts/billing-foundation-db.test.cjs scripts/invoice-records-db.test.cjs scripts/invoice-payments-db.test.cjs scripts/payfast-helper.test.cjs scripts/registration-access-db.test.cjs",
+    "test:security": "node --test --test-concurrency=1 scripts/security-db.test.cjs scripts/billing-foundation-db.test.cjs scripts/invoice-records-db.test.cjs scripts/invoice-payments-db.test.cjs scripts/payfast-helper.test.cjs scripts/registration-access-db.test.cjs scripts/exhibitor-payments.test.cjs",
     "desktop": "electron .",
     "desktop:dist": "react-scripts build && electron-builder --win"
   },

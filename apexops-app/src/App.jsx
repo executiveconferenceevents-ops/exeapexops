@@ -27,6 +27,7 @@ import './styles/apex-brand.css';
 export default function App() {
   const [role, setRole] = useState(null);
   const [openOpsQueryId, setOpenOpsQueryId] = useState('');
+  const [initialQueueStaffId, setInitialQueueStaffId] = useState('');
   const [session, setSession] = useState(null);
   const [loginDestination, setLoginDestination] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -383,7 +384,7 @@ export default function App() {
 
   useEffect(() => {
     if (!session || eventLoading || !role) return;
-    const operationsRole = ['ops','staff','people','exhibitors','exhibitor','client-query','rebooking','services','shop'].includes(role);
+    const operationsRole = ['ops','staff','people','exhibitors','exhibitor','client-query','services','shop'].includes(role);
     const allowed = isDemoExhibitor && ['exhibitor','client-query','rebooking','shop'].includes(role) ? true
       : role === 'platform-admin' ? isPlatformAdmin
       : role === 'tenant-admin' ? canManageTenants
@@ -416,7 +417,6 @@ export default function App() {
     canOpenDeliveries && { key:'deliveries', label:'Deliveries', Icon:PackageCheck, onClick:()=>setRole('deliveries'), disabled:needsEvent },
     canOpenOps && { key:'exhibitor', label:'Exhibitor view', Icon:Eye, onClick:()=>openStaffExhibitorView('exhibitor'), disabled:needsEvent },
     canOpenOps && { key:'client-query', label:'Log a query', Icon:ClipboardPlus, onClick:()=>openStaffExhibitorView('client-query'), disabled:needsEvent },
-    canOpenOps && { key:'rebooking', label:'Rebooking', Icon:Building2, onClick:()=>openStaffExhibitorView('rebooking'), disabled:needsEvent },
     canManageTenants && { key:'tenant-admin', label:'Events & team', Icon:Users, onClick:()=>setRole('tenant-admin') },
     isPlatformAdmin && role === 'platform-admin' && { key:'platform-admin', label:'Platform admin', Icon:Building2, onClick:()=>setRole('platform-admin') },
   ].filter(Boolean)).map(item=>({ ...item, active:item.key === activeKey }));
@@ -431,7 +431,7 @@ export default function App() {
   if (role === 'exhibitor' && !session) return <WithBack onBack={()=>setRole(null)}><ExhibitorStatus onForgetDevice={()=>{ setRole(null); selectPublicEvent(''); setPublicAccessView('events'); }} /></WithBack>;
   if (role === 'shop' && !session) return <ExhibitorShop initialStand={loadExhibitorStand(getEventSlug()) || ''} onBack={()=>setRole(null)} />;
   if (role === 'client-query' && !session) return <WithBack onBack={()=>setRole(null)}><ClientQuery /></WithBack>;
-  if (role === 'rebooking' && session && (canOpenOps || isDemoExhibitor)) return framed('rebooking', <RebookingForm />);
+  if (role === 'rebooking' && session && (canManageTenants || isDemoExhibitor)) return framed('rebooking', <RebookingForm />);
   if (role === 'rebooking' && !session) {
     const rebookingNav = [
       { key:'overview', label:session ? 'Workspace' : 'Overview', Icon:LayoutDashboard, onClick:()=>setRole(null) },
@@ -444,13 +444,13 @@ export default function App() {
   if (session && role === 'platform-admin' && isPlatformAdmin) return framed('platform-admin', <ClientEventAdmin onEventCreated={handleEventCreated} />);
   if (session && role === 'tenant-admin' && canManageTenants) return framed('tenant-admin', <ClientEventAdmin onEventCreated={handleEventCreated} clientWorkspaceOnly currentUserId={session.user?.id} />);
   if (session && role === 'ops' && canOpenOps) return framed('ops', <OpsPortal onOpenStaff={()=>setRole('staff')} onOpenExhibitors={()=>setRole('exhibitors')} initialQueryId={openOpsQueryId} onInitialQueryOpened={()=>setOpenOpsQueryId('')} />);
-  if (session && role === 'staff' && canOpenOps) return framed('staff', <StaffSetup />);
+  if (session && role === 'staff' && canOpenOps) return framed('staff', <StaffSetup onViewJobs={staffId=>{setInitialQueueStaffId(staffId);setRole('dept');}} />);
   if (session && role === 'people' && canOpenOps) return framed('people', <PeopleSetup onBack={()=>setRole('ops')} />);
   if (session && role === 'exhibitors' && canOpenOps) return framed('exhibitors', <ExhibitorSetup onBack={()=>setRole('ops')} />);
   if (session && role === 'services' && canOpenOps) return framed('services', <ExhibitorServices onOpenShop={()=>openStaffExhibitorView('shop')} />);
   if (session && role === 'deliveries' && canOpenDeliveries) return framed('deliveries', <Deliveries />);
   if (session && role === 'shop' && (canOpenOps || isDemoExhibitor)) return framed('shop', <ExhibitorShop onBack={()=>setRole(null)} />);
-  if (session && role === 'dept' && canOpenQueue) return framed('dept', <DeptQueue allowStaffPicker={canOpenOps} />);
+  if (session && role === 'dept' && canOpenQueue) return framed('dept', <DeptQueue allowStaffPicker={canOpenOps} initialStaffId={initialQueueStaffId} />);
 
   if (session && isDemoExhibitor && !role) {
     const exhibitorItems = [
@@ -628,6 +628,7 @@ export default function App() {
       accent={headAccent}
       subtitle={headSubtitle}
       bullets={publicAccessView === 'events' && !publicEventSlug ? ['Report and track issues at your stand', 'See which requests are resolved', 'Plan your next event'] : null}
+      onAdmin={!DEMO_MODE ? ()=>{ setAdminReturnView(publicAccessView); setPublicAccessView('clients'); } : undefined}
     >
       {publicAccessView === 'events' ? (publicEventSlug ? (
         <div className="lg-code">

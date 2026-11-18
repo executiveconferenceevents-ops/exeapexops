@@ -11,7 +11,7 @@ import { readWorkbookRows } from './workbook';
 
 // ── Pricing (the 3% is internal; exhibitors only ever see `exhibitorPrice`) ──
 export const DEFAULT_SETTINGS = {
-  prices_exclude_vat: true, vat_rate: 0.15, platform_fee_rate: 0.03,
+  supplier_vat_registered: false, prices_exclude_vat: false, vat_rate: 0.15, platform_fee_rate: 0.03,
   orders_open_at: null, orders_close_at: null, supplier_name: '',
   order_terms: 'Orders cannot be cancelled or refunded once confirmed.',
   logo_terms: 'Logos are only printed on fascia boards when included in your package or paid for.',
@@ -19,10 +19,11 @@ export const DEFAULT_SETTINGS = {
 
 export function priceBreakdown(priceExclVat, settings = DEFAULT_SETTINGS) {
   const base = Number(priceExclVat) || 0;
-  const vatRate = settings.prices_exclude_vat ? Number(settings.vat_rate ?? 0.15) : 0;
+  const vatRegistered = settings.supplier_vat_registered ?? settings.prices_exclude_vat ?? false;
+  const vatRate = vatRegistered ? Number(settings.vat_rate ?? 0.15) : 0;
   const vat = base * vatRate;
   const inclVat = base + vat;
-  const fee = inclVat * Number(settings.platform_fee_rate ?? 0.03);
+  const fee = inclVat * 0.03;
   return { base, vat, inclVat, fee, exhibitorPrice: Math.round(inclVat + fee) };
 }
 
@@ -273,8 +274,20 @@ export async function getExhibitorFiles() {
 }
 export async function getExhibitorFileUrl(file) {
   if (DEMO_MODE) return file.data_url || '';
-  const { data } = await supabase.storage.from('exhibitor-files').createSignedUrl(file.storage_path, 600);
+  const { data, error } = await supabase.storage.from('exhibitor-files').createSignedUrl(file.storage_path, 600, { download: file.file_name });
+  if (error) throw error;
   return data?.signedUrl || '';
+}
+export async function sendExhibitorReminder(stand, missingItems) {
+  if (DEMO_MODE) throw new Error('Email reminders are disabled in demo mode.');
+  const { data, error } = await supabase.functions.invoke('send-exhibitor-reminder', {
+    body:{ eventId:getActiveEventId(), stand:normalizeStand(stand), missingItems },
+  });
+  if (error) {
+    const message = error.context?.body?.message;
+    throw new Error(message || error.message || 'Could not send this exhibitor reminder.');
+  }
+  return data || {};
 }
 export function portalLink(token) {
   return `${window.location.origin}${window.location.pathname}?portal=${token}`;
@@ -284,6 +297,46 @@ export function portalLink(token) {
 export async function getOrders() {
   if (DEMO_MODE) return [...demoRead().orders].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   return need(await supabase.from('service_orders').select('*, items:service_order_items(*)').eq('event_id', getActiveEventId()).order('created_at', { ascending: false })) || [];
+}
+export async function getClientServiceOrders(eventIds = []) {
+  const ids=[...new Set(eventIds.filter(Boolean))];
+  if (!ids.length) return [];
+  if (DEMO_MODE) return demoRead().orders.filter(order => ids.includes(order.event_id));
+  const orders=need(await supabase.from('service_orders')
+    .select('id,event_id,ref,stand,exhibitor_name,status,payment_status,total_payable,created_at')
+    .in('event_id',ids).order('created_at',{ascending:false}))||[];
+  if (!orders.length) return [];
+  const invoices=need(await supabase.from('exhibitor_invoices')
+    .select('id,order_id,invoice_number,status,total_cents,payment_method,paid_at')
+    .in('event_id',ids))||[];
+  const invoiceByOrder=new Map(invoices.map(invoice=>[invoice.order_id,invoice]));
+  return orders.map(order=>({...order,invoice:invoiceByOrder.get(order.id)||null}));
+}
+export async function getEventExhibitorPayments() {
+  if (DEMO_MODE) return { invoices:[], payments:[] };
+  const eventId=getActiveEventId();
+  const invoices=need(await supabase.from('exhibitor_invoices')
+    .select('id,order_id,invoice_number,status,invoice_date,due_date,total_cents,currency,payment_method,paid_at')
+    .eq('event_id',eventId).order('created_at',{ascending:false}))||[];
+  if (!invoices.length) return { invoices, payments:[] };
+  const payments=need(await supabase.from('exhibitor_payments')
+    .select('id,invoice_id,status,amount_cents,payment_method,paid_on,reference,evidence_path,review_note,created_at')
+    .eq('event_id',eventId).order('created_at',{ascending:false}))||[];
+  return { invoices, payments };
+}
+export async function reviewExhibitorEft(paymentId, approve, note='') {
+  if (DEMO_MODE) throw new Error('EFT review is unavailable in demo mode.');
+  return need(await supabase.rpc('review_exhibitor_eft_payment',{
+    target_payment_id:paymentId,
+    approve:Boolean(approve),
+    requested_note:String(note||'').trim().slice(0,500)||null,
+  }));
+}
+export async function getExhibitorPaymentProofUrl(path) {
+  if (DEMO_MODE) return '';
+  const {data,error}=await supabase.storage.from('exhibitor-payment-proofs').createSignedUrl(path,600);
+  if (error) throw error;
+  return data?.signedUrl||'';
 }
 export async function updateOrder(id, patch) {
   if (DEMO_MODE) { const s = demoRead(); s.orders = s.orders.map(o => (o.id === id ? { ...o, ...patch, updated_at: new Date().toISOString() } : o)); demoWrite(s); return; }
@@ -308,7 +361,7 @@ export async function getPublicCatalogue() {
   const data = need(await supabase.rpc('get_public_order_catalogue', publicArgs()));
   return { ...data, window: eventAccessWindow(getActiveEvent()) };
 }
-export async function submitPublicOrder(payload) {
+export async function submitPublicOrder(payload, existingEditToken = '') {
   if (DEMO_MODE) {
     const s = demoRead(); const settings = { ...DEFAULT_SETTINGS, ...s.settings };
     if (!payload.accept_terms) throw new Error('Please accept the order terms.');
@@ -320,11 +373,30 @@ export async function submitPublicOrder(payload) {
     });
     const exVat = items.reduce((t, i) => t + i.unit_price_excl_vat * i.qty, 0);
     const pay = items.reduce((t, i) => t + i.unit_payable * i.qty, 0);
-    const vat = settings.prices_exclude_vat ? exVat * settings.vat_rate : 0;
-    const order = { id: uid(), ref: `FO-${String(s.orders.length + 1).padStart(5, '0')}`, stand: normalizeStand(payload.stand), exhibitor_name: ex.name, contact_name: payload.contact_name, contact_email: payload.contact_email, contact_phone: payload.contact_phone, delivery_at: payload.delivery_at || null, notes: payload.notes || '', status: 'submitted', items, total_excl_vat: exVat, total_vat: vat, total_fee: pay - exVat - vat, total_payable: pay, edit_token: uid(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    const vatRegistered = settings.supplier_vat_registered ?? settings.prices_exclude_vat ?? false;
+    const vat = vatRegistered ? exVat * settings.vat_rate : 0;
+    const fee = (exVat + vat) * 0.03;
+    const existing = s.orders.find(order => order.edit_token === existingEditToken && order.payment_status !== 'paid' && order.payment_status !== 'cancelled');
+    const createdAt = new Date().toISOString();
+    if (existing) {
+      existing.items = [...(existing.items || []), ...items];
+      existing.total_excl_vat = Number(existing.total_excl_vat || 0) + exVat;
+      existing.total_vat = Number(existing.total_vat || 0) + vat;
+      existing.total_fee = Number(existing.total_fee || 0) + Number(fee.toFixed(2));
+      existing.total_payable = Number(existing.total_payable || 0) + pay;
+      existing.contact_name = payload.contact_name || existing.contact_name;
+      existing.contact_email = payload.contact_email || existing.contact_email;
+      existing.contact_phone = payload.contact_phone || existing.contact_phone;
+      if (payload.notes) existing.notes = [existing.notes, payload.notes].filter(Boolean).join('\n');
+      existing.updated_at = createdAt;
+      demoWrite(s);
+      return { ref: existing.ref, edit_token: existing.edit_token, total_payable: existing.total_payable, exhibitor_name: ex.name, created_at: existing.created_at, appended: true };
+    }
+    const order = { id: uid(), event_id:getActiveEventId(), ref: `FO-${String(s.orders.length + 1).padStart(5, '0')}`, stand: normalizeStand(payload.stand), exhibitor_name: ex.name, contact_name: payload.contact_name, contact_email: payload.contact_email, contact_phone: payload.contact_phone, delivery_at: null, notes: payload.notes || '', status: 'submitted', payment_status:'unpaid', items, total_excl_vat: exVat, total_vat: vat, total_fee: Number(fee.toFixed(2)), total_payable: pay, edit_token: uid(), created_at: createdAt, updated_at: createdAt };
     s.orders.push(order); demoWrite(s);
-    return { ref: order.ref, edit_token: order.edit_token, total_payable: pay, exhibitor_name: ex.name };
+    return { ref: order.ref, edit_token: order.edit_token, total_payable: pay, exhibitor_name: ex.name, created_at: order.created_at, appended: false };
   }
+  if (existingEditToken) return need(await supabase.rpc('append_public_order', { ...publicArgs(), existing_edit_token: existingEditToken, payload }));
   return need(await supabase.rpc('submit_public_order', { ...publicArgs(), payload }));
 }
 export async function getExhibitorPortal(token) {
@@ -338,6 +410,57 @@ export async function getExhibitorPortal(token) {
     return { open: true, event: { name: event.name, start: event.event_start_date, end: event.event_end_date }, stand: p.stand, exhibitor_name: ex?.name, package: pkg || null, logo_included: Boolean(pkg?.includes_fascia_logo || p.logo_paid), logo_terms: settings.logo_terms, fascia_name: p.fascia_name, fascia_status: p.fascia_status, files: s.files.filter(f => normalizeStand(f.stand) === normalizeStand(p.stand)), orders: s.orders.filter(o => o.stand === normalizeStand(p.stand)) };
   }
   return need(await supabase.rpc('get_exhibitor_portal', { requested_token: token }));
+}
+export async function getExhibitorInvoices(token) {
+  if (DEMO_MODE) return [];
+  return need(await supabase.rpc('get_exhibitor_portal_invoices', { requested_portal_token: token })) || [];
+}
+export async function submitExhibitorEftProof(token, invoiceId, reference, file) {
+  if (DEMO_MODE) throw new Error('EFT payments are unavailable in demo mode.');
+  if (!file || file.size > 10 * 1024 * 1024) throw new Error('Choose a PDF, JPG or PNG no larger than 10 MB.');
+  if (!['application/pdf','image/jpeg','image/png'].includes(file.type)) throw new Error('Choose a PDF, JPG or PNG.');
+  const extension=file.type==='application/pdf'?'pdf':file.type==='image/jpeg'?'jpg':'png';
+  const proofId=crypto.randomUUID();
+  const path=`${token}/${invoiceId}/${proofId}.${extension}`;
+  need(await supabase.storage.from('exhibitor-payment-proofs').upload(path,file,{contentType:file.type,upsert:false}));
+  try {
+    return need(await supabase.rpc('submit_exhibitor_eft_proof',{
+      target_invoice_id:invoiceId,
+      requested_portal_token:token,
+      requested_path:path,
+      requested_reference:reference,
+    }));
+  } catch (error) {
+    await supabase.storage.from('exhibitor-payment-proofs').remove([path]);
+    throw error;
+  }
+}
+export async function startExhibitorPayfastCheckout(token, invoiceId) {
+  if (DEMO_MODE) throw new Error('Online payments are unavailable in demo mode.');
+  const {data,error}=await supabase.functions.invoke('create-exhibitor-payfast-checkout',{
+    body:{invoiceId,portalToken:token,idempotencyKey:crypto.randomUUID()},
+  });
+  if (error) throw error;
+  const actionUrl=new URL(data?.actionUrl||'');
+  if (actionUrl.protocol!=='https:'||!['sandbox.payfast.co.za','www.payfast.co.za'].includes(actionUrl.hostname)) throw new Error('The PayFast checkout response is invalid.');
+  const form=document.createElement('form');
+  form.method='post'; form.action=actionUrl.toString();
+  Object.entries(data.fields||{}).forEach(([name,value])=>{
+    const input=document.createElement('input');
+    input.type='hidden'; input.name=name; input.value=String(value);
+    form.appendChild(input);
+  });
+  document.body.appendChild(form); form.submit(); form.remove();
+}
+export async function startExhibitorYocoCheckout(token, invoiceId) {
+  if (DEMO_MODE) throw new Error('Online payments are unavailable in demo mode.');
+  const {data,error}=await supabase.functions.invoke('create-exhibitor-yoco-checkout',{
+    body:{invoiceId,portalToken:token,idempotencyKey:crypto.randomUUID()},
+  });
+  if (error) throw error;
+  const redirectUrl=new URL(data?.redirectUrl||'');
+  if (redirectUrl.protocol!=='https:'||redirectUrl.hostname!=='payments.yoco.com') throw new Error('The Yoco checkout response is invalid.');
+  window.location.assign(redirectUrl.toString());
 }
 export async function saveExhibitorFascia(token, fasciaName) {
   if (!String(fasciaName || '').trim()) throw new Error('Enter the fascia name.');

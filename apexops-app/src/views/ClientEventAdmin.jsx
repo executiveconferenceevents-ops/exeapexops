@@ -3,12 +3,13 @@ import { supabase } from '../lib/supabase';
 import { getAvailableEvents, getEventAccessCode } from '../lib/eventScope';
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
 import { loadClientDirectory } from '../lib/clientDirectory';
-import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
+import { getClientRebookingRequests, getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
 import { enqueue, isNetworkError } from '../lib/offline';
 import { createInvoicePdf, downloadInvoicePdf } from '../lib/invoicePdf';
 import ClientBillingWorkspace from '../components/ClientBillingWorkspace';
+import ClientExhibitorOrdersWorkspace from '../components/ClientExhibitorOrdersWorkspace';
 import { EVENT_TIERS, EXTRA_STAFF_SEAT_PRICE, getDefaultPricingConfig, INCLUDED_INTERNAL_SEATS, validatePricingConfig, VOLUME_PLANS } from '../lib/pricing';
-import { Activity, BarChart3, Briefcase, Building2, CalendarDays, Check, CreditCard, Download, FileText, LayoutDashboard, Mail, MailPlus, Pencil, Plus, RefreshCw, Settings, Shield, Tag, Trash2, Truck, Upload, Users, UserPlus, X } from 'lucide-react';
+import { Activity, BarChart3, Briefcase, Building2, CalendarDays, Check, Clock, CreditCard, Download, FileText, LayoutDashboard, Mail, MailPlus, Pencil, Plus, RefreshCw, Settings, Shield, ShoppingBag, Tag, Trash2, Truck, Upload, Users, UserPlus, X } from 'lucide-react';
 
 const emptyClient = { name:'', slug:'', adminEmail:'', eventLimit:1 };
 const emptyInvoiceForm = { client_id:'', billed_to_name:'', billed_to_email:'', invoice_date:'', due_date:'', description:'', payment_instructions:'', invoice_discount_cents:'0' };
@@ -16,7 +17,7 @@ const emptyInvoiceLine = { description:'', quantity:'1', unit_price_cents:'', di
 const emptyCreditNoteForm = { amount_cents:'', reason:'', description:'' };
 const defaultInvoiceTaxSettings = { is_registered:false, tax_label:'Tax', tax_rate_basis_points:0, currency:'ZAR' };
 const emptyPaymentForm = { invoice_id:'', amount_cents:'', payment_method:'eft', paid_on:new Date().toISOString().slice(0,10), reference:'', note:'' };
-const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_end_date:'', build_up_start_date:'', build_up_end_date:'', breakdown_start_date:'', breakdown_end_date:'', next_event_name:'', billing_exempt:false, logo_file:null };
+const emptyEvent = { client_id:'', name:'', slug:'', event_start_date:'', event_start_time:'', event_end_date:'', event_end_time:'', build_up_start_date:'', build_up_start_time:'', build_up_end_date:'', build_up_end_time:'', breakdown_start_date:'', breakdown_start_time:'', breakdown_end_date:'', breakdown_end_time:'', next_event_name:'', billing_exempt:false, logo_file:null };
 const emptyInvite = { client_id:'', event_id:'', email:'', role:'staff' };
 const emptySupplier = { name:'', contact:'', email:'', mobile:'', category:'Other' };
 const platformNavGroups = [
@@ -50,6 +51,10 @@ function eventStatus(event) {
 
 function formatCurrency(cents, currency='ZAR') {
   return new Intl.NumberFormat('en-ZA', { style:'currency', currency }).format(Number(cents || 0) / 100);
+}
+
+function timeInputValue(value) {
+  return String(value || '').slice(0, 5);
 }
 
 function createSecureUuid() {
@@ -87,6 +92,7 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
   const [showEventForm, setShowEventForm] = useState(false);
   const [inviteForm, setInviteForm] = useState(emptyInvite);
   const [supplierForm, setSupplierForm] = useState(emptySupplier);
+  const [editingSupplierId, setEditingSupplierId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -102,6 +108,8 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
   const [showInvoiceForm, setShowInvoiceForm] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [invoiceSending, setInvoiceSending] = useState(false);
+  const [exhibitorFeeMonth, setExhibitorFeeMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [attachingExhibitorFees, setAttachingExhibitorFees] = useState(false);
   const [showCreditNoteForm, setShowCreditNoteForm] = useState(false);
   const [creditNoteForm, setCreditNoteForm] = useState(emptyCreditNoteForm);
   const [invoiceTaxSettings, setInvoiceTaxSettings] = useState(defaultInvoiceTaxSettings);
@@ -116,6 +124,8 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
   const [auditSearch, setAuditSearch] = useState('');
   const [clientAuditEntries, setClientAuditEntries] = useState([]);
   const [clientAuditLoading, setClientAuditLoading] = useState(false);
+  const [rebookingRequests, setRebookingRequests] = useState([]);
+  const [rebookingLoading, setRebookingLoading] = useState(false);
 
   async function refresh() {
     if (!supabase && !DEMO_MODE) {
@@ -211,6 +221,23 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
   useEffect(() => {
     if (!loading && section === 'billing' && managedClientId) loadInvoices();
   }, [loading, section, managedClientId]);
+
+  async function loadClientRebookingRequests() {
+    setRebookingLoading(true);
+    setError('');
+    try {
+      const eventIds = events.filter(event => event.client_id === managedClientId).map(event => event.id);
+      setRebookingRequests(await getClientRebookingRequests(eventIds));
+    } catch (loadError) {
+      setError(loadError?.message || 'Could not load rebooking enquiries.');
+    } finally {
+      setRebookingLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!loading && !isPlatformAdmin && section === 'rebookings' && managedClientId) loadClientRebookingRequests();
+  }, [loading, isPlatformAdmin, section, managedClientId, events]);
 
   async function loadRegistrations() {
     setRegistrationLoading(true);
@@ -519,6 +546,36 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
     }
   }
 
+  async function attachExhibitorFees(invoice) {
+    if (!isPlatformAdmin || invoice.status !== 'draft' || !/^\d{4}-\d{2}$/.test(exhibitorFeeMonth)) return;
+    if (DEMO_MODE) {
+      setError('Attaching paid exhibitor fees is unavailable in demo mode.');
+      return;
+    }
+    const clientName=clientById.get(invoice.client_id)?.name||invoice.billed_to_name;
+    if (!window.confirm(`Attach all unbilled paid exhibitor-order fees for ${exhibitorFeeMonth} to draft invoice ${invoice.invoice_number} for ${clientName}? This reserves those fees to this invoice.`)) return;
+    setAttachingExhibitorFees(true);
+    setError('');
+    setNotice('');
+    try {
+      const { data, error:feeError } = await supabase.rpc('attach_exhibitor_fees_to_client_invoice', {
+        target_invoice_id:invoice.id,
+        requested_fee_month:`${exhibitorFeeMonth}-01`,
+      });
+      if (feeError) throw feeError;
+      const amountCents=Number(data||0);
+      await loadInvoices();
+      await selectInvoice(invoice.id);
+      setNotice(amountCents
+        ? `${formatCurrency(amountCents,invoice.currency||'ZAR')} in paid exhibitor-order fees added to ${invoice.invoice_number}.`
+        : 'No unbilled paid exhibitor-order fees were found for that month and client.');
+    } catch (feeError) {
+      setError(feeError?.message||'Could not attach paid exhibitor-order fees.');
+    } finally {
+      setAttachingExhibitorFees(false);
+    }
+  }
+
   async function sendInvoiceEmail(invoice) {
     if (DEMO_MODE) {
       setError('Invoice email is unavailable in demo mode.');
@@ -767,11 +824,17 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
       name:event.name || '',
       slug:event.slug || '',
       event_start_date:event.event_start_date || '',
+      event_start_time:timeInputValue(event.event_start_time),
       event_end_date:event.event_end_date || '',
+      event_end_time:timeInputValue(event.event_end_time),
       build_up_start_date:event.build_up_start_date || '',
+      build_up_start_time:timeInputValue(event.build_up_start_time),
       build_up_end_date:event.build_up_end_date || '',
-      breakdown_start_date:event.breakdown_start_date || '',
-      breakdown_end_date:event.breakdown_end_date || '',
+      build_up_end_time:timeInputValue(event.build_up_end_time),
+      breakdown_start_date:event.breakdown_start_date || event.event_end_date || '',
+      breakdown_start_time:timeInputValue(event.breakdown_start_time),
+      breakdown_end_date:event.breakdown_end_date || event.event_end_date || '',
+      breakdown_end_time:timeInputValue(event.breakdown_end_time),
       next_event_name:event.next_event_name || '',
       billing_exempt:Boolean(event.billing_exempt),
       logo_file:null,
@@ -788,19 +851,35 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
     setEventForm(current => ({ ...emptyEvent, client_id:current.client_id }));
   }
 
+  function setEventDate(field, value) {
+    setEventForm(current => {
+      const next = { ...current, [field]:value };
+      if (field === 'event_end_date') {
+        if (!current.breakdown_start_date || current.breakdown_start_date === current.event_end_date) next.breakdown_start_date = value;
+        if (!current.breakdown_end_date || current.breakdown_end_date === current.event_end_date) next.breakdown_end_date = value;
+      }
+      return next;
+    });
+  }
+
   async function addPrivateSupplier(event) {
     event.preventDefault();
     if (!supplierClientId || !canManageSuppliers(supplierClientId)) return;
+    if (!supplierForm.name.trim()) {
+      setError('Enter a supplier name.');
+      return;
+    }
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      await upsertSuppliers([{ ...supplierForm, id:`supplier-${crypto.randomUUID()}` }], supplierClientId);
+      await upsertSuppliers([{ ...supplierForm, id:editingSupplierId || `supplier-${crypto.randomUUID()}` }], supplierClientId);
       setSupplierForm(emptySupplier);
+      setEditingSupplierId('');
       setPrivateSuppliers(await getSuppliers(supplierClientId));
-      setNotice('Private organizer supplier added. It is available across this organizer’s events.');
+      setNotice(editingSupplierId ? 'Private organizer supplier updated.' : 'Private organizer supplier added. It is available across this organizer’s events.');
     } catch (saveError) {
-      setError(saveError?.message || 'Could not add the organizer supplier.');
+      setError(saveError?.message || 'Could not save the organizer supplier.');
     } finally {
       setSaving(false);
     }
@@ -811,6 +890,10 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
     try {
       await removeSupplier(supplier.id, supplierClientId);
       setPrivateSuppliers(await getSuppliers(supplierClientId));
+      if (editingSupplierId === supplier.id) {
+        setEditingSupplierId('');
+        setSupplierForm(emptySupplier);
+      }
     } catch (deleteError) {
       setError(deleteError?.message || 'Could not remove the supplier.');
     }
@@ -1111,11 +1194,17 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
         name:eventForm.name.trim(),
         slug:eventForm.slug.trim().toLowerCase(),
         event_start_date:eventForm.event_start_date,
+        event_start_time:eventForm.event_start_time || null,
         event_end_date:eventForm.event_end_date,
+        event_end_time:eventForm.event_end_time || null,
         build_up_start_date:eventForm.build_up_start_date,
+        build_up_start_time:eventForm.build_up_start_time || null,
         build_up_end_date:eventForm.build_up_end_date,
+        build_up_end_time:eventForm.build_up_end_time || null,
         breakdown_start_date:eventForm.breakdown_start_date,
+        breakdown_start_time:eventForm.breakdown_start_time || null,
         breakdown_end_date:eventForm.breakdown_end_date,
+        breakdown_end_time:eventForm.breakdown_end_time || null,
         next_event_name:eventForm.next_event_name.trim() || null,
         billing_exempt:Boolean(isPlatformAdmin && eventForm.billing_exempt),
         is_public:true,
@@ -1133,7 +1222,7 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
         setDemoCollection('events', [...currentEvents, data]);
       } else {
         const { data:createdEvent, error: createError } = await supabase.from('events').insert(eventValues)
-          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, billing_exempt').single();
+          .select('id, client_id, name, event_start_date, event_start_time, event_end_date, event_end_time, build_up_start_date, build_up_start_time, build_up_end_date, build_up_end_time, breakdown_start_date, breakdown_start_time, breakdown_end_date, breakdown_end_time, next_event_name, slug, is_public, logo_url, billing_exempt').single();
         if (createError) throw createError;
         data = createdEvent;
       }
@@ -1164,11 +1253,17 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
         name:eventForm.name.trim(),
         slug:eventForm.slug.trim().toLowerCase(),
         event_start_date:eventForm.event_start_date,
+        event_start_time:eventForm.event_start_time || null,
         event_end_date:eventForm.event_end_date,
+        event_end_time:eventForm.event_end_time || null,
         build_up_start_date:eventForm.build_up_start_date,
+        build_up_start_time:eventForm.build_up_start_time || null,
         build_up_end_date:eventForm.build_up_end_date,
+        build_up_end_time:eventForm.build_up_end_time || null,
         breakdown_start_date:eventForm.breakdown_start_date,
+        breakdown_start_time:eventForm.breakdown_start_time || null,
         breakdown_end_date:eventForm.breakdown_end_date,
+        breakdown_end_time:eventForm.breakdown_end_time || null,
         next_event_name:eventForm.next_event_name.trim() || null,
       };
       if (isPlatformAdmin) eventValues.billing_exempt = Boolean(eventForm.billing_exempt);
@@ -1184,7 +1279,7 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
         setDemoCollection('events', currentEvents.map(item => item.id === currentEvent.id ? data : item));
       } else {
         const { data:updatedEvent, error:updateError } = await supabase.from('events').update(eventValues).eq('id', currentEvent.id)
-          .select('id, client_id, name, event_start_date, event_end_date, build_up_start_date, build_up_end_date, breakdown_start_date, breakdown_end_date, next_event_name, slug, is_public, logo_url, billing_exempt, clients(name)').single();
+          .select('id, client_id, name, event_start_date, event_start_time, event_end_date, event_end_time, build_up_start_date, build_up_start_time, build_up_end_date, build_up_end_time, breakdown_start_date, breakdown_start_time, breakdown_end_date, breakdown_end_time, next_event_name, slug, is_public, logo_url, billing_exempt, clients(name)').single();
         if (updateError) throw updateError;
         data = updatedEvent;
       }
@@ -1292,6 +1387,7 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
   const navGroups = isPlatformAdmin ? platformNavGroups : [{ label:'WORKSPACE', items:[
     ['overview','Overview',LayoutDashboard], ['events','Events',CalendarDays],
     ['billing','Invoices & payments',CreditCard], ['suppliers','Suppliers',Truck], ['team','Team access',MailPlus],
+    ['exhibitor-orders','Furniture orders',ShoppingBag], ['rebookings','Rebooking enquiries',Mail],
   ] }];
   const currentNavItem = navGroups.flatMap(group => group.items).find(([key]) => key === section);
   const sectionTitle = currentNavItem?.[1] || 'Overview';
@@ -1559,6 +1655,11 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
                 <div className="adm-invoice-print-actions"><span className={`adm-status-pill adm-status-${selectedInvoice.status}`}>{selectedInvoice.status}</span>{selectedInvoice.status!=='draft'&&<button className="tenant-edit-event" type="button" onClick={()=>downloadInvoicePdf(selectedInvoice,invoiceItems)}><Download size={14}/> Download PDF</button>}{selectedInvoice.status!=='draft'&&selectedInvoice.billed_to_email&&<button className="tenant-edit-event" type="button" disabled={invoiceSending} onClick={()=>sendInvoiceEmail(selectedInvoice)}><Mail size={14}/>{invoiceSending?'Sending…':'Send invoice'}</button>}{selectedInvoice.status==='draft'&&<button className="tenant-edit-event" type="button" onClick={()=>editInvoiceDraft(selectedInvoice)}><Pencil size={14}/> Edit draft</button>}</div>
               </div>
               <div className="adm-table-wrap"><table className="adm-data-table"><thead><tr><th>Item</th><th>Quantity</th><th>Unit price</th><th>Discount</th><th>Line total</th></tr></thead><tbody>{invoiceItems.map(item=><tr key={item.id}><td>{item.description}</td><td>{item.quantity}</td><td>{formatCurrency(item.unit_price_cents,selectedInvoice.currency||'ZAR')}</td><td>{formatCurrency(item.discount_cents,selectedInvoice.currency||'ZAR')}</td><td>{formatCurrency(item.line_total_cents,selectedInvoice.currency||'ZAR')}</td></tr>)}</tbody></table>{!invoiceItems.length&&<p className="tenant-empty">No invoice items loaded.</p>}</div>
+              {isPlatformAdmin&&selectedInvoice.status==='draft'&&<div className="adm-credit-note-section">
+                <div className="adm-invoice-lines-head"><div><strong>Paid exhibitor-order fees</strong><small>Only 3% fees from fully paid exhibitor invoices accrue here. They are never added before settlement.</small></div></div>
+                <label>Paid month<input type="month" value={exhibitorFeeMonth} onChange={event=>setExhibitorFeeMonth(event.target.value)} aria-label="Paid exhibitor fee month"/></label>
+                <button className="tenant-edit-event" type="button" disabled={attachingExhibitorFees||!exhibitorFeeMonth} onClick={()=>attachExhibitorFees(selectedInvoice)}><Plus size={14}/>{attachingExhibitorFees?'Attaching…':'Attach unbilled fees to this draft'}</button>
+              </div>}
               <div className="adm-invoice-totals"><span>Subtotal {formatCurrency(selectedInvoice.subtotal_cents,selectedInvoice.currency||'ZAR')}</span><span>Line discounts {formatCurrency(selectedInvoice.line_discount_cents,selectedInvoice.currency||'ZAR')}</span><span>Invoice discount {formatCurrency(selectedInvoice.invoice_discount_cents,selectedInvoice.currency||'ZAR')}</span><span>{selectedInvoice.tax_label||'Tax'} {formatCurrency(selectedInvoice.tax_cents,selectedInvoice.currency||'ZAR')}</span><strong>Total {formatCurrency(selectedInvoice.total_cents,selectedInvoice.currency||'ZAR')}</strong></div>
               {['issued','partially_credited'].includes(selectedInvoice.status)&&<div className="adm-credit-note-section">
                 <div className="adm-invoice-lines-head"><div><strong>Credit notes</strong><small>Issued credit notes are audit logged and capped at the invoice total.</small></div><button className="tenant-edit-event" type="button" disabled={saving} onClick={()=>setShowCreditNoteForm(value=>!value)}><Plus size={14}/>{showCreditNoteForm?'Close':'New credit note'}</button></div>
@@ -1611,10 +1712,36 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
           <ClientBillingWorkspace clientId={managedClientId} invoices={invoices} onRefresh={loadInvoices}/>
         </section>}
 
+        {!isPlatformAdmin&&<section className="tenant-section adm-workspace-section" hidden={section!=='exhibitor-orders'}>
+          <ClientExhibitorOrdersWorkspace
+            clientId={managedClientId}
+            events={events.filter(event=>event.client_id===managedClientId)}
+            canManageSettings={canManageClient(managedClientId)}
+          />
+        </section>}
+
+        {!isPlatformAdmin&&<section className="tenant-section adm-workspace-section" hidden={section!=='rebookings'}>
+          <div className="tenant-section-heading"><Mail size={17} /><div><h2>Rebooking enquiries</h2><p>Expressions of interest from exhibitors. These are not confirmed bookings.</p></div><button type="button" className="tenant-edit-event" disabled={rebookingLoading} onClick={loadClientRebookingRequests}><RefreshCw size={14} /> Refresh</button></div>
+          {rebookingLoading ? <p className="tenant-empty">Loading rebooking enquiries…</p> : <div className="tenant-list">
+            {rebookingRequests.map(request=><article className="tenant-list-row tenant-rebooking-row" key={request.id}>
+              <div className="tenant-event-details">
+                <strong>{request.company} · Stand {request.current_stand}</strong>
+                <span>{request.contact_person}{request.contact_title ? ` · ${request.contact_title}` : ''} · <a href={`mailto:${request.email}`}>{request.email}</a>{request.mobile ? ` · ${request.mobile}` : ''}</span>
+                <span>Interest: {request.interest} · Preferred stand: {request.preferred_stand || 'Not specified'} · {request.stand_size || 'Size not specified'} · {request.booth_type || 'Booth type not specified'}</span>
+                {request.sponsorship_interest && <span>Sponsorship: {request.sponsorship_interest}</span>}
+                {request.discussion_topics?.length > 0 && <span>Topics: {Array.isArray(request.discussion_topics) ? request.discussion_topics.join(', ') : request.discussion_topics}</span>}
+                {request.notes && <span>Notes: {request.notes}</span>}
+              </div>
+              <time dateTime={request.created_at}>{new Date(request.created_at).toLocaleString()}</time>
+            </article>)}
+            {!rebookingRequests.length && <p className="tenant-empty">No exhibitor rebooking enquiries have been received for your events.</p>}
+          </div>}
+        </section>}
+
         <section className="tenant-section" hidden={section !== 'events'}>
-          <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Event workspaces</h2><p>Each event has isolated staff, exhibitors, requests and reports.</p></div>{!showEventForm && <button className="tenant-add-event" type="button" onClick={()=>{setEditingEventId('');setShowEventForm(true);}}><Plus size={15} /> New event</button>}</div>
+          <div className="tenant-section-heading"><CalendarDays size={17} /><div><h2>Event workspaces</h2><p>Each event has isolated staff, exhibitors, requests and reports.</p></div>{!showEventForm && <button className="tenant-add-event" type="button" onClick={()=>{setEditingEventId('');setEventForm({...emptyEvent,client_id:isPlatformAdmin?(selectedClientId||clients[0]?.id||''):managedClientId});setSection('events');setShowEventForm(true);}}><Plus size={15} /> New event</button>}</div>
           <div className="tenant-list">
-            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date} to {event.event_end_date} · Build-up {event.build_up_start_date} to {event.build_up_end_date} · Breakdown {event.breakdown_start_date} to {event.breakdown_end_date}</span>{event.billing_exempt && <span className="tenant-internal-badge">Internal ECE · non-billable</span>}</div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code><button className="tenant-regenerate-code" type="button" disabled={saving || (!isPlatformAdmin && !canInviteToScope(event.client_id, event.id))} onClick={()=>rotateEventCode(event)}><RefreshCw size={12} /> Rotate code</button></span><div className="tenant-event-actions"><button className="tenant-edit-event" type="button" disabled={saving || (event.billing_exempt && !isPlatformAdmin)} onClick={()=>beginEditEvent(event)}><Pencil size={14} /> Edit</button><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div></div>)}
+            {events.map(event => <div className="tenant-list-row" key={event.id}><div className="tenant-event-details"><strong>{event.name}{event.next_event_name ? ` · Rebooking ${event.next_event_name}` : ''}</strong><span>Event {event.event_start_date}{event.event_start_time ? ` ${event.event_start_time}` : ''} to {event.event_end_date}{event.event_end_time ? ` ${event.event_end_time}` : ''} · Build-up {event.build_up_start_date}{event.build_up_start_time ? ` ${event.build_up_start_time}` : ''} to {event.build_up_end_date}{event.build_up_end_time ? ` ${event.build_up_end_time}` : ''} · Breakdown {event.breakdown_start_date}{event.breakdown_start_time ? ` ${event.breakdown_start_time}` : ''} to {event.breakdown_end_date}{event.breakdown_end_time ? ` ${event.breakdown_end_time}` : ''}</span>{event.billing_exempt && <span className="tenant-internal-badge">Internal ECE · non-billable</span>}</div><span className="tenant-event-access"><code>?event={event.slug}</code><code>Exhibitor code: {event.exhibitor_code}</code><button className="tenant-regenerate-code" type="button" disabled={saving || (!isPlatformAdmin && !canInviteToScope(event.client_id, event.id))} onClick={()=>rotateEventCode(event)}><RefreshCw size={12} /> Rotate code</button></span><div className="tenant-event-actions"><button className="tenant-edit-event" type="button" disabled={saving || (event.billing_exempt && !isPlatformAdmin)} onClick={()=>beginEditEvent(event)}><Pencil size={14} /> Edit</button><label className="tenant-event-logo-action" title={`${event.logo_url ? 'Change' : 'Upload'} ${event.name} logo`}>{event.logo_url ? <img src={event.logo_url} alt={`${event.name} logo`} /> : <Upload size={14} />}<span>{event.logo_url ? 'Change logo' : 'Upload logo'}</span><input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`${event.logo_url ? 'Change' : 'Upload'} logo for ${event.name}`} disabled={saving} onChange={inputEvent=>{const file=inputEvent.target.files?.[0];if(file)updateEventLogo(event,file);inputEvent.target.value='';}} /></label></div></div>)}
             {!events.length && <p className="tenant-empty">No events are assigned to your account.</p>}
           </div>
           {showEventForm && <form className="tenant-form tenant-inline-form" onSubmit={editingEventId ? updateEvent : createEvent}>
@@ -1624,12 +1751,18 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
             {quotaClientId && <p className="tenant-scope-note">Event allowance: {currentClientEvents} of {currentEventLimit} used.</p>}
             <label>URL slug<input required pattern="[a-z0-9]+(-[a-z0-9]+)*" value={eventForm.slug} onChange={event=>setEventForm({ ...eventForm, slug:event.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'') })} />{editingEventId && <small>Changing this slug changes the event link.</small>}</label>
             <label>Event logo (optional)<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event=>setEventForm({ ...eventForm, logo_file:event.target.files?.[0] || null })} /><small>PNG, JPG, or WebP; maximum 2 MB.</small></label>
-            <label>Event start date<input type="date" required value={eventForm.event_start_date} onChange={event=>setEventForm({ ...eventForm, event_start_date:event.target.value })} /></label>
-            <label>Event end date<input type="date" required min={eventForm.event_start_date || undefined} value={eventForm.event_end_date} onChange={event=>setEventForm({ ...eventForm, event_end_date:event.target.value })} /></label>
-            <label>Build-up start<input type="date" required max={eventForm.event_start_date || undefined} value={eventForm.build_up_start_date} onChange={event=>setEventForm({ ...eventForm, build_up_start_date:event.target.value })} /></label>
-            <label>Build-up end<input type="date" required min={eventForm.build_up_start_date || undefined} max={eventForm.event_start_date || undefined} value={eventForm.build_up_end_date} onChange={event=>setEventForm({ ...eventForm, build_up_end_date:event.target.value })} /></label>
-            <label>Breakdown start<input type="date" required min={eventForm.event_end_date || eventForm.event_start_date || undefined} value={eventForm.breakdown_start_date} onChange={event=>setEventForm({ ...eventForm, breakdown_start_date:event.target.value })} /></label>
-            <label>Breakdown end<input type="date" required min={eventForm.breakdown_start_date || undefined} value={eventForm.breakdown_end_date} onChange={event=>setEventForm({ ...eventForm, breakdown_end_date:event.target.value })} /></label>
+            <label><span className="tenant-schedule-label">Event start date <CalendarDays size={14} aria-hidden="true" /></span><input type="date" required value={eventForm.event_start_date} onChange={event=>setEventDate('event_start_date',event.target.value)} /></label>
+            <label><span className="tenant-schedule-label">Opening time <Clock size={14} aria-hidden="true" /></span><input type="time" value={eventForm.event_start_time} onChange={event=>setEventForm({ ...eventForm, event_start_time:event.target.value })} /></label>
+            <label><span className="tenant-schedule-label">Event end date <CalendarDays size={14} aria-hidden="true" /></span><input type="date" required min={eventForm.event_start_date || undefined} value={eventForm.event_end_date} onChange={event=>setEventDate('event_end_date',event.target.value)} /></label>
+            <label><span className="tenant-schedule-label">Closing time <Clock size={14} aria-hidden="true" /></span><input type="time" value={eventForm.event_end_time} onChange={event=>setEventForm({ ...eventForm, event_end_time:event.target.value })} /></label>
+            <label><span className="tenant-schedule-label">Build-up start <CalendarDays size={14} aria-hidden="true" /></span><input type="date" required max={eventForm.event_start_date || undefined} value={eventForm.build_up_start_date} onChange={event=>setEventDate('build_up_start_date',event.target.value)} /></label>
+            <label><span className="tenant-schedule-label">Build-up start time <Clock size={14} aria-hidden="true" /></span><input type="time" value={eventForm.build_up_start_time} onChange={event=>setEventForm({ ...eventForm, build_up_start_time:event.target.value })} /></label>
+            <label><span className="tenant-schedule-label">Build-up end <CalendarDays size={14} aria-hidden="true" /></span><input type="date" required min={eventForm.build_up_start_date || undefined} max={eventForm.event_start_date || undefined} value={eventForm.build_up_end_date} onChange={event=>setEventDate('build_up_end_date',event.target.value)} /></label>
+            <label><span className="tenant-schedule-label">Build-up end time <Clock size={14} aria-hidden="true" /></span><input type="time" value={eventForm.build_up_end_time} onChange={event=>setEventForm({ ...eventForm, build_up_end_time:event.target.value })} /></label>
+            <label><span className="tenant-schedule-label">Breakdown start (defaults to event end) <CalendarDays size={14} aria-hidden="true" /></span><input type="date" required min={eventForm.event_end_date || eventForm.event_start_date || undefined} value={eventForm.breakdown_start_date} onChange={event=>setEventDate('breakdown_start_date',event.target.value)} /></label>
+            <label><span className="tenant-schedule-label">Breakdown start time <Clock size={14} aria-hidden="true" /></span><input type="time" value={eventForm.breakdown_start_time} onChange={event=>setEventForm({ ...eventForm, breakdown_start_time:event.target.value })} /></label>
+            <label><span className="tenant-schedule-label">Breakdown end (defaults to event end) <CalendarDays size={14} aria-hidden="true" /></span><input type="date" required min={eventForm.breakdown_start_date || undefined} value={eventForm.breakdown_end_date} onChange={event=>setEventDate('breakdown_end_date',event.target.value)} /></label>
+            <label><span className="tenant-schedule-label">Breakdown end time <Clock size={14} aria-hidden="true" /></span><input type="time" value={eventForm.breakdown_end_time} onChange={event=>setEventForm({ ...eventForm, breakdown_end_time:event.target.value })} /></label>
             <label>Next event name<input maxLength="160" value={eventForm.next_event_name} onChange={event=>setEventForm({ ...eventForm, next_event_name:event.target.value })} placeholder="Optional rebooking destination" /></label>
             {isPlatformAdmin && <label className="tenant-internal-toggle"><input type="checkbox" checked={Boolean(eventForm.billing_exempt)} onChange={event=>setEventForm({ ...eventForm, billing_exempt:event.target.checked })} /><span>Internal ECE event (non-billable)<small>Excluded from client billing and event quota. Platform Admin only.</small></span></label>}
             <button type="submit" disabled={saving || !eventForm.client_id || !canManageClient(eventForm.client_id) || (!editingEventId && eventLimitReached)}>{editingEventId ? <Pencil size={15} /> : <Plus size={15} />} {editingEventId ? 'Save changes' : eventLimitReached ? 'Event limit reached' : 'Create event'}</button>
@@ -1640,17 +1773,18 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
         <section className="tenant-section" hidden={section !== 'suppliers'}>
           <div className="tenant-section-heading"><Building2 size={17} /><div><h2>Private suppliers</h2><p>Visible only to this organizer and reusable across its events.</p></div></div>
           {isPlatformAdmin && <label className="tenant-supplier-owner">Organizer<select value={supplierClientId} onChange={async event=>{setSupplierClientId(event.target.value);setPrivateSuppliers(await getSuppliers(event.target.value));}}><option value="">Select organization</option>{clients.map(client=><option key={client.id} value={client.id}>{client.name}</option>)}</select></label>}
-          {canManageSuppliers(supplierClientId) && <form className="tenant-form tenant-inline-form" onSubmit={addPrivateSupplier}>
-            <h3>Add a private supplier</h3>
+          {canManageSuppliers(supplierClientId) ? <form className="tenant-form tenant-inline-form" onSubmit={addPrivateSupplier}>
+            <h3>{editingSupplierId ? 'Edit private supplier' : 'Add a private supplier'}</h3>
             <label>Supplier name<input required value={supplierForm.name} onChange={event=>setSupplierForm({ ...supplierForm, name:event.target.value })} /></label>
             <label>Contact person<input value={supplierForm.contact} onChange={event=>setSupplierForm({ ...supplierForm, contact:event.target.value })} /></label>
             <label>Email<input type="email" value={supplierForm.email} onChange={event=>setSupplierForm({ ...supplierForm, email:event.target.value })} /></label>
             <label>Mobile<input value={supplierForm.mobile} onChange={event=>setSupplierForm({ ...supplierForm, mobile:event.target.value })} /></label>
             <label>Service category<input value={supplierForm.category} onChange={event=>setSupplierForm({ ...supplierForm, category:event.target.value })} /></label>
-            <button type="submit" disabled={saving || !supplierClientId}><Plus size={15} /> Add supplier</button>
-          </form>}
+            <button type="submit" disabled={saving || !supplierClientId}>{editingSupplierId ? <Pencil size={15} /> : <Plus size={15} />} {editingSupplierId ? 'Save changes' : 'Add supplier'}</button>
+            {editingSupplierId && <button className="tenant-cancel-edit" type="button" disabled={saving} onClick={()=>{setEditingSupplierId('');setSupplierForm(emptySupplier);}}>Cancel edit</button>}
+          </form> : <p className="tenant-scope-note">Supplier changes are read-only. Add/edit access requires a current client administrator membership.</p>}
           <div className="tenant-list">
-            {privateSuppliers.map(supplier=><div className="tenant-list-row" key={supplier.id}><div className="tenant-event-details"><strong>{supplier.name}</strong><span>{[supplier.category, supplier.contact, supplier.email, supplier.mobile].filter(Boolean).join(' · ')}</span></div>{canManageSuppliers(supplierClientId) && <button className="tenant-remove-supplier" type="button" onClick={()=>deletePrivateSupplier(supplier)} title={`Remove ${supplier.name}`}><Trash2 size={14} /><span>Remove</span></button>}</div>)}
+            {privateSuppliers.map(supplier=><div className="tenant-list-row" key={supplier.id}><div className="tenant-event-details"><strong>{supplier.name}</strong><span>{[supplier.category, supplier.contact, supplier.email, supplier.mobile].filter(Boolean).join(' · ')}</span></div>{canManageSuppliers(supplierClientId) && <div className="tenant-event-actions"><button className="tenant-edit-event" type="button" onClick={()=>{setEditingSupplierId(supplier.id);setSupplierForm({name:supplier.name||'',contact:supplier.contact||'',email:supplier.email||'',mobile:supplier.mobile||'',category:supplier.category||'Other'});setError('');setNotice('');}}><Pencil size={14}/><span>Edit</span></button><button className="tenant-remove-supplier" type="button" onClick={()=>deletePrivateSupplier(supplier)} title={`Remove ${supplier.name}`}><Trash2 size={14} /><span>Remove</span></button></div>}</div>)}
             {!privateSuppliers.length && <p className="tenant-empty">No private suppliers have been added for this organizer.</p>}
           </div>
         </section>

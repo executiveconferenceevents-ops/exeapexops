@@ -19,8 +19,9 @@ test('CSV import rejects malformed rows instead of importing partial data', asyn
 });
 
 test('exhibitor price applies VAT and the platform fee before rounding to the rand', () => {
-  expect(priceBreakdown(100, { prices_exclude_vat:true, vat_rate:0.15, platform_fee_rate:0.03 }).exhibitorPrice).toBe(118);
-  expect(priceBreakdown(100, { prices_exclude_vat:false, vat_rate:0.15, platform_fee_rate:0.03 }).exhibitorPrice).toBe(103);
+  expect(priceBreakdown(100, { supplier_vat_registered:true, vat_rate:0.15, platform_fee_rate:0.03 }).exhibitorPrice).toBe(118);
+  expect(priceBreakdown(100, { supplier_vat_registered:false, vat_rate:0.15, platform_fee_rate:0.03 }).exhibitorPrice).toBe(103);
+  expect(priceBreakdown(100, { supplier_vat_registered:true, vat_rate:0.15, platform_fee_rate:0.03 }).fee).toBeCloseTo(3.45, 10);
 });
 
 test('stock import maps the supplied template columns', () => {

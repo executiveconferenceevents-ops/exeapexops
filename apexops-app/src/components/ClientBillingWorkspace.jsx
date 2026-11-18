@@ -184,7 +184,7 @@ export default function ClientBillingWorkspace({ clientId, invoices, onRefresh }
 
   const openInvoices=invoices.filter(invoice=>['issued','partially_paid','partially_credited'].includes(invoice.status));
   return <>
-    <div className="adm-page-heading"><div><span className="adm-section-count">{invoices.length} INVOICES</span><h2 className="adm-page-title"><CreditCard size={18} aria-hidden="true"/>Invoices & payments</h2><p>Review invoices and submit EFT details for secure approval.</p></div><button className="tenant-refresh" type="button" onClick={()=>{onRefresh();loadPayments();}} disabled={loading||saving}><RefreshCw size={14}/> Refresh billing</button></div>
+    <div className="adm-page-heading"><div><span className="adm-section-count">{invoices.length} APEXOPS INVOICES</span><h2 className="adm-page-title"><CreditCard size={18} aria-hidden="true"/>APEXOPS platform invoices & payments</h2><p>These are your organisation’s APEXOPS/ECE platform invoices, not exhibitor furniture orders. Furniture invoices are listed separately under Furniture orders.</p></div><button className="tenant-refresh" type="button" onClick={()=>{onRefresh();loadPayments();}} disabled={loading||saving}><RefreshCw size={14}/> Refresh billing</button></div>
     {error&&<div className="tenant-feedback tenant-error" role="alert">{error}</div>}
     {notice&&<div className="tenant-feedback tenant-notice" role="status">{notice}</div>}
     <div className="adm-table-wrap"><table className="adm-data-table"><thead><tr><th>Invoice</th><th>Date / due</th><th>Status</th><th>Total</th><th>Action</th></tr></thead><tbody>
