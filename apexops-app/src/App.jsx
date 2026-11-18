@@ -14,6 +14,7 @@ import ExhibitorShop from './views/ExhibitorShop';
 import ExhibitorPortal from './views/ExhibitorPortal';
 import { supabase } from './lib/supabase';
 import { DEMO_MODE } from './lib/demoStore';
+import { getDemoAccess, getDemoAccountsForPortal, authenticateDemoAccount } from './lib/demoAccounts';
 import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventAccessCode, getEventSlug, getPublicEvents, getUserEventAccess, PRIVACY_NOTICE_VERSION, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
 import { ArrowLeft, ArrowRight, Building2, CheckCircle2, ClipboardPlus, Eye, HardHat, Home, LayoutDashboard, LogIn, LogOut, Mail, Monitor, PackageCheck, ShieldCheck, ShoppingBag, Ticket, Truck, Users } from 'lucide-react';
 import { AppShell, PageHeader, ServiceCard, StatusBadge, Wordmark } from './components/AppShell';
@@ -84,16 +85,17 @@ export default function App() {
           let platformAdmin = false;
           let organizationAdmin = false;
           let currentMemberships = [];
-          if (supabase) {
+          if (DEMO_MODE) {
+            const accessContext = getDemoAccess(session.user?.demoRole);
+            platformAdmin = accessContext.platformAdmin;
+            currentMemberships = accessContext.memberships;
+            organizationAdmin = currentMemberships.some(membership => membership.role === 'client_admin' && !membership.event_id);
+          } else if (supabase) {
             const accessContext = await getUserEventAccess(session.user?.id);
             if (cancelled) return;
             platformAdmin = accessContext.platformAdmin;
             currentMemberships = accessContext.memberships;
             organizationAdmin = currentMemberships.some(membership => membership.role === 'client_admin' && !membership.event_id);
-          } else if (DEMO_MODE) {
-            platformAdmin = true;
-            organizationAdmin = true;
-            currentMemberships = [{ client_id:'demo-client-ece', event_id:null, role:'client_admin' }];
           }
           if (cancelled) return;
           let availableEvents = [];
@@ -115,8 +117,20 @@ export default function App() {
           const nextEvent = workspaceEvents.find(event => event.slug === getEventSlug())
             || workspaceEvents.find(event => event.id === currentEvent?.id)
             || (workspaceEvents.length === 1 ? workspaceEvents[0] : null);
-          setSelectedEvent(nextEvent);
-          setActiveEvent(nextEvent);
+          const demoExhibitor = DEMO_MODE && session.user?.demoRole === 'exhibitor';
+          const selectedWorkspaceEvent = demoExhibitor && nextEvent
+            ? {
+              ...nextEvent,
+              accessCode:nextEvent.exhibitor_code,
+              privacyNoticeVersion:PRIVACY_NOTICE_VERSION,
+              privacyAcknowledgementId:'demo-exhibitor-acknowledgement',
+            }
+            : nextEvent;
+          setSelectedEvent(selectedWorkspaceEvent);
+          setActiveEvent(selectedWorkspaceEvent);
+          setPrivacyAcknowledged(demoExhibitor);
+          setPrivacyNoticeChecked(demoExhibitor);
+          setPrivacyAcknowledgementId(demoExhibitor ? 'demo-exhibitor-acknowledgement' : '');
         } else {
           setEvents([]);
           setEventMemberships([]);
@@ -173,7 +187,7 @@ export default function App() {
   }, [session, authReady]);
 
   async function signOut() {
-    if (supabase) await supabase.auth.signOut();
+    if (!DEMO_MODE && supabase) await supabase.auth.signOut();
     const homeUrl = new URL(window.location.href);
     homeUrl.searchParams.delete('admin');
     homeUrl.searchParams.delete('event');
@@ -184,6 +198,9 @@ export default function App() {
     setAdminReturnView('home');
     setSelectedEvent(null);
     setEventMemberships([]);
+    setPrivacyAcknowledged(false);
+    setPrivacyNoticeChecked(false);
+    setPrivacyAcknowledgementId('');
     clearActiveEvent();
   }
 
@@ -275,7 +292,7 @@ export default function App() {
 
   async function acknowledgePrivacyNotice() {
     if (!selectedEvent?.slug || !privacyNoticeChecked) return;
-    if (supabase) {
+    if (!DEMO_MODE && supabase) {
       const { data, error } = await supabase.rpc('acknowledge_public_event_privacy', {
         requested_event_slug:selectedEvent.slug,
         requested_code:selectedEvent.accessCode,
@@ -304,8 +321,11 @@ export default function App() {
   const activeEventMemberships = eventMemberships.filter(membership => selectedEvent
     && membership.client_id === selectedEvent.client_id
     && (!membership.event_id || membership.event_id === selectedEvent.id));
-  const canOpenOps = Boolean(selectedEvent && ((isPlatformAdmin && selectedEvent.billing_exempt) || activeEventMemberships.some(membership => ['client_admin','event_admin','ops'].includes(membership.role))));
-  const canOpenQueue = Boolean(selectedEvent && ((isPlatformAdmin && selectedEvent.billing_exempt) || activeEventMemberships.some(membership => ['client_admin','event_admin','ops','staff'].includes(membership.role))));
+  const demoRole = DEMO_MODE ? session?.user?.demoRole : null;
+  const isDemoClient = DEMO_MODE && demoRole === 'client';
+  const isDemoExhibitor = DEMO_MODE && demoRole === 'exhibitor';
+  const canOpenOps = Boolean(selectedEvent && ((isPlatformAdmin && selectedEvent.billing_exempt) || activeEventMemberships.some(membership => ['client_admin','event_admin','ops'].includes(membership.role)))) && !isDemoClient && !isDemoExhibitor;
+  const canOpenQueue = Boolean(selectedEvent && ((isPlatformAdmin && selectedEvent.billing_exempt) || activeEventMemberships.some(membership => ['client_admin','event_admin','ops','staff'].includes(membership.role)))) && !isDemoClient && !isDemoExhibitor;
   const canOpenDeliveries = Boolean(selectedEvent && (canOpenQueue || activeEventMemberships.some(membership => membership.role === 'delivery')));
   const deliveryOnly = canOpenDeliveries && !canOpenQueue && !canOpenOps && !canManageTenants && !isPlatformAdmin;
 
@@ -353,29 +373,39 @@ export default function App() {
       } else {
         setEventError('This account has no staff access for the selected event. Ask the client to update its invitation.');
       }
+    } else if (loginDestination === 'exhibitor-demo') {
+      if (isDemoExhibitor && selectedEvent?.accessCode) setRole(null);
+      else setEventError('This account does not have access to the exhibitor demo workspace.');
     }
 
     setLoginDestination(null);
-  }, [session, loginDestination, eventLoading, eventContextReadyFor, isPlatformAdmin, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue, deliveryOnly]);
+  }, [session, loginDestination, eventLoading, eventContextReadyFor, isPlatformAdmin, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue, deliveryOnly, isDemoExhibitor]);
 
   useEffect(() => {
     if (!session || eventLoading || !role) return;
     const operationsRole = ['ops','staff','people','exhibitors','exhibitor','client-query','rebooking','services','shop'].includes(role);
-    const allowed = role === 'platform-admin' ? isPlatformAdmin
+    const allowed = isDemoExhibitor && ['exhibitor','client-query','rebooking','shop'].includes(role) ? true
+      : role === 'platform-admin' ? isPlatformAdmin
       : role === 'tenant-admin' ? canManageTenants
       : role === 'deliveries' ? canOpenDeliveries
       : operationsRole ? canOpenOps
         : role === 'dept' ? canOpenQueue
           : true;
     if (!allowed) setRole(null);
-  }, [session, eventLoading, role, isPlatformAdmin, canManageTenants, canOpenOps, canOpenQueue, canOpenDeliveries]);
+  }, [session, eventLoading, role, isPlatformAdmin, canManageTenants, canOpenOps, canOpenQueue, canOpenDeliveries, isDemoExhibitor]);
 
   if (!authReady) return null;
   if (session && recovering) return <SetPasswordScreen onDone={()=>{ setRecovering(false); window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); }} />;
   const portalToken = new URLSearchParams(window.location.search).get('portal');
   if (portalToken) return <ExhibitorPortal token={portalToken} />;
   const needsEvent = !selectedEvent || eventLoading;
-  const mainNav = activeKey => [
+  const mainNav = activeKey => (isDemoExhibitor ? [
+    { key:'home', label:'Home', Icon:Home, onClick:()=>setRole(null) },
+    { key:'client-query', label:'Log a query', Icon:ClipboardPlus, onClick:()=>openPublicRole('client-query') },
+    { key:'exhibitor', label:'Check my status', Icon:Monitor, onClick:()=>openPublicRole('exhibitor') },
+    { key:'shop', label:'Order furniture', Icon:ShoppingBag, onClick:()=>openPublicRole('shop') },
+    { key:'rebooking', label:'Rebook your stand', Icon:Building2, onClick:()=>openPublicRole('rebooking') },
+  ] : [
     !deliveryOnly && { key:'home', label:'Home', Icon:Home, onClick:()=>setRole(null) },
     canOpenOps && { key:'ops', label:'Event operations', Icon:LayoutDashboard, onClick:()=>setRole('ops'), disabled:needsEvent },
     canOpenQueue && { key:'dept', label:'My queue', Icon:HardHat, onClick:()=>setRole('dept'), disabled:needsEvent },
@@ -389,19 +419,19 @@ export default function App() {
     canOpenOps && { key:'rebooking', label:'Rebooking', Icon:Building2, onClick:()=>openStaffExhibitorView('rebooking'), disabled:needsEvent },
     canManageTenants && { key:'tenant-admin', label:'Events & team', Icon:Users, onClick:()=>setRole('tenant-admin') },
     isPlatformAdmin && role === 'platform-admin' && { key:'platform-admin', label:'Platform admin', Icon:Building2, onClick:()=>setRole('platform-admin') },
-  ].filter(Boolean).map(item=>({ ...item, active:item.key === activeKey }));
-  const roleLabel = isPlatformAdmin ? 'Platform owner' : canManageTenants ? 'Organiser' : canOpenOps ? 'Operations' : deliveryOnly ? 'Delivery' : 'Staff';
+  ].filter(Boolean)).map(item=>({ ...item, active:item.key === activeKey }));
+  const roleLabel = isDemoExhibitor ? 'Exhibitor' : isPlatformAdmin ? 'Platform owner' : canManageTenants ? 'Organiser' : canOpenOps ? 'Operations' : deliveryOnly ? 'Supplier / Delivery' : 'Staff';
   const framed = (activeKey, content, wide = true) => <AppShell
     eventName={selectedEvent?.name} eventMeta={selectedEvent ? formatEventDateRange(selectedEvent.event_start_date, selectedEvent.event_end_date) : undefined}
-    onEventClick={deliveryOnly ? undefined : ()=>setRole(null)} nav={mainNav(activeKey)} onSignOut={signOut}
+    onEventClick={deliveryOnly ? undefined : ()=>setRole(null)} nav={mainNav(activeKey)} onSignOut={signOut} onBack={()=>setRole(null)}
     userLabel={session?.user?.email || 'Signed in'} userRole={roleLabel} wide={wide}>{content}</AppShell>;
 
-  if (role === 'exhibitor' && session && canOpenOps) return framed('exhibitor', <ExhibitorStatus />);
-  if (role === 'client-query' && session && canOpenOps) return framed('client-query', <ClientQuery />);
+  if (role === 'exhibitor' && session && (canOpenOps || isDemoExhibitor)) return framed('exhibitor', <ExhibitorStatus />);
+  if (role === 'client-query' && session && (canOpenOps || isDemoExhibitor)) return framed('client-query', <ClientQuery />);
   if (role === 'exhibitor' && !session) return <WithBack onBack={()=>setRole(null)}><ExhibitorStatus onForgetDevice={()=>{ setRole(null); selectPublicEvent(''); setPublicAccessView('events'); }} /></WithBack>;
   if (role === 'shop' && !session) return <ExhibitorShop initialStand={loadExhibitorStand(getEventSlug()) || ''} onBack={()=>setRole(null)} />;
   if (role === 'client-query' && !session) return <WithBack onBack={()=>setRole(null)}><ClientQuery /></WithBack>;
-  if (role === 'rebooking' && session && canOpenOps) return framed('rebooking', <RebookingForm />);
+  if (role === 'rebooking' && session && (canOpenOps || isDemoExhibitor)) return framed('rebooking', <RebookingForm />);
   if (role === 'rebooking' && !session) {
     const rebookingNav = [
       { key:'overview', label:session ? 'Workspace' : 'Overview', Icon:LayoutDashboard, onClick:()=>setRole(null) },
@@ -409,7 +439,7 @@ export default function App() {
       { key:'status', label:'Check My Status', Icon:Monitor, onClick:()=>setRole('exhibitor') },
       { key:'rebook', label:'Rebook Your Stand', Icon:Building2, active:true },
     ];
-    return <AppShell eventName={selectedEvent?.name} nav={rebookingNav} onSignOut={session ? signOut : undefined}><RebookingForm /></AppShell>;
+    return <AppShell eventName={selectedEvent?.name} nav={rebookingNav} onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><RebookingForm /></AppShell>;
   }
   if (session && role === 'platform-admin' && isPlatformAdmin) return framed('platform-admin', <ClientEventAdmin onEventCreated={handleEventCreated} />);
   if (session && role === 'tenant-admin' && canManageTenants) return framed('tenant-admin', <ClientEventAdmin onEventCreated={handleEventCreated} clientWorkspaceOnly currentUserId={session.user?.id} />);
@@ -419,8 +449,29 @@ export default function App() {
   if (session && role === 'exhibitors' && canOpenOps) return framed('exhibitors', <ExhibitorSetup onBack={()=>setRole('ops')} />);
   if (session && role === 'services' && canOpenOps) return framed('services', <ExhibitorServices onOpenShop={()=>openStaffExhibitorView('shop')} />);
   if (session && role === 'deliveries' && canOpenDeliveries) return framed('deliveries', <Deliveries />);
-  if (session && role === 'shop' && canOpenOps) return framed('services', <ExhibitorShop onBack={()=>setRole('services')} />);
+  if (session && role === 'shop' && (canOpenOps || isDemoExhibitor)) return framed('shop', <ExhibitorShop onBack={()=>setRole(null)} />);
   if (session && role === 'dept' && canOpenQueue) return framed('dept', <DeptQueue allowStaffPicker={canOpenOps} />);
+
+  if (session && isDemoExhibitor && !role) {
+    const exhibitorItems = [
+      { key:'client-query', label:'Log a Query', Icon:ClipboardPlus, description:'Report an issue for your stand', action:()=>openPublicRole('client-query') },
+      { key:'exhibitor', label:'Check My Status', Icon:Monitor, description:'Follow your service requests', action:()=>openPublicRole('exhibitor') },
+      { key:'shop', label:'Order Furniture', Icon:ShoppingBag, description:'Choose furniture for your stand', action:()=>openPublicRole('shop') },
+      { key:'rebooking', label:'Rebook Your Stand', Icon:Building2, description:'Register interest in a future event', action:()=>openPublicRole('rebooking') },
+    ];
+    return (
+      <AppShell eventName={selectedEvent?.name} eventMeta={selectedEvent ? formatEventDateRange(selectedEvent.event_start_date, selectedEvent.event_end_date) : undefined} onEventClick={()=>setRole(null)} nav={mainNav('home')} onSignOut={signOut} userLabel={session.user?.email} userRole="Exhibitor">
+        <PageHeader eyebrow={selectedEvent?.name || 'APEXOPS'} title="Exhibitor" accent="workspace." subtitle="Access services for your stand at this event." />
+        <div className="event-card">
+          <div><span className="event-label">Active event</span><h2>{selectedEvent?.name || 'No event selected'}</h2></div>
+          <StatusBadge icon={CheckCircle2}>Exhibitor access</StatusBadge>
+        </div>
+        <div className="svc-grid">
+          {exhibitorItems.map(item=><ServiceCard key={item.key} icon={item.Icon} title={item.label} description={item.description} onClick={item.action} disabled={!selectedEvent || eventLoading} />)}
+        </div>
+      </AppShell>
+    );
+  }
 
   if (session && !role) {
     const hubItems = [
@@ -449,7 +500,7 @@ export default function App() {
         </div>
         {eventError && <div className="shell-alert" role="alert">{eventError}</div>}
         {!eventLoading && !events.length && !canManageTenants && <p className="shell-note">No event access is assigned to this account.</p>}
-        {selectedEvent && !canOpenOps && !canOpenQueue && !canOpenDeliveries && <p className="shell-note">No staff access is assigned to this event. Contact your client administrator.</p>}
+        {selectedEvent && !canOpenOps && !canOpenQueue && !canOpenDeliveries && !canManageTenants && <p className="shell-note">No staff access is assigned to this event. Contact your client administrator.</p>}
         {selectedEvent && canOpenOps && <HomeOverview key={selectedEvent.id} eventId={selectedEvent.id} onOpenOps={queryId=>{setOpenOpsQueryId(queryId || '');setRole('ops');}} />}
         <h2 className="ho-section-title">Your <em>tools.</em></h2>
         <div className="svc-grid">
@@ -546,9 +597,17 @@ export default function App() {
 
   if (!session && publicAccessView === 'clients') return (
     <LoginLayout title="Platform" accent="admin." subtitle="Sign in to manage client accounts and access.">
-      <TeamLogin onSignedIn={nextSession=>{ setLoginDestination('clients'); setSession(nextSession); }} initiallyOpen title="Admin sign in" />
+      <TeamLogin onSignedIn={nextSession=>{ setLoginDestination('clients'); setSession(nextSession); }} initiallyOpen title="Admin sign in" demoPortal="admin" />
       {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
       <button type="button" className="lg-link" onClick={()=>setPublicAccessView(adminReturnView)}>Back to portal selection</button>
+    </LoginLayout>
+  );
+
+  if (!session && publicAccessView === 'exhibitor-demo') return (
+    <LoginLayout title="Exhibitor" accent="demo access." subtitle="Sign in to preview the tools available to an exhibitor.">
+      <TeamLogin onSignedIn={nextSession=>{ setLoginDestination('exhibitor-demo'); setSession(nextSession); }} initiallyOpen title="Exhibitor demo sign in" demoPortal="exhibitor" />
+      <button type="button" className="lg-link" onClick={()=>setPublicAccessView('home')}>Back to portal selection</button>
+      {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
     </LoginLayout>
   );
 
@@ -583,6 +642,7 @@ export default function App() {
       ) : (
         <>
           <button type="button" className="lg-link" onClick={()=>setPublicAccessView('home')}>Back to portal selection</button>
+          {DEMO_MODE && <button type="button" className="lg-secondary" onClick={()=>setPublicAccessView('exhibitor-demo')}>Sign in to exhibitor demo</button>}
           <h2 className="lg-title">Choose your event</h2>
           <p className="lg-sub">Find your event, then enter the code your organiser gave you.</p>
           <div className="lg-filters">
@@ -608,7 +668,7 @@ export default function App() {
           </div>}
         </>
       )) : (
-        <TeamLogin onSignedIn={nextSession=>{ setLoginDestination(publicAccessView); setSession(nextSession); }} initiallyOpen title={{ client:'Client / Organiser sign in', organiser:'Operations sign in', team:'Staff sign in' }[publicAccessView]} />
+        <TeamLogin onSignedIn={nextSession=>{ setLoginDestination(publicAccessView); setSession(nextSession); }} initiallyOpen title={{ client:'Client / Organiser sign in', organiser:'Operations sign in', team:'Staff sign in' }[publicAccessView]} demoPortal={{ client:'client', organiser:'operations', team:'team' }[publicAccessView]} />
       )}
       {publicAccessView !== 'events' && <button type="button" className="lg-link lg-back-home" onClick={()=>setPublicAccessView('home')}>Back to portal selection</button>}
       {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
@@ -631,7 +691,7 @@ function getEventInitials(name) {
   return words.slice(0, 2).map(word => word[0]).join('').toUpperCase() || 'EV';
 }
 
-function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in', compact = false }) {
+function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in', compact = false, demoPortal }) {
   const [open, setOpen] = useState(initiallyOpen);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -656,7 +716,17 @@ function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in', 
   async function signIn(event) {
     event.preventDefault();
     if (DEMO_MODE) {
-      onSignedIn({ demo:true, user:{ id:'demo-owner', email:email.trim() } });
+      setError('');
+      const account = authenticateDemoAccount(email, password);
+      if (!account) {
+        setError('Use one of the listed demo accounts and its preview password.');
+        return;
+      }
+      if (account.portal !== demoPortal) {
+        setError(`This is the ${account.portalLabel} demo account. Choose that portal to sign in.`);
+        return;
+      }
+      onSignedIn({ demo:true, user:{ id:account.id, email:account.email, demoRole:account.demoRole } });
       return;
     }
     if (!supabase) {
@@ -673,6 +743,11 @@ function TeamLogin({ onSignedIn, initiallyOpen = false, title = 'Team sign in', 
     {(!compact || resetMode) && <div>
       <h2 className="lg-title">{resetMode ? 'Reset your password' : title}</h2>
       <p className="lg-sub">{resetMode ? 'We will email you a link to choose a new password.' : 'Use the email and password for your account.'}</p>
+    </div>}
+    {DEMO_MODE && demoPortal && <div className="lg-demo-accounts">
+      <strong>Preview demo login</strong>
+      {getDemoAccountsForPortal(demoPortal).map(account=><span key={account.email}><b>{account.label}:</b> {account.email} · {account.password}</span>)}
+      <small>Demo-only public credentials; they are not secure accounts and do not access Production.</small>
     </div>}
     <input required type="email" aria-label="Work email" autoComplete="email" placeholder="Work email" value={email} onChange={e=>setEmail(e.target.value)} />
     {!resetMode && <input required type="password" aria-label="Password" autoComplete="current-password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />}

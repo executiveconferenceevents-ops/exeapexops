@@ -4,7 +4,7 @@ import App from './App';
 import { getActiveEvent, getAvailableEvents, getEventSlug, getPublicEvents, getUserEventAccess, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
 import { supabase } from './lib/supabase';
 
-jest.mock('./lib/demoStore', () => ({ DEMO_MODE:false }));
+jest.mock('./lib/demoStore', () => ({ get DEMO_MODE() { return global.__DEMO_MODE__ === true; } }));
 jest.mock('./lib/supabase', () => ({
   supabase:{
     auth:{
@@ -57,6 +57,11 @@ jest.mock('./components/HomeOverview', () => () => 'Home overview fixture');
 
 function buttonWithText(container, text) {
   return [...container.querySelectorAll('button')].find(button => button.textContent.includes(text) || button.getAttribute('aria-label') === text);
+}
+
+function changeInputValue(input, value) {
+  Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles:true }));
 }
 
 async function openRolePortal(container, label) {
@@ -335,6 +340,36 @@ test.each([
   }
 });
 
+test('demo credentials cannot be used through a different role portal', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  global.__DEMO_MODE__ = true;
+  window.history.replaceState({}, '', '/');
+  getPublicEvents.mockResolvedValue([]);
+  getUserEventAccess.mockClear();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<App />); });
+    await act(async () => { buttonWithText(container, 'Event Operations').click(); });
+    const email = container.querySelector('input[aria-label="Work email"]');
+    const password = container.querySelector('input[aria-label="Password"]');
+    await act(async () => {
+      changeInputValue(email, 'staff@apexops.demo');
+      changeInputValue(password, 'DemoAccess26!');
+    });
+    await act(async () => { buttonWithText(container, 'Sign in').click(); });
+    expect(container.textContent).toContain('This is the Staff & Delivery demo account.');
+    expect(container.textContent).not.toContain('Staff queue fixture');
+    expect(getUserEventAccess).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+    global.__DEMO_MODE__ = false;
+    window.history.replaceState({}, '', '/');
+  }
+});
+
 test('event Operations users still enter the Operations workspace', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   window.history.replaceState({}, '', '/');
@@ -510,6 +545,77 @@ test('delivery-only users enter deliveries from the Staff & Delivery portal', as
   } finally {
     await act(async () => { root.unmount(); });
     container.remove();
+    window.history.replaceState({}, '', '/');
+  }
+});
+
+test.each([
+  ['Platform Admin', 'admin@apexops.demo', 'Owner dashboard fixture', null],
+  ['Client / Organiser', 'organiser@apexops.demo', 'Client workspace fixture', 'Event Operations'],
+  ['Event Operations', 'operations@apexops.demo', 'Operations event: ESG Africa 2026', 'Client Workspace'],
+  ['Staff & Delivery', 'staff@apexops.demo', 'Staff queue fixture', 'Event Operations'],
+  ['Staff & Delivery', 'supplier@apexops.demo', 'Deliveries fixture', 'My queue'],
+  ['Exhibitor access', 'exhibitor@apexops.demo', 'Access services for your stand at this event.', 'Event Operations'],
+])('demo login for %s opens a role-scoped workspace and provides a return path', async (portal, emailAddress, expected, forbidden) => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  global.__DEMO_MODE__ = true;
+  window.history.replaceState({}, '', '/');
+  let activeEvent = null;
+  getActiveEvent.mockImplementation(() => activeEvent);
+  setActiveEvent.mockImplementation(event => { activeEvent = event; });
+  getEventSlug.mockReturnValue('esg-africa-2026');
+  getAvailableEvents.mockResolvedValue([{
+    id:'demo-event-esg-africa-2026', client_id:'demo-client-ece', slug:'esg-africa-2026',
+    name:'ESG Africa 2026', billing_exempt:true, exhibitor_code:'ESGAF-20260930',
+  }]);
+  getPublicEvents.mockResolvedValue([]);
+  getUserEventAccess.mockClear();
+  supabase.auth.getSession.mockClear();
+  supabase.auth.onAuthStateChange.mockClear();
+  supabase.auth.signInWithPassword.mockClear();
+  supabase.auth.signOut.mockClear();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<App />); });
+    await act(async () => { buttonWithText(container, portal).click(); });
+    if (portal === 'Exhibitor access') {
+      await act(async () => { buttonWithText(container, 'Sign in to exhibitor demo').click(); });
+    }
+    expect(container.textContent).toContain(emailAddress);
+    expect(container.textContent).toContain('DemoAccess26!');
+    const email = container.querySelector('input[aria-label="Work email"]');
+    const password = container.querySelector('input[aria-label="Password"]');
+    await act(async () => {
+      changeInputValue(email, emailAddress);
+      changeInputValue(password, 'DemoAccess26!');
+    });
+    await act(async () => {
+      buttonWithText(container, 'Sign in').click();
+    });
+
+    expect(container.textContent).toContain(expected);
+    if (forbidden) expect(container.textContent).not.toContain(forbidden);
+    expect(getUserEventAccess).not.toHaveBeenCalled();
+    expect(supabase.auth.getSession).not.toHaveBeenCalled();
+    expect(supabase.auth.onAuthStateChange).not.toHaveBeenCalled();
+    expect(supabase.auth.signInWithPassword).not.toHaveBeenCalled();
+
+    if (portal === 'Exhibitor access') {
+      await act(async () => { buttonWithText(container, 'Check My Status').click(); });
+    }
+    expect(buttonWithText(container, 'Back to dashboard')).toBeDefined();
+    await act(async () => { buttonWithText(container, 'Back to dashboard').click(); });
+    expect(container.textContent).toContain(portal === 'Exhibitor access' ? 'Exhibitor workspace.' : 'Everything you can do for this event');
+    await act(async () => { buttonWithText(container, 'Sign out').click(); });
+    expect(supabase.auth.signOut).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Select your portal.');
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+    global.__DEMO_MODE__ = false;
+    setActiveEvent(null);
     window.history.replaceState({}, '', '/');
   }
 });

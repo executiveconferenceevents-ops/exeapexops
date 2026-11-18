@@ -88,6 +88,8 @@ button.shell-event-chip:not(:disabled):hover { border-color: var(--ax-gold-pale)
 /* Content */
 .shell-content { flex: 1 1 640px; min-width: 0; display: flex; flex-direction: column; }
 .shell-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; padding: 14px 32px; background: #fff; border-bottom: 1px solid var(--ax-border); }
+.shell-back { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; margin-right: auto; padding: 0 12px; border: 1px solid var(--ax-border); border-radius: 12px; background: #fff; color: var(--ax-navy); font-size: 13px; font-weight: 700; cursor: pointer; }
+.shell-back:hover { border-color: var(--ax-gold); background: #fbfaf7; }
 .shell-main { width: 100%; max-width: 1180px; padding: 32px 32px 56px; }
 .shell-main.is-wide { max-width: none; padding: 0; }
 

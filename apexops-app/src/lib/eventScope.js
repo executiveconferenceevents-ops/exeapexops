@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { DEMO_MODE, getDemoCollection } from './demoStore';
+import { DEMO_CLIENT_ID, DEMO_EVENT_ID } from './demoAccounts';
 import { getCacheRecord, saveCacheRecord } from './offlineDb';
 
 const DEFAULT_EVENT_SLUG = process.env.REACT_APP_DEFAULT_EVENT_SLUG || 'esg-africa-2026';
@@ -76,9 +77,9 @@ export function clearActiveEvent() {
 
 export async function getAvailableEvents() {
   if (DEMO_MODE) {
-    const clients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events' }]);
+    const clients = getDemoCollection('clients', [{ id:DEMO_CLIENT_ID, name:'Executive Conference Events', slug:'executive-conference-events' }]);
     return getDemoCollection('events', [{
-      id:'demo-event-esg-africa-2026', client_id:clients[0]?.id || 'demo-client-ece', clients:clients[0], name:'ESG Africa 2026',
+      id:DEMO_EVENT_ID, client_id:clients[0]?.id || DEMO_CLIENT_ID, clients:clients[0], name:'ESG Africa 2026',
       event_start_date:'2026-11-18', event_end_date:'2026-11-20', build_up_start_date:'2026-11-17', build_up_end_date:'2026-11-17',
       breakdown_start_date:'2026-11-21', breakdown_end_date:'2026-11-21', next_event_name:'ESG Africa 2027',
       slug:DEFAULT_EVENT_SLUG, exhibitor_code:'ESGAF-20260930', is_public:true, billing_exempt:true, logo_url:'',
