@@ -199,6 +199,36 @@ test('Client billing submits private EFT proof into pending review', async () =>
   }
 });
 
+test('client administrators can add private suppliers in their workspace', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  const previousClients=getDemoCollection('clients',[]);
+  const previousMemberships=getDemoCollection('memberships',[]);
+  const previousEvents=getDemoCollection('events',[]);
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    setDemoCollection('clients',[sampleClient]);
+    setDemoCollection('memberships',[sampleMembership]);
+    setDemoCollection('events',[]);
+    await act(async()=>{root.render(<ClientEventAdmin clientWorkspaceOnly currentUserId={sampleMembership.user_id}/>);});
+    await act(async()=>{await Promise.resolve();await Promise.resolve();});
+    await act(async()=>{clickButton(container,'Suppliers');});
+
+    expect(container.textContent).toContain('Add a private supplier');
+    expect(container.textContent).not.toContain('Supplier changes are read-only');
+    const addSupplierButton=[...container.querySelectorAll('button')].find(button=>button.textContent.includes('Add supplier'));
+    expect(addSupplierButton).toBeTruthy();
+    expect(addSupplierButton.disabled).toBe(false);
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    setDemoCollection('clients',previousClients);
+    setDemoCollection('memberships',previousMemberships);
+    setDemoCollection('events',previousEvents);
+  }
+});
+
 test('creates a demo event with its selected logo', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT=true;
   const originalCrypto=window.crypto;
