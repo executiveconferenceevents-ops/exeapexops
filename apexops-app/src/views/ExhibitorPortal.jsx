@@ -1,0 +1,128 @@
+// ─── Exhibitor private link: fascia name, logo & documents ───────────────────
+// Opened with ?portal=<token>. Only the exhibitor who receives the link can see it.
+// [APEX exhibitor services 1]
+import React, { useCallback, useEffect, useState } from 'react';
+import { Check, FileText, ImagePlus, Info, Lock, Upload } from 'lucide-react';
+import { formatDay, formatDayTime, getExhibitorPortal, rand, saveExhibitorFascia, uploadExhibitorFile } from '../lib/exhibitorServices';
+import './exhibitor-services.css';
+
+const LOGO_TYPES = '.ai,.eps,.pdf,.svg,.png,.jpg,.jpeg,.tif,.tiff';
+const DOC_TYPES = '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip';
+
+export default function ExhibitorPortal({ token, onOrderFurniture }) {
+  const [data, setData] = useState(null);
+  const [fascia, setFascia] = useState('');
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState('');
+
+  const load = useCallback(async () => {
+    try { const d = await getExhibitorPortal(token); setData(d); setFascia(d.fascia_name || ''); setError(''); }
+    catch (e) { setError(e.message); }
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+
+  const saveFascia = async () => {
+    setBusy('fascia'); setNotice('');
+    try { await saveExhibitorFascia(token, fascia); setNotice('Fascia name saved. The organiser will check it before printing.'); await load(); }
+    catch (e) { setError(e.message); } finally { setBusy(''); }
+  };
+  const upload = async (kind, files) => {
+    if (!files?.length) return;
+    setBusy(kind); setNotice(''); setError('');
+    try { for (const f of files) await uploadExhibitorFile(token, kind, f); setNotice(`${files.length} file${files.length === 1 ? '' : 's'} uploaded.`); await load(); }
+    catch (e) { setError(e.message); } finally { setBusy(''); }
+  };
+
+  if (error && !data) {
+    return <div className="es es-public"><header className="es-hero"><div className="es-eyebrow">Exhibitor services</div><h1>Link <em>not valid</em></h1><p>{error}</p></header>
+      <main className="es-public-main"><div className="es-card es-pad">Please ask the organiser to send your stand's link again.</div></main></div>;
+  }
+  if (!data) return <div className="es es-public"><header className="es-hero"><h1>Loading…</h1></header></div>;
+
+  const closed = data.open === false;
+  const logos = data.files.filter(f => f.kind === 'logo');
+  const docs = data.files.filter(f => f.kind === 'document');
+
+  return (
+    <div className="es es-public">
+      <header className="es-hero">
+        <div className="es-eyebrow">{data.event?.name}{data.event?.start ? ` · ${formatDay(data.event.start)}` : ''}</div>
+        <h1>{data.exhibitor_name || 'Your stand'} <em>· {data.stand}</em></h1>
+        <p><Lock size={13} style={{ verticalAlign: -2 }} /> This page is private to your stand. Please don't share the link.</p>
+      </header>
+      <main className="es-public-main">
+        {closed && <div className="es-alert es-alert--note">This event is archived. You can still see your details, but changes are closed.</div>}
+        {notice && <div className="es-alert es-alert--ok" role="status"><Check size={15} style={{ verticalAlign: -3 }} /> {notice}</div>}
+        {error && <div className="es-alert es-alert--error">{error}</div>}
+
+        {/* Package */}
+        <div className="es-card es-pad es-stack">
+          <div className="es-eyebrow">Your package</div>
+          {data.package ? (
+            <>
+              <h2 className="es-h2">{data.package.name}</h2>
+              {data.package.description && <p className="es-small es-muted" style={{ margin: 0 }}>{data.package.description}</p>}
+              {data.package.features?.length > 0 && <div className="es-feature-list">{data.package.features.map(f => <span key={f.key} className={`es-feature ${f.key === 'fascia_logo' ? 'is-logo' : ''}`}><Check size={13} strokeWidth={2.25} /> {f.label}</span>)}</div>}
+              <div className="es-pkg" style={{ padding: 0 }}><ul>{(data.package.items || []).map((it, i) => <li key={i}><b>{it.qty}×</b>{it.label}</li>)}</ul></div>
+            </>
+          ) : <p className="es-muted" style={{ margin: 0 }}>The organiser hasn't linked a package to your stand yet.</p>}
+          {onOrderFurniture && !closed && <button className="es-btn" style={{ alignSelf: 'flex-start' }} onClick={onOrderFurniture}>Need more? Order furniture</button>}
+        </div>
+
+        {/* Fascia */}
+        <div className="es-card es-pad es-stack">
+          <div className="es-row"><div className="es-grow"><div className="es-eyebrow">Fascia board</div><h2 className="es-h2">Name on your <em>fascia</em></h2></div>
+            <span className={`es-badge ${data.fascia_status === 'approved' ? 'es-badge--green' : data.fascia_status === 'submitted' ? 'es-badge--amber' : ''}`}>{data.fascia_status === 'approved' ? 'Approved' : data.fascia_status === 'submitted' ? 'Sent for approval' : 'Please confirm'}</span></div>
+          <p className="es-small es-muted" style={{ margin: 0 }}>Type it exactly as it must be printed. Maximum 40 characters.</p>
+          <input className="es-input" maxLength={40} value={fascia} disabled={closed || data.fascia_status === 'approved'} onChange={e => setFascia(e.target.value)} placeholder="Company name" aria-label="Fascia name" />
+          <div className="es-fascia" aria-hidden>{fascia || 'Your company name'}</div>
+          {data.fascia_status === 'approved'
+            ? <p className="es-small es-muted" style={{ margin: 0 }}>Approved for printing. Contact the organiser if it must change.</p>
+            : <button className="es-btn es-btn--primary" style={{ alignSelf: 'flex-start' }} disabled={closed || busy === 'fascia' || !fascia.trim()} onClick={saveFascia}><Check size={16} /> {busy === 'fascia' ? 'Saving…' : 'Confirm fascia name'}</button>}
+        </div>
+
+        {/* Logo */}
+        <div className="es-card es-pad es-stack">
+          <div className="es-eyebrow">Logo</div>
+          <h2 className="es-h2">High-resolution <em>logo</em></h2>
+          <div className="es-alert es-alert--note" style={{ display: 'flex', gap: 10 }}>
+            <Info size={18} strokeWidth={1.75} style={{ flex: '0 0 18px', marginTop: 1 }} />
+            <span>
+              {data.logo_terms || 'Logos are only printed on fascia boards when included in your package or paid for.'}{' '}
+              {data.logo_included ? <strong>Your logo is included and will be printed.</strong> : <strong>A logo is not included in your package, so it will not be supplied or printed on your fascia unless you arrange and pay for it with the organiser.</strong>}
+            </span>
+          </div>
+          <p className="es-small es-muted" style={{ margin: 0 }}>Best: vector (AI, EPS, SVG or PDF). Otherwise PNG/JPG at least 3000 px wide. Up to 50 MB.</p>
+          <label className={`es-btn es-file ${closed ? '' : 'es-btn--blue'}`} style={{ alignSelf: 'flex-start' }} aria-disabled={closed}>
+            <ImagePlus size={16} strokeWidth={1.75} /> {busy === 'logo' ? 'Uploading…' : 'Upload logo'}
+            <input type="file" accept={LOGO_TYPES} disabled={closed || Boolean(busy)} onChange={e => { upload('logo', [...e.target.files]); e.target.value = ''; }} />
+          </label>
+          {logos.map(f => <div key={f.file_name + f.uploaded_at} className="es-small"><Check size={14} color="#1f9d5b" style={{ verticalAlign: -2 }} /> {f.file_name} <span className="es-muted">· {formatDayTime(f.uploaded_at)}</span></div>)}
+        </div>
+
+        {/* Documents */}
+        <div className="es-card es-pad es-stack">
+          <div className="es-eyebrow">Documents</div>
+          <h2 className="es-h2">Stand <em>documents</em></h2>
+          <p className="es-small es-muted" style={{ margin: 0 }}>Artwork, stand drawings, safety documents or anything the organiser asked for.</p>
+          <label className="es-btn es-file" style={{ alignSelf: 'flex-start' }}>
+            <Upload size={16} strokeWidth={1.75} /> {busy === 'document' ? 'Uploading…' : 'Upload documents'}
+            <input type="file" multiple accept={DOC_TYPES} disabled={closed || Boolean(busy)} onChange={e => { upload('document', [...e.target.files]); e.target.value = ''; }} />
+          </label>
+          {docs.map(f => <div key={f.file_name + f.uploaded_at} className="es-small"><FileText size={14} strokeWidth={1.75} style={{ verticalAlign: -2 }} /> {f.file_name} <span className="es-muted">· {formatDayTime(f.uploaded_at)}</span></div>)}
+        </div>
+
+        {/* Orders */}
+        {data.orders?.length > 0 && (
+          <div className="es-card es-pad">
+            <div className="es-eyebrow">Your orders</div>
+            {data.orders.map(o => (
+              <div key={o.ref} className="es-summary-line"><strong>{o.ref}</strong><span className="es-grow es-small es-muted">{o.delivery_at ? `Deliver by ${formatDayTime(o.delivery_at)}` : ''}</span><span className="es-badge">{o.status}</span><strong>{rand(o.total_payable)}</strong></div>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
