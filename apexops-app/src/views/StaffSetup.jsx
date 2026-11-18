@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { addStaff, CATEGORIES, getStaff, normalizeDepartments, readableError, removeStaff, updateStaff, updateSupplierLogo, upsertStaffRecords } from '../lib/mock';
+import { addStaff, CATEGORIES, getQueries, getStaff, normalizeDepartments, readableError, removeStaff, updateStaff, updateSupplierLogo, upsertStaffRecords } from '../lib/mock';
 import { downloadWorkbook, readWorkbookRows } from '../lib/workbook';
 import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, TEAL, CORAL, BG, FONT } from '../theme';
+import StaffQuickTabs from '../components/StaffQuickTabs';
+import './StaffSetup.css';
 
-export default function StaffSetup() {
+export default function StaffSetup({ onViewJobs }) {
   const [staff, setStaff] = useState([]);
+  const [queries, setQueries] = useState([]);
+  const [directoryTab, setDirectoryTab] = useState('staff');
+  const [staffFilter, setStaffFilter] = useState('ALL');
+  const [supplierEdit, setSupplierEdit] = useState(null);
   const formRef = useRef(null);
   const emptyForm = { supplier_name: '', name: '', email: '', category: '', departments: [], mobile: '', photo: null };
   const [form, setForm] = useState(emptyForm);
@@ -19,6 +25,11 @@ export default function StaffSetup() {
       setError(rows.some(member => member.departmentsMigrationPending)
         ? 'Existing staff are shown, but multiple departments cannot be saved until you run supabase/staff-departments-migration.sql in the Supabase SQL Editor.'
         : '');
+      try {
+        setQueries(await getQueries());
+      } catch (queryError) {
+        setError(readableError(queryError, 'Staff loaded, but assigned jobs could not be loaded.'));
+      }
     } catch (loadError) {
       setError(readableError(loadError, 'Could not load staff members.'));
     }
@@ -68,6 +79,8 @@ export default function StaffSetup() {
 
   function edit(member) {
     setEditing(member);
+    setDirectoryTab('staff');
+    setStaffFilter('ALL');
     const departments = normalizeDepartments(member.departments, member.category);
     setForm({ supplier_name: member.supplier_name || '', name: member.name, email: member.email || '', category: departments[0] || '', departments, mobile: member.mobile || '', photo: null });
     setError('');
@@ -76,15 +89,62 @@ export default function StaffSetup() {
 
   async function save(event) {
     event.preventDefault();
-    if (!form.name.trim() || !form.departments.length) return;
+    if (!form.supplier_name.trim()) {
+      setError('Enter the supplier or company name.');
+      return;
+    }
+    if (!form.name.trim()) {
+      setError('Enter the staff member’s name.');
+      return;
+    }
+    if (!form.departments.length) {
+      setError('Select at least one department.');
+      return;
+    }
+    setError('');
+    setMessage('');
     try {
       if (editing) await updateStaff(editing.id, form);
       else await addStaff(form);
       setEditing(null);
       setForm(emptyForm);
       await refresh();
+      setMessage(editing ? 'Staff member updated.' : 'Staff member added.');
     } catch (saveError) {
         setError(readableError(saveError, 'Could not save staff member.'));
+    }
+  }
+
+  async function saveSupplierName(event) {
+    event.preventDefault();
+    const oldName = supplierEdit?.original || '';
+    const newName = String(supplierEdit?.name || '').trim();
+    if (!newName) {
+      setError('Enter a supplier name.');
+      return;
+    }
+    setError('');
+    setMessage('');
+    const affected = staff.filter(member => String(member.supplier_name || '').toLowerCase() === oldName.toLowerCase());
+    try {
+      await upsertStaffRecords(affected.map(member => ({ ...member, supplier_name:newName })));
+      setSupplierEdit(null);
+      setMessage(`${oldName} updated for ${affected.length} staff member${affected.length === 1 ? '' : 's'}.`);
+      await refresh();
+    } catch (saveError) {
+      setError(readableError(saveError, 'Could not update the supplier name.'));
+    }
+  }
+
+  async function removeSupplierFromDirectory(supplierName) {
+    const affected = staff.filter(member => String(member.supplier_name || '').toLowerCase() === supplierName.toLowerCase());
+    if (!window.confirm(`Remove ${supplierName} from the supplier list? Its ${affected.length} staff record${affected.length === 1 ? '' : 's'} will be kept without a supplier assignment.`)) return;
+    try {
+      await upsertStaffRecords(affected.map(member => ({ ...member, supplier_name:'' })));
+      setMessage(`${supplierName} removed. Staff records were kept.`);
+      await refresh();
+    } catch (removeError) {
+      setError(readableError(removeError, 'Could not remove the supplier.'));
     }
   }
 
@@ -93,6 +153,7 @@ export default function StaffSetup() {
     try {
       await removeStaff(member.id);
       await refresh();
+      setMessage(`${member.name} removed from the staff list.`);
     } catch (removeError) {
         setError(readableError(removeError, 'Could not remove staff member.'));
     }
@@ -107,54 +168,81 @@ export default function StaffSetup() {
     }
   }
 
+  const supplierGroups = [...staff.reduce((groups, member) => {
+    const name = String(member.supplier_name || '').trim();
+    if (!name) return groups;
+    const key = name.toLowerCase();
+    if (!groups.has(key)) groups.set(key, { name, members:[] });
+    groups.get(key).members.push(member);
+    return groups;
+  }, new Map()).values()];
+  const visibleStaff = staffFilter === 'ALL' ? staff : staff.filter(member => String(member.id) === String(staffFilter));
+
   return (
     <div className="apex-service-screen staff-directory-screen" style={{ fontFamily: FONT, minHeight: '100vh', background:'linear-gradient(180deg, #e6eff5 0%, #f3f4f2 54%, #e9f0f4 100%)', color:NAVY }}>
       <header className="apex-service-header" style={{ background:`linear-gradient(110deg, ${NAVY_DEEP}, ${NAVY})`, color:'#fff', padding:'18px 32px', display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow:'0 2px 14px rgba(13,26,50,.16)' }}>
-        <div><div style={{ color:GOLD_PALE, fontWeight:700, fontSize:18, letterSpacing:2 }}>APEXOPS™</div><div style={{ color:'rgba(255,255,255,.58)', fontSize:10, letterSpacing:1.6, textTransform:'uppercase', marginTop:4 }}>Supplier directory</div></div>
+        <div><div style={{ color:GOLD_PALE, fontWeight:700, fontSize:18, letterSpacing:2 }}>APEXOPS™</div><div style={{ color:'rgba(255,255,255,.58)', fontSize:10, letterSpacing:1.6, textTransform:'uppercase', marginTop:4 }}>People &amp; suppliers</div></div>
         <div style={{ fontSize:12, color:'rgba(255,255,255,.72)' }}>People &amp; delivery partners</div>
       </header>
       <main className="apex-service-main directory-main" style={{ maxWidth: 1280, width:'calc(100% - 48px)', margin: '0 auto', padding:'34px 0 64px' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'end', gap:20, marginBottom:22 }}><div><div style={eyebrow}>Operations directory</div><h2 style={{ color: NAVY, margin:'6px 0 0', fontSize:28 }}>Suppliers</h2><div style={{ color:'#687780', fontSize:13, marginTop:6 }}>Manage the operational supplier team and their direct contacts.</div></div><div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}><button type="button" onClick={downloadReport} style={secondaryButton}>Export supplier report</button><button type="button" onClick={downloadTemplate} style={secondaryButton}>Download Excel template</button><label style={{ ...primaryButton, cursor:'pointer', whiteSpace:'nowrap' }}>Import CSV / Excel<input type="file" accept=".csv,.xlsx,.xls" onChange={importWorkbook} style={{ display:'none' }} /></label></div></div>
-        <form className="directory-form" ref={formRef} onSubmit={save} style={{ background:'linear-gradient(135deg, #fff 0%, #f8fbfd 100%)', padding:22, borderRadius:14, marginBottom:22, border:'1px solid #dce7ed', borderTop:`3px solid ${TEAL}`, boxShadow:'0 10px 26px rgba(13,26,50,.08)', scrollMarginTop:20 }}>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <input required value={form.supplier_name} placeholder="Supplier name" onChange={e => setForm({ ...form, supplier_name: e.target.value })} style={inputStyle} />
-            <input required value={form.name} placeholder="Staff name" onChange={e => setForm({ ...form, name: e.target.value })} style={inputStyle} />
-            <input type="email" value={form.email} placeholder="Email address" onChange={e => setForm({ ...form, email: e.target.value })} style={inputStyle} />
-            <input value={form.mobile} placeholder="Mobile / cellphone" onChange={e => setForm({ ...form, mobile: e.target.value })} style={inputStyle} />
-            <button type="submit" style={primaryButton}>{editing ? 'Save changes' : 'Add supplier'}</button>
-            {editing && <button type="button" onClick={() => { setEditing(null); setForm(emptyForm); }} style={secondaryButton}>Cancel</button>}
-          </div>
-          <fieldset style={{ border:'1px solid #dce7ed', borderRadius:6, margin:'14px 0 0', padding:'10px 12px' }}>
-            <legend style={{ fontSize:12, fontWeight:700, color:NAVY, padding:'0 5px' }}>Departments</legend>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))', gap:'8px 14px' }}>
-              {CATEGORIES.map(category => <label key={category} style={{ display:'flex', alignItems:'center', gap:7, fontSize:12, color:'#40515b' }}>
-                <input type="checkbox" checked={form.departments.includes(category)} onChange={event => {
-                  setForm(current => {
-                    const departments = event.target.checked
-                      ? [...current.departments, category]
-                      : current.departments.filter(item => item !== category);
-                    return { ...current, departments, category: departments[0] || '' };
-                  });
-                }} />
-                {category}
-              </label>)}
+        <div className="staff-directory-heading"><div><div style={eyebrow}>Operations directory</div><h2 style={{ color:NAVY, margin:'6px 0 0', fontSize:28 }}>People &amp; suppliers</h2><div style={{ color:'#687780', fontSize:13, marginTop:6 }}>Keep supplier companies and their assigned staff easy to find.</div></div><div className="staff-directory-actions"><button type="button" onClick={downloadReport} style={secondaryButton}>Export directory</button><button type="button" onClick={downloadTemplate} style={secondaryButton}>Download template</button><label style={{ ...primaryButton, cursor:'pointer', whiteSpace:'nowrap' }}>Import CSV / Excel<input type="file" accept=".csv,.xlsx,.xls" onChange={importWorkbook} style={{ display:'none' }} /></label></div></div>
+        <div className="staff-directory-tabs" role="tablist" aria-label="Directory sections">
+          <button type="button" role="tab" aria-selected={directoryTab==='staff'} className={directoryTab==='staff'?'is-active':''} onClick={()=>setDirectoryTab('staff')}>Staff <span>{staff.length}</span></button>
+          <button type="button" role="tab" aria-selected={directoryTab==='suppliers'} className={directoryTab==='suppliers'?'is-active':''} onClick={()=>setDirectoryTab('suppliers')}>Suppliers <span>{supplierGroups.length}</span></button>
+        </div>
+        {message && <div className="staff-directory-message" role="status">{message}</div>}
+        {error && <div className="staff-directory-error" role="alert">{error}</div>}
+        {directoryTab==='staff' && <>
+          <StaffQuickTabs staff={staff} selectedId={staffFilter} onSelect={setStaffFilter} rows={queries} label="Filter staff directory" />
+          <form className="directory-form" ref={formRef} onSubmit={save} style={{ background:'linear-gradient(135deg, #fff 0%, #f8fbfd 100%)', padding:22, borderRadius:14, marginBottom:22, border:'1px solid #dce7ed', borderTop:`3px solid ${TEAL}`, boxShadow:'0 10px 26px rgba(13,26,50,.08)', scrollMarginTop:20 }}>
+            <h3 className="staff-form-title">{editing ? 'Edit staff member' : 'Add staff member'}</h3>
+            <div className="staff-form-fields">
+              <input required value={form.name} placeholder="Staff member name" aria-label="Staff member name" onChange={e => setForm({ ...form, name:e.target.value })} style={inputStyle} />
+              <input required value={form.supplier_name} placeholder="Supplier / company" aria-label="Supplier or company" onChange={e => setForm({ ...form, supplier_name:e.target.value })} style={inputStyle} />
+              <input type="email" value={form.email} placeholder="Email address (optional)" aria-label="Email address" onChange={e => setForm({ ...form, email:e.target.value })} style={inputStyle} />
+              <input value={form.mobile} placeholder="Mobile (optional)" aria-label="Mobile number" onChange={e => setForm({ ...form, mobile:e.target.value })} style={inputStyle} />
             </div>
-          </fieldset>
-          <label style={{ display:'block', marginTop:10, fontSize:12, color:'#555' }}>
-            Supplier/staff photo <input type="file" accept="image/*" onChange={e => setForm({ ...form, photo: e.target.files[0] || null })} />
-          </label>
-          {message && <div style={{ color:'#1E8449', marginTop:10, fontSize:13 }}>{message}</div>}
-          {error && <div style={{ color: '#C0392B', marginTop: 10, fontSize: 13 }}>{error}</div>}
-        </form>
-        {staff.map(member => (
-          <div key={member.id} className="directory-row" style={rowStyle}>
-            {member.photo_url ? <img src={member.photo_url} alt={`${member.name} profile`} style={photoStyle} /> : <div style={photoFallback}>{initials(member.name)}</div>}
-            <div style={{ flex:'0 0 420px', minWidth:0 }}><strong style={{ display:'block', color:NAVY }}>{member.supplier_name || 'Supplier not assigned'}</strong><div style={{ color:'#40515b', fontSize:13, marginTop:4, fontWeight:600 }}>{member.name}</div><div style={{ color:'#78858b', fontSize:12, marginTop:5 }}>{(member.departments || [member.category]).filter(Boolean).join(', ')}</div><div style={{ fontSize:12, marginTop:3 }}>{member.email ? <a href={`mailto:${firstContact(member.email)}`} style={contactLink}>Email: {member.email}</a> : <span style={{ color:'#78858b' }}>Email not recorded</span>}</div><div style={{ fontSize:12, marginTop:3, fontWeight:600 }}>{member.mobile ? <a href={whatsappLink(member.mobile)} target="_blank" rel="noreferrer" style={contactLink}>Mobile: {member.mobile}</a> : <span style={{ color:'#78858b' }}>Mobile not recorded</span>}</div></div>
-            <div style={{ marginLeft:'auto', marginRight:'auto', display:'grid', justifyItems:'center', gap:5 }}><SupplierLogoTile member={member} onSaved={refresh} onError={setError} /><button type="button" onClick={() => clearSupplierLogo(member)} style={clearLogoButton}>Clear logo</button></div>
-            <button onClick={() => edit(member)} style={secondaryButton}>Edit</button>
-            <button onClick={() => remove(member)} style={deleteButton}>Remove</button>
-          </div>
-        ))}
+            <fieldset className="staff-departments">
+              <legend>Departments <small>Select all that apply</small></legend>
+              <div className="staff-dept-grid">
+                {CATEGORIES.map(category => <label className={`staff-dept-option${form.departments.includes(category)?' is-selected':''}`} key={category}>
+                  <input type="checkbox" checked={form.departments.includes(category)} onChange={event => {
+                    setForm(current => {
+                      const departments = event.target.checked
+                        ? [...current.departments, category]
+                        : current.departments.filter(item => item !== category);
+                      return { ...current, departments, category:departments[0] || '' };
+                    });
+                  }} />
+                  <span>{category}</span>
+                </label>)}
+              </div>
+            </fieldset>
+            <label className="staff-photo-field">Profile photo <input type="file" accept="image/*" onChange={e => setForm({ ...form, photo:e.target.files[0] || null })} /></label>
+            <div className="staff-form-actions"><button type="submit" style={primaryButton}>{editing ? 'Save changes' : 'Add staff member'}</button>{editing && <button type="button" onClick={() => { setEditing(null); setForm(emptyForm); }} style={secondaryButton}>Cancel</button>}</div>
+          </form>
+          {visibleStaff.map(member => (
+            <div key={member.id} className="directory-row" style={rowStyle}>
+              {member.photo_url ? <img src={member.photo_url} alt={`${member.name} profile`} style={photoStyle} /> : <div style={photoFallback}>{initials(member.name)}</div>}
+              <div className="staff-directory-member"><strong>{member.name}</strong><span>{member.supplier_name || 'Supplier not assigned'}</span><small>{(member.departments || [member.category]).filter(Boolean).join(', ')}</small><div className="staff-contact-links">{member.email ? <a href={`mailto:${firstContact(member.email)}`} style={contactLink}>Email</a> : <span>Email not recorded</span>}{member.mobile ? <a href={whatsappLink(member.mobile)} target="_blank" rel="noreferrer" style={contactLink}>Mobile</a> : <span>Mobile not recorded</span>}</div></div>
+              <div className="staff-directory-logo"><SupplierLogoTile member={member} onSaved={refresh} onError={setError} /><button type="button" onClick={() => clearSupplierLogo(member)} style={clearLogoButton}>Clear logo</button></div>
+              <div className="staff-directory-row-actions">{onViewJobs && <button type="button" onClick={()=>onViewJobs(member.id)} style={secondaryButton}>View jobs</button>}<button type="button" onClick={() => edit(member)} style={secondaryButton}>Edit</button><button type="button" onClick={() => remove(member)} style={deleteButton}>Remove</button></div>
+            </div>
+          ))}
+          {!visibleStaff.length && <p className="tenant-empty">{staff.length ? 'No staff member matches this filter.' : 'No staff members yet. Add the first staff member above.'}</p>}
+        </>}
+        {directoryTab==='suppliers' && <section className="staff-supplier-list" aria-label="Supplier companies">
+          <div className="staff-supplier-intro"><p>Supplier companies are grouped from the staff records below. Editing a supplier name updates every linked staff member; removing a supplier keeps its staff records and clears only the company assignment.</p><button type="button" onClick={()=>{setDirectoryTab('staff');setEditing(null);setForm(emptyForm);window.requestAnimationFrame(()=>formRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));}}>Add supplier &amp; staff</button></div>
+          {supplierEdit && <form className="staff-supplier-edit" onSubmit={saveSupplierName}><label>Supplier name<input required value={supplierEdit.name} onChange={event=>setSupplierEdit(current=>({...current,name:event.target.value}))}/></label><button type="submit" style={primaryButton}>Save name</button><button type="button" style={secondaryButton} onClick={()=>setSupplierEdit(null)}>Cancel</button></form>}
+          {supplierGroups.map(group=>{
+            const representative=group.members.find(member=>member.supplier_logo_url)||group.members[0];
+            return <article className="staff-supplier-card" key={group.name.toLowerCase()}>
+              <div className="staff-supplier-card-head">{representative?.supplier_logo_url?<img src={representative.supplier_logo_url} alt={`${group.name} logo`}/>:<div className="staff-supplier-initials">{initials(group.name)}</div>}<div><h3>{group.name}</h3><span>{group.members.length} staff member{group.members.length===1?'':'s'}</span></div><div className="staff-supplier-actions"><button type="button" style={secondaryButton} onClick={()=>{setDirectoryTab('staff');setForm({...emptyForm,supplier_name:group.name});setEditing(null);window.requestAnimationFrame(()=>formRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));}}>Add staff</button><button type="button" style={secondaryButton} onClick={()=>setSupplierEdit({original:group.name,name:group.name})}>Edit supplier</button><button type="button" style={deleteButton} onClick={()=>removeSupplierFromDirectory(group.name)}>Remove supplier</button></div></div>
+              <div className="staff-supplier-members">{group.members.map(member=><span key={member.id}>{member.name} <small>{(member.departments||[member.category]).filter(Boolean).join(', ')}</small></span>)}</div>
+            </article>;
+          })}
+          {!supplierGroups.length && <p className="tenant-empty">No supplier companies yet. Add a staff member and assign their company to create the first supplier entry.</p>}
+        </section>}
       </main>
     </div>
   );

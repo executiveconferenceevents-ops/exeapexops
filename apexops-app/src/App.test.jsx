@@ -424,8 +424,8 @@ test('a Platform Owner with a client membership enters client-only mode from cli
 
 test.each([
   ['staff', ['Home','My queue'], ['Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query','Rebooking','Events & team']],
-  ['ops', ['Home','My queue','Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query','Rebooking'], ['Events & team']],
-  ['client_admin', ['Home','My queue','Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query','Rebooking','Events & team'], []],
+  ['ops', ['Home','My queue','Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query'], ['Rebooking','Events & team']],
+  ['client_admin', ['Home','My queue','Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query','Events & team'], ['Rebooking']],
 ])('shared menu exposes only %s role tools and stays visible inside them', async(role, allowed, forbidden)=>{
   globalThis.IS_REACT_ACT_ENVIRONMENT=true;
   let activeEvent=null;
@@ -449,7 +449,7 @@ test.each([
     const expectedViews={
       'Event operations':'Operations event: Role event','My queue':'Staff queue fixture','Suppliers & staff':'Staff setup fixture',
       'People':'People setup fixture','Exhibitors':'Exhibitor setup fixture','Exhibitor view':'Exhibitor status fixture',
-      'Log a query':'Client query fixture','Rebooking':'Rebooking fixture','Events & team':'Client workspace fixture',
+      'Log a query':'Client query fixture','Events & team':'Client workspace fixture',
     };
     for (const [label, expected] of Object.entries(expectedViews)) {
       if (!allowed.includes(label)) continue;

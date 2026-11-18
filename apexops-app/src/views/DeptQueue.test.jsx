@@ -26,8 +26,8 @@ test('staff can start and complete an assigned job, then undo', async()=>{
   const root=createRoot(container);
   try {
     await act(async()=>{root.render(<DeptQueue />);});
-    const picker=container.querySelector('select[aria-label="Choose staff member"]');
-    await act(async()=>{picker.value='staff-1';picker.dispatchEvent(new Event('change',{bubbles:true}));});
+    const picker=container.querySelector('button[aria-label^="Alex Example"]');
+    await act(async()=>{picker.click();});
     const button=text=>[...container.querySelectorAll('button')].find(item=>item.textContent.trim()===text);
     await act(async()=>{button('Start').click();});
     expect(updateQuery).toHaveBeenLastCalledWith('Q-101',expect.objectContaining({status:'IN PROGRESS'}));

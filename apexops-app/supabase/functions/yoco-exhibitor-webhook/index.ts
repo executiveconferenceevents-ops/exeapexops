@@ -41,10 +41,12 @@ Deno.serve(async request => {
     return respond(403,'Yoco webhook signature is invalid.');
   }
   const eventType=String(payload?.type||payload?.event_type||'');
-  if (!['payment.succeeded','checkout.completed','payment.created'].includes(eventType)) return respond(200,'IGNORED');
+  if (!['payment.succeeded','checkout.completed'].includes(eventType)) return respond(200,'IGNORED');
   const providerTransactionId=String(payload?.payload?.id||payload?.id||payload?.payload?.paymentId||deliveryId);
   const amount=Number(payload?.payload?.amount||payload?.amount||0);
   if (amount!==Number(checkout.amount_cents)||checkout.status==='settled') return checkout.status==='settled'?respond(200,'OK'):respond(400,'Yoco amount does not match the invoice.');
+  const currency=String(payload?.payload?.currency||payload?.currency||'ZAR').toUpperCase();
+  if (currency!=='ZAR') return respond(400,'Yoco currency does not match the invoice.');
   if (new Date(checkout.expires_at).getTime()<=Date.now()) return respond(409,'Checkout session is no longer active.');
 
   const {error:settlementError}=await service.rpc('settle_exhibitor_invoice_payment',{
@@ -56,9 +58,11 @@ Deno.serve(async request => {
     requested_idempotency_key:crypto.randomUUID(),
   });
   if (settlementError) return respond(409,'Verified payment requires reconciliation.');
-  await service.from('exhibitor_payment_checkouts').update({
+  const {error:checkoutUpdateError}=await service.from('exhibitor_payment_checkouts').update({
     status:'settled',provider_transaction_id:providerTransactionId,completed_at:new Date().toISOString(),
   }).eq('id',checkoutId);
-  await service.from('exhibitor_webhook_deliveries').insert({provider:'yoco',delivery_id:deliveryId}).catch(()=>{});
+  if (checkoutUpdateError) return respond(500,'Payment settled; checkout status requires reconciliation.');
+  const {error:deliveryError}=await service.from('exhibitor_webhook_deliveries').insert({provider:'yoco',delivery_id:deliveryId});
+  if (deliveryError&&deliveryError.code!=='23505') return respond(500,'Payment settled; webhook delivery could not be recorded.');
   return respond(200,'OK');
 });

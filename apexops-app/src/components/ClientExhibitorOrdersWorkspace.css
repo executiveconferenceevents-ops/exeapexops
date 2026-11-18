@@ -1,0 +1,52 @@
+.client-exhibitor-note {
+  margin: 0 0 16px;
+  padding: 11px 14px;
+  border: 1px solid #e5dbc6;
+  border-radius: 8px;
+  background: #fbf8f1;
+  color: #5d513b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.client-exhibitor-settings {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 18px;
+  border: 1px solid #e2e7ec;
+  border-radius: 12px;
+  background: #fff;
+}
+.client-exhibitor-settings>div h3 { margin: 0; color: #1b2a4a; font-size: 16px; }
+.client-exhibitor-settings>div p { margin: 5px 0 0; color: #64778a; font-size: 12px; line-height: 1.5; }
+.client-exhibitor-settings .tenant-form {
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 12px;
+  padding-top: 14px;
+}
+.client-exhibitor-settings .client-exhibitor-toggle {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #dfe6ea;
+  border-radius: 7px;
+  background: #f8fafb;
+  color: #32495b !important;
+  font-size: 11px !important;
+}
+.client-exhibitor-settings .client-exhibitor-toggle input { width: 15px; min-height: 15px; accent-color: #315c78; }
+.client-exhibitor-secret-note {
+  grid-column: 1/-1;
+  margin: 0;
+  color: #667780;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.client-exhibitor-secret-note code { color: #1b2a4a; font-weight: 700; }
+@media (max-width: 700px) {
+  .client-exhibitor-settings { padding: 13px; }
+  .client-exhibitor-settings .tenant-form { grid-template-columns: 1fr; }
+  .client-exhibitor-secret-note { grid-column: auto; }
+}

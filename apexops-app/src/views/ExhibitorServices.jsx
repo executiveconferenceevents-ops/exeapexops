@@ -8,9 +8,9 @@ import { downloadWorkbook } from '../lib/workbook';
 import { getActiveEvent } from '../lib/eventScope';
 import {
   DEFAULT_SETTINGS, PACKAGE_TEMPLATE_COLUMNS, SHELL_SIZES, STANDARD_FEATURES, createStandardPackages, featureFromLabel, hasLogo, PACKAGE_TEMPLATE_EXAMPLE, STOCK_TEMPLATE_COLUMNS, STOCK_TEMPLATE_EXAMPLE,
-  deliveryRows, eventAccessWindow, formatDay, formatDayTime, getCatalogue, getExhibitorFileUrl, getExhibitorProfiles, getOrderSettings,
+  deliveryRows, eventAccessWindow, formatDay, formatDayTime, getCatalogue, getEventExhibitorPayments, getExhibitorFileUrl, getExhibitorPaymentProofUrl, getExhibitorProfiles, getOrderSettings,
   getOrders, getPackages, importCatalogue, importPackages, packageInfrastructure, parsePackageRows, parseStockRows,
-  portalLink, priceBreakdown, rand, rand2, readServiceImportRows, removeCatalogueItem, removePackage, saveCatalogueItem, saveExhibitorProfile, saveOrderSettings,
+  portalLink, priceBreakdown, rand, rand2, readServiceImportRows, removeCatalogueItem, removePackage, reviewExhibitorEft, saveCatalogueItem, saveExhibitorProfile, saveOrderSettings,
   savePackage, stockTotals, updateOrder, uploadCataloguePhoto,
 } from '../lib/exhibitorServices';
 import './exhibitor-services.css';
@@ -30,6 +30,8 @@ export default function ExhibitorServices({ initialTab = 'orders', onOpenShop })
   const [packages, setPackages] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [exhibitorPayments, setExhibitorPayments] = useState({ invoices:[], payments:[] });
+  const [paymentLoadError, setPaymentLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
   const event = getActiveEvent();
@@ -39,6 +41,14 @@ export default function ExhibitorServices({ initialTab = 'orders', onOpenShop })
     try {
       const [s, c, p, pr, o] = await Promise.all([getOrderSettings(), getCatalogue(), getPackages(), getExhibitorProfiles(), getOrders()]);
       setSettings(s); setCatalogue(c); setPackages(p); setProfiles(pr); setOrders(o);
+      try {
+        setExhibitorPayments(await getEventExhibitorPayments());
+        setPaymentLoadError('');
+      } catch (paymentError) {
+        setPaymentLoadError(/exhibitor_invoices|exhibitor_payments|PGRST20|42P01/i.test(`${paymentError?.code||''} ${paymentError?.message||''}`)
+          ? 'Exhibitor invoice and EFT review tables are not installed yet. Review the exhibitor invoice/payment migration before applying it.'
+          : paymentError.message||'Could not load exhibitor payment records.');
+      }
     } catch (error) { setMessage({ tone: 'error', text: error.message }); }
     finally { setLoading(false); }
   }, []);
@@ -79,7 +89,7 @@ export default function ExhibitorServices({ initialTab = 'orders', onOpenShop })
       {message && <div className={`es-alert es-alert--${message.tone}`} role="status">{message.text}</div>}
       {loading ? <div className="es-card es-pad es-muted">Loading…</div> : (
         <>
-          {tab === 'orders' && <OrdersTab orders={orders} settings={settings} run={run} onOpenShop={onOpenShop} />}
+          {tab === 'orders' && <OrdersTab orders={orders} settings={settings} run={run} onOpenShop={onOpenShop} exhibitorPayments={exhibitorPayments} paymentLoadError={paymentLoadError} />}
           {tab === 'stock' && <StockTab catalogue={catalogue} settings={settings} run={run} flash={flash} />}
           {tab === 'packages' && <PackagesTab packages={packages} profiles={profiles} catalogue={catalogue} run={run} flash={flash} event={event} />}
           {tab === 'fascia' && <FasciaTab profiles={profiles} packages={packages} run={run} flash={flash} />}
@@ -91,10 +101,34 @@ export default function ExhibitorServices({ initialTab = 'orders', onOpenShop })
 }
 
 // ── Orders ───────────────────────────────────────────────────────────────────
-function OrdersTab({ orders, settings, run, onOpenShop }) {
+function OrdersTab({ orders, settings, run, onOpenShop, exhibitorPayments, paymentLoadError }) {
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(null);
+  const [proofLinks, setProofLinks] = useState({});
+  const [paymentActionError, setPaymentActionError] = useState('');
   const shown = orders.filter(o => filter === 'all' || (filter === 'open' ? !['delivered', 'cancelled'].includes(o.status) : o.status === filter));
+  const invoicesByOrder = new Map(exhibitorPayments.invoices.map(invoice=>[invoice.order_id,invoice]));
+  const paymentsByInvoice = new Map();
+  exhibitorPayments.payments.forEach(payment=>{
+    const list=paymentsByInvoice.get(payment.invoice_id)||[];
+    list.push(payment);
+    paymentsByInvoice.set(payment.invoice_id,list);
+  });
+  const review = (payment,approve) => {
+    const note=approve?'':window.prompt('Reason for rejecting this EFT proof (optional):');
+    if (note===null) return;
+    setPaymentActionError('');
+    void run(()=>reviewExhibitorEft(payment.id,approve,note),approve?'EFT approved. The exhibitor invoice is marked paid.':'EFT proof rejected; the exhibitor can submit a new proof.');
+  };
+  const openProof = async payment => {
+    try {
+      const url=await getExhibitorPaymentProofUrl(payment.evidence_path);
+      if (!url) throw new Error('No secure proof link was returned.');
+      setProofLinks(current=>({...current,[payment.id]:url}));
+    } catch (error) {
+      setPaymentActionError(error.message||'Could not open EFT proof.');
+    }
+  };
   const exportFinance = () => downloadWorkbook(`orders-with-values-${new Date().toISOString().slice(0, 10)}.xlsx`, [
     { name: 'Orders', rows: orders.map(o => ({ Order: o.ref, Date: formatDayTime(o.created_at), Stand: o.stand, Exhibitor: o.exhibitor_name, Contact: o.contact_name, Email: o.contact_email, Phone: o.contact_phone, 'Deliver by': o.delivery_at ? formatDayTime(o.delivery_at) : '', Status: STATUS_LABEL[o.status], 'Supplier price excl VAT': Number(o.total_excl_vat), VAT: Number(o.total_vat), 'Platform fee (internal)': Number(o.total_fee), 'Exhibitor pays': Number(o.total_payable) })) },
     { name: 'Lines', rows: orders.flatMap(o => (o.items || []).map(it => ({ Order: o.ref, Stand: o.stand, Code: it.code, Item: it.name, Option: it.option || '', Qty: it.qty, 'Unit excl VAT': Number(it.unit_price_excl_vat), 'Unit exhibitor pays': Number(it.unit_payable), 'Line exhibitor pays': Number(it.unit_payable) * it.qty }))) },
@@ -116,13 +150,19 @@ function OrdersTab({ orders, settings, run, onOpenShop }) {
         <button className="es-btn" onClick={exportPick}><Download size={16} strokeWidth={1.75} /> Pick list (no prices)</button>
         <button className="es-btn es-btn--primary" onClick={exportFinance}><Download size={16} strokeWidth={1.75} /> Orders with values</button>
       </div>
+      {paymentLoadError&&<div className="es-alert es-alert--note" role="status">{paymentLoadError}</div>}
+      {paymentActionError&&<div className="es-alert es-alert--error" role="alert">{paymentActionError}</div>}
       <div className="es-card es-table-wrap">
         <table className="es-table">
-          <thead><tr><th>Order</th><th>Stand</th><th>Exhibitor</th><th>Deliver by</th><th>Items</th><th className="num">Exhibitor pays</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Order</th><th>Stand</th><th>Exhibitor</th><th>Deliver by</th><th>Items</th><th className="num">Exhibitor pays</th><th>Invoice / payment</th><th>Status</th><th /></tr></thead>
           <tbody>
-            {shown.length === 0 && <tr><td colSpan={8} className="es-muted" style={{ padding: 28, textAlign: 'center' }}>No orders yet. Share the exhibitor link and orders will arrive here.</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={9} className="es-muted" style={{ padding: 28, textAlign: 'center' }}>No orders yet. Share the exhibitor link and orders will arrive here.</td></tr>}
             {shown.map(o => (
               <React.Fragment key={o.id}>
+                {(() => {
+                  const invoice=invoicesByOrder.get(o.id);
+                  const pendingPayment=(paymentsByInvoice.get(invoice?.id)||[]).find(payment=>payment.status==='pending_review');
+                  return <>
                 <tr>
                   <td><strong>{o.ref}</strong><br /><small className="es-muted">{formatDayTime(o.created_at)}</small></td>
                   <td><strong>{o.stand}</strong></td>
@@ -130,6 +170,12 @@ function OrdersTab({ orders, settings, run, onOpenShop }) {
                   <td>{o.delivery_at ? formatDayTime(o.delivery_at) : <span className="es-muted">Not set</span>}</td>
                   <td>{(o.items || []).reduce((t, i) => t + i.qty, 0)}</td>
                   <td className="num"><strong>{rand(o.total_payable)}</strong></td>
+                  <td>{invoice?<><strong>{invoice.invoice_number}</strong><br/><span className="es-badge">{String(invoice.status).replaceAll('_',' ')}</span>{pendingPayment&&<div className="es-payment-review">
+                    <button className="es-btn es-btn--sm es-btn--quiet" onClick={()=>openProof(pendingPayment)}>Create secure proof link</button>
+                    <button className="es-btn es-btn--sm es-btn--primary" onClick={()=>review(pendingPayment,true)}>Approve</button>
+                    <button className="es-btn es-btn--sm es-btn--quiet" onClick={()=>review(pendingPayment,false)}>Reject</button>
+                    {proofLinks[pendingPayment.id]&&<a href={proofLinks[pendingPayment.id]} target="_blank" rel="noreferrer">Open secure proof link</a>}
+                  </div>}</>:<span className="es-muted">Pending</span>}</td>
                   <td>
                     <select className="es-select" style={{ minHeight: 36, width: 140 }} value={o.status} onChange={e => run(() => updateOrder(o.id, { status: e.target.value }), `${o.ref} updated.`)} aria-label={`Status of ${o.ref}`}>
                       {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -138,7 +184,7 @@ function OrdersTab({ orders, settings, run, onOpenShop }) {
                   <td><button className="es-btn es-btn--sm es-btn--quiet" onClick={() => setOpen(open === o.id ? null : o.id)}>{open === o.id ? 'Hide' : 'View'}</button></td>
                 </tr>
                 {open === o.id && (
-                  <tr><td colSpan={8} style={{ background: '#fbfaf7' }}>
+                  <tr><td colSpan={9} style={{ background: '#fbfaf7' }}>
                     <table className="es-lines">
                       <thead><tr><th>Item</th><th>Option</th><th>Qty</th><th className="num">Supplier excl VAT</th><th className="num">Exhibitor pays</th></tr></thead>
                       <tbody>{(o.items || []).map(it => <tr key={it.id}><td>{it.code} · {it.name}</td><td>{it.option || '—'}</td><td>{it.qty}</td><td className="num">{rand2(it.unit_price_excl_vat * it.qty)}</td><td className="num">{rand(it.unit_payable * it.qty)}</td></tr>)}</tbody>
@@ -149,6 +195,8 @@ function OrdersTab({ orders, settings, run, onOpenShop }) {
                     </p>
                   </td></tr>
                 )}
+                  </>;
+                })()}
               </React.Fragment>
             ))}
           </tbody>

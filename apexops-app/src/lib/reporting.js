@@ -19,7 +19,7 @@ function table(headers, rows) {
   return `<table style="width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0 0;page-break-inside:auto;font-family:Inter,'Avenir Next',Arial,sans-serif;font-size:8pt;"><thead><tr>${headers.map(header => `<th style="${headerStyle}">${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map((row, index) => `<tr style="background:${index % 2 ? '#f8f7f3' : '#fff'};page-break-inside:avoid;">${row.map(cell => `<td style="${cellStyle}">${escapeHtml(cell)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="20" style="${cellStyle}color:#64778a;">No records found.</td></tr>`}</tbody></table>`;
 }
 
-export function buildOperationsReport({ queries = [], rebookings = [], eventName = '', generatedAt = new Date() }) {
+export function buildOperationsReport({ queries = [], eventName = '', generatedAt = new Date() }) {
   const active = queries.filter(query => query.status !== 'COMPLETED');
   const completed = queries.filter(query => query.status === 'COMPLETED');
   const overdue = active.filter(query => {
@@ -28,34 +28,12 @@ export function buildOperationsReport({ queries = [], rebookings = [], eventName
   });
   const statusCounts = ['LOGGED', 'ASSIGNED', 'PENDING', 'IN PROGRESS', 'ISSUES/DELAYED', 'ESCALATED', 'COMPLETED']
     .map(status => [status, queries.filter(query => query.status === status).length]);
-  const rebookingCards = rebookings.length
-    ? rebookings.map(request => {
-      const topics = Array.isArray(request.discussion_topics) ? request.discussion_topics.join(', ') : request.discussion_topics;
-      const details = [
-        ['Received', formatDate(request.created_at)],
-        ['Contact', `${request.contact_person}${request.contact_title ? ` · ${request.contact_title}` : ''}`],
-        ['Email', request.email],
-        ['Mobile', request.mobile],
-        ['Current stand', request.current_stand],
-        ['Interest', request.interest],
-        ['Preferred stand', request.preferred_stand],
-        ['Stand size', request.stand_size],
-        ['Booth type', request.booth_type],
-        ['Sponsorship', request.sponsorship_interest],
-        ['Topics', topics],
-        ['Notes', request.notes],
-      ];
-      return `<article class="rebooking-card"><div class="rebooking-company">${escapeHtml(request.company)}</div><div class="rebooking-grid">${details.map(([label, value]) => `<div class="rebooking-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value || '—')}</strong></div>`).join('')}</div></article>`;
-    }).join('')
-    : '<div class="empty-report">No rebooking requests found.</div>';
-
   return `<!doctype html><html><head><meta charset="utf-8"><title>APEXOPS Operations Report</title><style>
-    @page { size: A4 landscape; margin: 12mm; } html, body { width: 100%; max-width: 100%; margin: 0; padding: 0; } body { font-family: Arial, sans-serif; color: #172746; font-size: 9pt; text-align: left; } h1 { font-size: 24pt; margin: 0 0 4px; } h2 { font-size: 14pt; color: #172746; border-bottom: 2px solid #d7c5a0; padding-bottom: 6px; margin: 24px 0 10px; } .eyebrow { color: #b49a6a; text-transform: uppercase; letter-spacing: 2px; font-size: 8pt; font-weight: bold; } .meta { color: #667784; font-size: 9pt; margin-bottom: 20px; } .hero { width: 100%; box-sizing: border-box; background: #0d1a32; color: white; padding: 22px 24px; margin: 0 0 18px; } .hero h1 { color: white; } .hero .meta { color: #d7c5a0; } .metrics { display: table; width: 100%; table-layout: fixed; } .metric { display: table-cell; border: 1px solid #dce7ed; padding: 10px; background: #f7fafc; } .metric strong { display: block; font-size: 18pt; color: #172746; } .metric span { font-size: 8pt; color: #667784; text-transform: uppercase; letter-spacing: .8px; } table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; margin: 8px 0 0; page-break-inside: auto; mso-table-lspace: 0pt; mso-table-rspace: 0pt; } th { background: #172746; color: white; text-align: left; font-size: 7pt; text-transform: uppercase; letter-spacing: .2px; } th, td { border: 1px solid #dce7ed; padding: 5px; vertical-align: top; overflow-wrap: anywhere; word-wrap: break-word; word-break: break-word; } tr { page-break-inside: avoid; } .note { color: #667784; font-size: 9pt; margin-top: 6px; } .rebooking-card { border: 1px solid #dce7ed; border-left: 4px solid #d7c5a0; padding: 10px 12px; margin: 9px 0; page-break-inside: avoid; } .rebooking-company { color: #172746; font-size: 12pt; font-weight: bold; margin-bottom: 8px; } .rebooking-grid { display: table; width: 100%; table-layout: fixed; } .rebooking-item { display: inline-block; width: 32%; box-sizing: border-box; padding: 4px 10px 4px 0; vertical-align: top; overflow-wrap: anywhere; } .rebooking-item span { display: block; color: #667784; font-size: 7pt; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 2px; } .rebooking-item strong { color: #172746; font-size: 8.5pt; font-weight: normal; } .empty-report { border: 1px dashed #cbd6dd; padding: 18px; color: #667784; }
+    @page { size: A4 landscape; margin: 12mm; } html, body { width: 100%; max-width: 100%; margin: 0; padding: 0; } body { font-family: Arial, sans-serif; color: #172746; font-size: 9pt; text-align: left; } h1 { font-size: 24pt; margin: 0 0 4px; } h2 { font-size: 14pt; color: #172746; border-bottom: 2px solid #d7c5a0; padding-bottom: 6px; margin: 24px 0 10px; } .eyebrow { color: #b49a6a; text-transform: uppercase; letter-spacing: 2px; font-size: 8pt; font-weight: bold; } .meta { color: #667784; font-size: 9pt; margin-bottom: 20px; } .hero { width: 100%; box-sizing: border-box; background: #0d1a32; color: white; padding: 22px 24px; margin: 0 0 18px; } .hero h1 { color: white; } .hero .meta { color: #d7c5a0; } .metrics { display: table; width: 100%; table-layout: fixed; } .metric { display: table-cell; border: 1px solid #dce7ed; padding: 10px; background: #f7fafc; } .metric strong { display: block; font-size: 18pt; color: #172746; } .metric span { font-size: 8pt; color: #667784; text-transform: uppercase; letter-spacing: .8px; } table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; margin: 8px 0 0; page-break-inside: auto; mso-table-lspace: 0pt; mso-table-rspace: 0pt; } th { background: #172746; color: white; text-align: left; font-size: 7pt; text-transform: uppercase; letter-spacing: .2px; } th, td { border: 1px solid #dce7ed; padding: 5px; vertical-align: top; overflow-wrap: anywhere; word-wrap: break-word; word-break: break-word; } tr { page-break-inside: avoid; } .note { color: #667784; font-size: 9pt; margin-top: 6px; }
   </style></head><body>
-    <section class="hero"><div class="eyebrow">Executive Conference Events · APEXOPS™</div><h1>Operations Activity Report</h1><div class="meta">${eventName ? `${escapeHtml(eventName)} · ` : ''}Generated ${escapeHtml(formatDate(generatedAt))}</div><div class="metrics"><div class="metric"><strong>${queries.length}</strong><span>Total queries</span></div><div class="metric"><strong>${active.length}</strong><span>Open queries</span></div><div class="metric"><strong>${completed.length}</strong><span>Completed</span></div><div class="metric"><strong>${overdue.length}</strong><span>SLA overdue</span></div><div class="metric"><strong>${rebookings.length}</strong><span>Rebooking requests</span></div></div></section>
+    <section class="hero"><div class="eyebrow">Executive Conference Events · APEXOPS™</div><h1>Operations Activity Report</h1><div class="meta">${eventName ? `${escapeHtml(eventName)} · ` : ''}Generated ${escapeHtml(formatDate(generatedAt))}</div><div class="metrics"><div class="metric"><strong>${queries.length}</strong><span>Total queries</span></div><div class="metric"><strong>${active.length}</strong><span>Open queries</span></div><div class="metric"><strong>${completed.length}</strong><span>Completed</span></div><div class="metric"><strong>${overdue.length}</strong><span>SLA overdue</span></div></div></section>
     <h2>Query Status Summary</h2>${table(['Status', 'Count'], statusCounts)}
     <h2>Query Activity</h2>${table(['Reference', 'Stand', 'Exhibitor', 'Department', 'Description', 'Status', 'Assigned', 'Logged'], queries.map(query => [query.id, query.stand, query.exhibitor, query.category, query.description, query.status, query.assignedTo || 'Unassigned', formatDate(query.loggedAt || query.logged_at)]))}
-    <h2>Rebooking Requests</h2><p class="note">Expressions of interest received through the exhibitor rebooking form. These are not confirmed bookings.</p>${rebookingCards}
   </body></html>`;
 }
 

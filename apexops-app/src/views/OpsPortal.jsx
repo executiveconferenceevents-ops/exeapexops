@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   getQueries, addQuery, updateQuery,
-  CATEGORIES, getExhibitors, getStaff, getRebookingRequests, getOpsNotifications, markOpsNotificationRead, readableError, STATUS_FLOW, STATUS_COLORS,
+  CATEGORIES, getExhibitors, getStaff, getOpsNotifications, markOpsNotificationRead, readableError, STATUS_FLOW, STATUS_COLORS,
 } from '../lib/mock';
 import StatusBadge from '../components/StatusBadge';
 import PhotoGallery from '../components/PhotoGallery';
 import EvidenceUploader from '../components/EvidenceUploader';
 import QueryForm from '../components/QueryForm';
 import OpsBoard, { AreaStrip } from '../components/OpsBoard';
+import StaffQuickTabs from '../components/StaffQuickTabs';
 import { Activity, AlertTriangle, Columns3, List as ListIcon, Archive, Bell, Building2, Camera, Check, CheckCircle2, ClipboardList, ClipboardPlus, FileText, Hammer, HeartPulse, LayoutDashboard, Menu, Monitor, MoreHorizontal, Package, Palette, Plus, Printer, Shield, Sparkles, Truck, Users, Wifi, X, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getActiveEvent } from '../lib/eventScope';
@@ -146,7 +147,6 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors, initialQueryI
   const [queries, setQueries]   = useState([]);
   const [staff, setStaff]       = useState([]);
   const [exhibitors, setExhibitors] = useState([]);
-  const [rebookings, setRebookings] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [notifications, setNotifications] = useState([]);
   const [toast, setToast] = useState(null);
@@ -192,11 +192,10 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors, initialQueryI
   useEffect(() => {
     let cancelled = false;
     const loadInitialData = async () => {
-      const [queryResult, staffResult, exhibitorResult, rebookingResult] = await Promise.allSettled([
+      const [queryResult, staffResult, exhibitorResult] = await Promise.allSettled([
         getQueries(),
         getStaff(),
         getExhibitors(),
-        getRebookingRequests().catch(() => []),
       ]);
       if (cancelled) return;
 
@@ -206,7 +205,6 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors, initialQueryI
       else setError(readableError(staffResult.reason, 'Could not load staff.'));
       if (exhibitorResult.status === 'fulfilled') setExhibitors(exhibitorResult.value);
       else setError(readableError(exhibitorResult.reason, 'Could not load exhibitors.'));
-      if (rebookingResult.status === 'fulfilled') setRebookings(rebookingResult.value);
       setInitialLoading(false);
     };
 
@@ -257,7 +255,7 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors, initialQueryI
 
   function exportOperationsReport(format) {
     try {
-      const html = buildOperationsReport({ queries, rebookings, eventName });
+      const html = buildOperationsReport({ queries, eventName });
       if (format === 'word') downloadWordReport('APEXOPS-operations-report.doc', html);
       else printPdfReport(html);
     } catch (reportError) {
@@ -521,16 +519,13 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors, initialQueryI
       </div>
 
       {tab === 'DASHBOARD' && <AreaStrip queries={queries} activeArea={filter} onPick={setFilter} isOverdue={isOverdue} />}
+      {tab !== 'NOTIFICATIONS' && <StaffQuickTabs staff={staff} selectedId={staffFilter} onSelect={setStaffFilter} rows={taskRows} showAll showUnassigned />}
 
       {/* Query list */}
       <div className="ops-query-workspace">
         <div className="ops-workspace-toolbar">
           <div className="ops-workspace-heading"><span>Request queue</span><label>Department <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="ALL">All departments</option>{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></label></div>
           <div className="ops-workspace-controls">
-            <label>Assigned to <select aria-label="Filter tasks by staff member" value={staffFilter} onChange={event=>setStaffFilter(event.target.value)}>
-              <option value="ALL">All staff</option><option value="UNASSIGNED">Unassigned</option>
-              {staff.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}
-            </select></label>
             {tab !== 'NOTIFICATIONS' && <div className="ob-switch" role="tablist" aria-label="Queue view">
               <button type="button" role="tab" aria-selected={queueView === 'board'} className={queueView === 'board' ? 'is-on' : ''} onClick={()=>chooseQueueView('board')}><Columns3 size={13} /> Board</button>
               <button type="button" role="tab" aria-selected={queueView === 'list'} className={queueView === 'list' ? 'is-on' : ''} onClick={()=>chooseQueueView('list')}><ListIcon size={13} /> List</button>

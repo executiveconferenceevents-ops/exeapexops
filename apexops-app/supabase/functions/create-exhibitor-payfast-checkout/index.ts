@@ -16,7 +16,12 @@ Deno.serve(async request => {
   const appUrl=Deno.env.get('APP_URL')||'';
   let origin='https://invalid.local';
   try { origin=new URL(appUrl).origin; } catch { /* configuration error below */ }
-  if (request.method==='OPTIONS') return new Response('ok',{headers:{'Access-Control-Allow-Origin':origin}});
+  if (request.method==='OPTIONS') return new Response('ok',{headers:{
+    'Access-Control-Allow-Origin':origin,
+    'Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info',
+    'Access-Control-Allow-Methods':'POST, OPTIONS',
+    'Vary':'Origin',
+  }});
   if (request.method!=='POST') return respond(405,{message:'Method not allowed.'},origin);
 
   const supabaseUrl=Deno.env.get('SUPABASE_URL');

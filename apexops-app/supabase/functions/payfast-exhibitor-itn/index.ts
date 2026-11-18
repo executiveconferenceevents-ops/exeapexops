@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { decryptPaymentSecrets } from '../_shared/exhibitor-payments.mjs';
-import { isPayfastSourceIp, parsePayfastForm, payfastAmountToCents, verifyPayfastSignature } from '../_shared/payfast.mjs';
+import { isPayfastSourceIp, parsePayfastForm, payfastAmountToCents, payfastValidationBody, verifyPayfastSignature } from '../_shared/payfast.mjs';
 
 function respond(status:number, body:string) {
   return new Response(body,{status,headers:{'Content-Type':'text/plain','Cache-Control':'no-store'}});
@@ -47,6 +47,25 @@ Deno.serve(async request => {
   if (form.get('merchant_id')!==payfast.merchantId||!verifyPayfastSignature(form,payfast.passphrase)) {
     return respond(403,'PayFast signature or merchant check failed.');
   }
+  const mode=String(payfast.mode||'sandbox');
+  if (!['sandbox','live'].includes(mode)) return respond(503,'PayFast mode is invalid.');
+  let validationResponse:Response;
+  try {
+    validationResponse=await fetch(
+      mode==='sandbox'?'https://sandbox.payfast.co.za/eng/query/validate':'https://www.payfast.co.za/eng/query/validate',
+      {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:payfastValidationBody(form).toString(),
+        signal:AbortSignal.timeout(10000),
+      },
+    );
+  } catch {
+    return respond(502,'PayFast could not validate the notification.');
+  }
+  if (!validationResponse.ok||(await validationResponse.text()).trim()!=='VALID') {
+    return respond(403,'PayFast notification validation failed.');
+  }
   const grossCents=payfastAmountToCents(form.get('amount_gross')||'');
   if (grossCents!==Number(checkout.amount_cents)) return respond(400,'ITN amount does not match the invoice.');
 
@@ -59,8 +78,9 @@ Deno.serve(async request => {
     requested_idempotency_key:crypto.randomUUID(),
   });
   if (settlementError) return respond(409,'Verified payment requires reconciliation.');
-  await service.from('exhibitor_payment_checkouts').update({
+  const {error:checkoutUpdateError}=await service.from('exhibitor_payment_checkouts').update({
     status:'settled',provider_transaction_id:providerTransactionId,completed_at:new Date().toISOString(),
   }).eq('id',checkoutId);
+  if (checkoutUpdateError) return respond(500,'Payment settled; checkout status requires reconciliation.');
   return respond(200,'OK');
 });

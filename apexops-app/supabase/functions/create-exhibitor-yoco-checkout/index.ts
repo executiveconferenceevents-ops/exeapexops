@@ -15,7 +15,12 @@ Deno.serve(async request => {
   const appUrl=Deno.env.get('APP_URL')||'';
   let origin='https://invalid.local';
   try { origin=new URL(appUrl).origin; } catch { /* configuration error below */ }
-  if (request.method==='OPTIONS') return new Response('ok',{headers:{'Access-Control-Allow-Origin':origin}});
+  if (request.method==='OPTIONS') return new Response('ok',{headers:{
+    'Access-Control-Allow-Origin':origin,
+    'Access-Control-Allow-Headers':'authorization, apikey, content-type, x-client-info',
+    'Access-Control-Allow-Methods':'POST, OPTIONS',
+    'Vary':'Origin',
+  }});
   if (request.method!=='POST') return respond(405,{message:'Method not allowed.'},origin);
   const supabaseUrl=Deno.env.get('SUPABASE_URL');
   const serviceRoleKey=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -71,8 +76,12 @@ Deno.serve(async request => {
   const providerCheckoutId=String(result.id||result.checkoutId||'');
   const redirectUrl=String(result.redirectUrl||result.redirect_url||'');
   if (!providerCheckoutId||!redirectUrl) return respond(502,{message:'Yoco returned an invalid checkout.'},origin);
-  await service.from('exhibitor_payment_checkouts').update({
+  let redirect:URL;
+  try { redirect=new URL(redirectUrl); } catch { return respond(502,{message:'Yoco returned an invalid checkout.'},origin); }
+  if (redirect.protocol!=='https:'||redirect.hostname!=='payments.yoco.com') return respond(502,{message:'Yoco returned an untrusted checkout URL.'},origin);
+  const {error:updateError}=await service.from('exhibitor_payment_checkouts').update({
     provider_checkout_id:providerCheckoutId,redirect_url:redirectUrl,status:'pending',
   }).eq('id',checkout.id);
+  if (updateError) return respond(500,{message:'Could not save the Yoco checkout session.'},origin);
   return respond(200,{redirectUrl,providerCheckoutId},origin);
 });

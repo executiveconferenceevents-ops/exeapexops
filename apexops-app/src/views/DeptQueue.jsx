@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getExhibitors, getQueries, getStaff, normalizeStand, updateQuery } from '../lib/mock';
 import PhotoGallery from '../components/PhotoGallery';
 import EvidenceUploader from '../components/EvidenceUploader';
+import StaffQuickTabs from '../components/StaffQuickTabs';
 import { formatDateTime } from '../lib/format';
 import { supabase } from '../lib/supabase';
 import { DEMO_MODE } from '../lib/demoStore';
@@ -58,8 +59,8 @@ function whatsappDigits(value) {
 function initials(name) { return String(name || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase(); }
 
 // ── Main view ────────────────────────────────────────────────────────────────
-export default function DeptQueue({ allowStaffPicker = false }) {
-  const [staffId, setStaffId] = useState('');
+export default function DeptQueue({ allowStaffPicker = false, initialStaffId = '' }) {
+  const [staffId, setStaffId] = useState(initialStaffId);
   const [queries, setQueries] = useState([]);
   const [staff, setStaff] = useState([]);
   const [exhibitors, setExhibitors] = useState([]);
@@ -199,12 +200,7 @@ export default function DeptQueue({ allowStaffPicker = false }) {
             </span>
           </div>
         )}
-        {canPickStaff && (
-          <select className="sq-picker" value={staffId} onChange={e => setStaffId(e.target.value)} aria-label="Choose staff member">
-            <option value="">Choose staff member…</option>
-            {staff.map(s => <option key={s.id} value={s.id}>{s.name}{s.supplier_name ? ` (${s.supplier_name})` : ''}</option>)}
-          </select>
-        )}
+        {canPickStaff && <StaffQuickTabs staff={staff} selectedId={staffId} onSelect={setStaffId} rows={queries} variant="dark" showAll={false} label="Choose a staff member" />}
       </header>
 
       {!staffId ? (

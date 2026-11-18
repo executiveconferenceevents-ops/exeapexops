@@ -19,10 +19,11 @@ export default function ExhibitorShop({ initialStand = '', onBack }) {
   const [category, setCategory] = useState('All');
   const [options, setOptions] = useState({});
   const [cart, setCart] = useState({});
-  const [form, setForm] = useState({ contact_name: '', contact_email: '', contact_phone: '', date: '', time: '08:00', notes: '', accept_terms: false });
+  const [form, setForm] = useState({ contact_name: '', contact_email: '', contact_phone: '', notes: '', accept_terms: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [extendOrder, setExtendOrder] = useState(null);
 
   useEffect(() => {
     let live = true;
@@ -54,20 +55,21 @@ export default function ExhibitorShop({ initialStand = '', onBack }) {
     setCart(c => ({ ...c, [k]: Math.max(0, (c[k] || 0) + delta) }));
   };
 
-  const minDate = new Date().toISOString().slice(0, 10);
   const submit = async () => {
     setError('');
     if (!form.contact_name.trim() || !/^\S+@\S+\.\S+$/.test(form.contact_email)) return setError('Please add your name and a valid email address.');
-    if (!form.date) return setError('Please choose a delivery date.');
     if (!form.accept_terms) return setError('Please accept the order terms.');
     setBusy(true);
     try {
       const res = await submitPublicOrder({
         stand: exhibitor.stand, contact_name: form.contact_name.trim(), contact_email: form.contact_email.trim(), contact_phone: form.contact_phone.trim(),
-        delivery_at: new Date(`${form.date}T${form.time || '08:00'}:00`).toISOString(), notes: form.notes.trim(), accept_terms: true,
+        notes: form.notes.trim(), accept_terms: true,
         items: cartLines.map(l => ({ id: l.item.id, option: l.option, qty: l.qty })),
-      });
-      setResult({ ...res, lines: cartLines, total, delivery: `${form.date}T${form.time}:00`, contact: { ...form } });
+      }, extendOrder?.edit_token);
+      const mergedLines = res.appended ? mergeOrderLines(extendOrder?.lines || [], cartLines) : cartLines;
+      const receiptTotal = Number(res.total_payable ?? (res.appended ? (extendOrder?.total || 0) + total : total));
+      setExtendOrder({ edit_token:res.edit_token, ref:res.ref, lines:mergedLines, total:receiptTotal });
+      setResult({ ...res, lines: mergedLines, total: receiptTotal, created_at: res.created_at || new Date().toISOString(), contact: { ...form } });
       setCart({}); setStep('done'); window.scrollTo(0, 0);
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
@@ -119,13 +121,13 @@ export default function ExhibitorShop({ initialStand = '', onBack }) {
       <div className="es es-public">
         <Hero title="Order" accent="received" sub={`Order ${result.ref} · Stand ${exhibitor.stand}`} />
         <main className="es-public-main">
-          <div className="es-alert es-alert--ok es-no-print"><Check size={16} style={{ verticalAlign: -3 }} /> Thank you. Your order has been sent to the organiser. Please print or save this order form for your records.</div>
+          <div className="es-alert es-alert--ok es-no-print"><Check size={16} style={{ verticalAlign: -3 }} /> {result.appended ? 'These items were added to your existing unpaid invoice.' : 'Thank you. Your order has been sent to the organiser.'} Please print or save this order form for your records.</div>
           <div className="es-card es-pad es-stack">
             <div className="es-row"><div className="es-grow"><div className="es-eyebrow">Order form</div><h2 className="es-h2">{result.ref}</h2></div><span className="es-badge es-badge--navy">Stand {exhibitor.stand}</span></div>
             <div className="es-grid2 es-small">
               <div><span className="es-muted">Exhibitor</span><br /><strong>{result.exhibitor_name || exhibitor.name}</strong></div>
               <div><span className="es-muted">Contact</span><br /><strong>{result.contact.contact_name}</strong><br />{result.contact.contact_email}<br />{result.contact.contact_phone}</div>
-              <div><span className="es-muted">Deliver by</span><br /><strong>{formatDayTime(result.delivery)}</strong></div>
+              <div><span className="es-muted">Order placed</span><br /><strong>{formatDayTime(result.created_at)}</strong></div>
               <div><span className="es-muted">Event</span><br /><strong>{event?.name}</strong></div>
             </div>
             <div>
@@ -136,12 +138,13 @@ export default function ExhibitorShop({ initialStand = '', onBack }) {
                   <strong>{rand(l.item.price * l.qty)}</strong>
                 </div>
               ))}
-              <div className="es-summary-line"><span className="es-grow"><strong>Total payable</strong></span><strong style={{ fontSize: 20 }}>{rand(result.total_payable ?? result.total)}</strong></div>
+              <div className="es-summary-line"><span className="es-grow"><strong>Total payable</strong></span><strong style={{ fontSize: 20 }}>{rand(result.total)}</strong></div>
             </div>
+            <p className="es-small es-next-truck">Delivery is fulfilled with the next available truck. Orders placed on-site or shortly before dispatch will be included on the next truck that arrives.</p>
             <p className="es-small es-muted" style={{ margin: 0 }}>{catalogue?.order_terms}</p>
             <div className="es-row es-no-print">
               <button className="es-btn es-btn--primary" onClick={() => window.print()}><Printer size={16} strokeWidth={1.75} /> Print or save as PDF</button>
-              <button className="es-btn" onClick={() => { setResult(null); setStep('shop'); }}>Order more</button>
+              <button className="es-btn" onClick={() => { setForm(current => ({ ...current, notes:'', accept_terms:false })); setResult(null); setStep('shop'); }}>Order more</button>
               {onBack && <button className="es-btn es-btn--quiet" onClick={onBack}>Done</button>}
             </div>
           </div>
@@ -167,9 +170,9 @@ export default function ExhibitorShop({ initialStand = '', onBack }) {
             <div className="es-summary-line"><span className="es-grow"><strong>Total</strong></span><strong style={{ fontSize: 20 }}>{rand(total)}</strong></div>
           </div>
           <div className="es-card es-pad es-stack">
+            <p className="es-small es-next-truck">Orders are timestamped when submitted and delivered with the next available truck; exhibitors cannot reserve a delivery time.</p>
+            {extendOrder && <div className="es-alert es-alert--ok">Adding items to unpaid order {extendOrder.ref}; they will remain on the same invoice.</div>}
             <div className="es-grid2">
-              <label className="es-label">Delivery date<input type="date" className="es-input" min={minDate} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></label>
-              <label className="es-label">Deliver by (time)<input type="time" className="es-input" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} /></label>
               <label className="es-label">Your name<input className="es-input" autoComplete="name" value={form.contact_name} onChange={e => setForm({ ...form, contact_name: e.target.value })} /></label>
               <label className="es-label">Email (for your order form)<input type="email" className="es-input" autoComplete="email" value={form.contact_email} onChange={e => setForm({ ...form, contact_email: e.target.value })} /></label>
               <label className="es-label">Mobile number on site<input type="tel" className="es-input" autoComplete="tel" value={form.contact_phone} onChange={e => setForm({ ...form, contact_phone: e.target.value })} /></label>
@@ -177,11 +180,20 @@ export default function ExhibitorShop({ initialStand = '', onBack }) {
             <label className="es-label">Anything we should know? (optional)<textarea className="es-textarea" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="e.g. place the counter on the aisle side" /></label>
             <label className="es-check"><input type="checkbox" checked={form.accept_terms} onChange={e => setForm({ ...form, accept_terms: e.target.checked })} /> <span>{catalogue?.order_terms || 'Orders cannot be cancelled or refunded once confirmed.'}</span></label>
             {error && <div className="es-alert es-alert--error">{error}</div>}
-            <button className="es-btn es-btn--primary es-btn--wide" disabled={busy} onClick={submit}>{busy ? 'Sending…' : `Place order · ${rand(total)}`}</button>
+            <button className="es-btn es-btn--primary es-btn--wide" disabled={busy || count === 0} onClick={submit}>{busy ? 'Sending…' : `${extendOrder ? 'Add to order' : 'Place order'} · ${rand(total)}`}</button>
           </div>
         </main>
       </div>
     );
+  }
+
+  function mergeOrderLines(existing, added) {
+    const lines = new Map(existing.map(line => [line.key, { ...line }]));
+    added.forEach(line => {
+      const current = lines.get(line.key);
+      lines.set(line.key, current ? { ...current, qty:current.qty + line.qty } : { ...line });
+    });
+    return [...lines.values()];
   }
 
   // ── Step 2: shop ───────────────────────────────────────────────────────────

@@ -3,12 +3,16 @@
 begin;
 
 alter table public.event_order_settings
-  add column if not exists supplier_vat_registered boolean not null default false,
+  add column if not exists supplier_vat_registered boolean,
   add column if not exists supplier_vat_number text,
   add column if not exists organiser_email text;
 update public.event_order_settings
   set platform_fee_rate=0.03,
-      supplier_vat_registered=coalesce(supplier_vat_registered, coalesce(prices_exclude_vat,false));
+      supplier_vat_registered=coalesce(prices_exclude_vat,false)
+  where supplier_vat_registered is null;
+alter table public.event_order_settings
+  alter column supplier_vat_registered set default false,
+  alter column supplier_vat_registered set not null;
 do $$ begin
   if not exists (
     select 1 from pg_constraint
@@ -169,6 +173,40 @@ alter table public.exhibitor_payment_checkouts enable row level security;
 alter table public.exhibitor_platform_fee_accruals enable row level security;
 alter table public.exhibitor_webhook_deliveries enable row level security;
 
+drop policy if exists exhibitor_invoices_client_read on public.exhibitor_invoices;
+create policy exhibitor_invoices_client_read on public.exhibitor_invoices
+  for select to authenticated using (
+    public.apex_can_operate_event(event_id)
+    or exists (
+      select 1 from public.client_event_memberships membership
+      where membership.user_id=auth.uid()
+        and membership.client_id=exhibitor_invoices.client_id
+        and membership.role in ('client_admin','event_admin')
+        and (membership.event_id is null or membership.event_id=exhibitor_invoices.event_id)
+    )
+  );
+drop policy if exists exhibitor_invoice_items_client_read on public.exhibitor_invoice_items;
+create policy exhibitor_invoice_items_client_read on public.exhibitor_invoice_items
+  for select to authenticated using (
+    exists (
+      select 1 from public.exhibitor_invoices invoice
+      where invoice.id=exhibitor_invoice_items.invoice_id
+        and (
+          public.apex_can_operate_event(invoice.event_id)
+          or exists (
+            select 1 from public.client_event_memberships membership
+            where membership.user_id=auth.uid()
+              and membership.client_id=invoice.client_id
+              and membership.role in ('client_admin','event_admin')
+              and (membership.event_id is null or membership.event_id=invoice.event_id)
+          )
+        )
+    )
+  );
+drop policy if exists exhibitor_payments_operator_read on public.exhibitor_payments;
+create policy exhibitor_payments_operator_read on public.exhibitor_payments
+  for select to authenticated using (public.apex_can_operate_event(event_id));
+
 revoke all on public.client_exhibitor_payment_settings, public.exhibitor_payment_checkouts,
   public.exhibitor_platform_fee_accruals, public.exhibitor_webhook_deliveries
   from public,anon,authenticated;
@@ -236,7 +274,7 @@ begin
   returning id into created_invoice;
   insert into public.exhibitor_invoice_items(invoice_id,line_number,code,description,quantity,unit_price_cents,line_total_cents)
   select created_invoice,row_number() over(order by item.id)::integer,item.code,item.name||coalesce(' · '||nullif(item.option,''),''),
-    item.qty,round(item.unit_price_excl_vat*100)::bigint,round(item.unit_price_excl_vat*item.qty*100)::bigint
+    item.qty,round(item.unit_payable*100)::bigint,round(item.unit_payable*item.qty*100)::bigint
   from public.service_order_items item where item.order_id=new.id;
   return new;
 end $$;
@@ -280,25 +318,33 @@ begin
     'due_date',i.due_date,'supplier_name',i.supplier_name,'supplier_vat_registered',i.supplier_vat_registered,
     'supplier_vat_number',i.supplier_vat_number,'billed_to_name',i.billed_to_name,'billed_to_email',i.billed_to_email,
     'stand',i.stand,'subtotal_cents',i.subtotal_cents,'vat_cents',i.vat_cents,'total_cents',i.total_cents,
-    'bank_details',i.bank_details,'invoice_file_path',i.invoice_file_path,'order_ref',o.ref,
+    'bank_details',case when coalesce(settings.eft_enabled,false) then jsonb_strip_nulls(jsonb_build_object(
+      'account_name',settings.bank_account_name,'bank_name',settings.bank_name,'account_number',settings.bank_account_number,
+      'branch_code',settings.bank_branch_code,'account_type',settings.bank_account_type,'reference_prefix',settings.eft_reference_prefix
+    )) else i.bank_details end,'invoice_file_path',i.invoice_file_path,'order_ref',o.ref,
+    'payment_methods',jsonb_build_object('eft',coalesce(settings.eft_enabled,false),
+      'payfast',coalesce(settings.payfast_enabled,false),'yoco',coalesce(settings.yoco_enabled,false)),
     'items',coalesce((select jsonb_agg(jsonb_build_object('code',line.code,'description',line.description,
       'quantity',line.quantity,'unit_price_cents',line.unit_price_cents,'line_total_cents',line.line_total_cents)
       order by line.line_number) from public.exhibitor_invoice_items line where line.invoice_id=i.id),'[]'::jsonb))
     order by i.created_at desc),'[]'::jsonb) into result
   from public.exhibitor_invoices i join public.service_orders o on o.id=i.order_id
+  left join public.client_exhibitor_payment_settings settings on settings.client_id=i.client_id
   where i.event_id=profile.event_id and upper(i.stand)=upper(profile.stand);
   return result;
 end $$;
 
 create or replace function public.submit_exhibitor_eft_proof(target_invoice_id uuid, requested_portal_token uuid, requested_path text, requested_reference text)
 returns uuid language plpgsql security definer set search_path=public as $$
-declare invoice_row public.exhibitor_invoices%rowtype; payment_id uuid;
+declare invoice_row public.exhibitor_invoices%rowtype; settings_row public.client_exhibitor_payment_settings%rowtype; payment_id uuid;
 begin
   select i.* into invoice_row from public.exhibitor_invoices i join public.exhibitor_profiles p
     on p.event_id=i.event_id and upper(p.stand)=upper(i.stand)
   where i.id=target_invoice_id and p.portal_token=requested_portal_token for update;
   if not found then raise exception 'Invoice not found for this private stand link.'; end if;
-  if invoice_row.status not in ('unpaid','proof_uploaded') then raise exception 'This invoice is no longer awaiting payment.'; end if;
+  if invoice_row.status<>'unpaid' then raise exception 'This invoice is no longer awaiting payment.'; end if;
+  select * into settings_row from public.client_exhibitor_payment_settings where client_id=invoice_row.client_id;
+  if not found or not settings_row.eft_enabled then raise exception 'EFT is not enabled for this organisation.'; end if;
   if split_part(requested_path,'/',1)<>requested_portal_token::text
     or split_part(requested_path,'/',2)<>target_invoice_id::text then raise exception 'Invalid proof upload path.'; end if;
   if length(trim(coalesce(requested_reference,'')))>160 then raise exception 'Payment reference is too long.'; end if;
@@ -335,7 +381,7 @@ begin
     and p.portal_token=requested_portal_token
   for update of i;
   if not found then raise exception 'Invoice not found for this private stand link.' using errcode='P0002'; end if;
-  if invoice_row.status not in ('unpaid','proof_uploaded') then
+  if invoice_row.status<>'unpaid' then
     raise exception 'This invoice is no longer awaiting payment.' using errcode='23514';
   end if;
   select * into settings_row
@@ -366,7 +412,8 @@ create or replace function public.settle_exhibitor_invoice_payment(
 )
 returns uuid language plpgsql security definer set search_path=public,pg_temp as $$
 declare invoice_row public.exhibitor_invoices%rowtype; order_row public.service_orders%rowtype;
-  event_client uuid; fee_rate numeric:=0.03; fee_cents bigint:=0; payment_id uuid; current_payment uuid;
+  existing_payment public.exhibitor_payments%rowtype;
+  event_client uuid; fee_rate numeric:=0.03; fee_cents bigint:=0; payment_id uuid;
 begin
   if requested_method not in ('eft','payfast','yoco') or requested_amount_cents<=0 or requested_idempotency_key is null then
     raise exception 'Invalid exhibitor payment details.' using errcode='22023';
@@ -379,21 +426,36 @@ begin
   if requested_method='eft' and (auth.uid() is null or not public.apex_can_operate_event(invoice_row.event_id)) then
     raise exception 'Only event operators can approve an EFT payment.' using errcode='42501';
   end if;
-  select id into current_payment from public.exhibitor_payments where idempotency_key=requested_idempotency_key;
-  if current_payment is not null then return current_payment; end if;
   if requested_amount_cents<>invoice_row.total_cents then raise exception 'Payment amount does not match the invoice.' using errcode='23514'; end if;
+  select * into existing_payment from public.exhibitor_payments
+    where idempotency_key=requested_idempotency_key for update;
+  if found then
+    if existing_payment.invoice_id<>target_invoice_id or existing_payment.payment_method<>requested_method
+      or existing_payment.amount_cents<>requested_amount_cents then
+      raise exception 'Payment idempotency key was reused for a different transaction.' using errcode='23514';
+    end if;
+    if existing_payment.status='settled' then return existing_payment.id; end if;
+    if requested_method<>'eft' or existing_payment.status<>'pending_review' then
+      raise exception 'This payment has already been reviewed.' using errcode='23514';
+    end if;
+    payment_id:=existing_payment.id;
+    update public.exhibitor_payments set status='settled',reviewed_at=now(),review_note='Approved'
+      where id=payment_id;
+  end if;
   if invoice_row.status='paid' then
-    select id into current_payment from public.exhibitor_payments
+    select id into payment_id from public.exhibitor_payments
       where invoice_id=target_invoice_id and provider_transaction_id=requested_transaction_id;
-    if current_payment is not null then return current_payment; end if;
+    if payment_id is not null then return payment_id; end if;
     raise exception 'Invoice has already been paid.' using errcode='23514';
   end if;
   if invoice_row.status not in ('unpaid','proof_uploaded') then raise exception 'Invoice is not payable.' using errcode='23514'; end if;
-  insert into public.exhibitor_payments(invoice_id,event_id,client_id,payment_method,status,amount_cents,
-    paid_on,reference,provider_transaction_id,idempotency_key,reviewed_at)
-  values(invoice_row.id,invoice_row.event_id,invoice_row.client_id,requested_method,'settled',requested_amount_cents,
-    coalesce(requested_paid_at::date,current_date),nullif(trim(requested_transaction_id),''),
-    nullif(trim(requested_transaction_id),''),requested_idempotency_key,now()) returning id into payment_id;
+  if payment_id is null then
+    insert into public.exhibitor_payments(invoice_id,event_id,client_id,payment_method,status,amount_cents,
+      paid_on,reference,provider_transaction_id,idempotency_key,reviewed_at)
+    values(invoice_row.id,invoice_row.event_id,invoice_row.client_id,requested_method,'settled',requested_amount_cents,
+      coalesce(requested_paid_at::date,current_date),nullif(trim(requested_transaction_id),''),
+      nullif(trim(requested_transaction_id),''),requested_idempotency_key,now()) returning id into payment_id;
+  end if;
   update public.exhibitor_invoices set status='paid',paid_at=coalesce(requested_paid_at,now()),payment_method=requested_method
     where id=target_invoice_id;
   update public.service_orders set payment_status='paid' where id=invoice_row.order_id;
@@ -417,13 +479,17 @@ begin
   if not public.apex_can_operate_event(payment_row.event_id) then raise exception 'Only event operators can review exhibitor EFT.' using errcode='42501'; end if;
   if payment_row.status<>'pending_review' then raise exception 'EFT submission has already been reviewed.'; end if;
   if approve then
-    update public.exhibitor_payments set status='rejected',review_note=left(requested_note,500),reviewed_at=now() where id=target_payment_id;
     perform public.settle_exhibitor_invoice_payment(payment_row.invoice_id,'eft',coalesce(payment_row.reference,payment_row.id::text),payment_row.amount_cents,now(),payment_row.idempotency_key);
+    update public.exhibitor_payments set review_note=nullif(left(requested_note,500),'') where id=target_payment_id;
     return 'settled';
   end if;
   update public.exhibitor_payments set status='rejected',review_note=left(requested_note,500),reviewed_at=now() where id=target_payment_id;
-  update public.exhibitor_invoices set status='unpaid' where id=payment_row.invoice_id and status='proof_uploaded';
-  update public.service_orders set payment_status='unpaid' where id=(select order_id from public.exhibitor_invoices where id=payment_row.invoice_id);
+  update public.exhibitor_invoices set status='unpaid'
+    where id=payment_row.invoice_id and status='proof_uploaded';
+  if found then
+    update public.service_orders set payment_status='unpaid'
+      where id=(select order_id from public.exhibitor_invoices where id=payment_row.invoice_id);
+  end if;
   return 'rejected';
 end $$;
 
