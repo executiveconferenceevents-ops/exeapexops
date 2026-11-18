@@ -10,3 +10,7 @@ _security-check-build/
 
 dist-desktop/
 desktop-build.log
+
+.env
+.env.local
+*.zip
