@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { getAvailableEvents } from '../lib/eventScope';
 import ClientEventAdmin from './ClientEventAdmin';
 import { downloadInvoicePdf } from '../lib/invoicePdf';
+import { uploadPublicImage } from '../lib/mock';
 import ClientBillingWorkspace from '../components/ClientBillingWorkspace';
 import { getDemoCollection, setDemoCollection } from '../lib/demoStore';
 
@@ -194,6 +195,56 @@ test('Client billing submits private EFT proof into pending review', async () =>
   } finally {
     await act(async()=>{root.unmount();});
     container.remove();
+    Object.defineProperty(window,'crypto',{configurable:true,value:originalCrypto});
+  }
+});
+
+test('creates a demo event with its selected logo', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  const originalCrypto=window.crypto;
+  Object.defineProperty(window,'crypto',{configurable:true,value:{randomUUID:()=> 'demo-event-uuid'}});
+  const previousEvents=getDemoCollection('events',[]);
+  setDemoCollection('events',[]);
+  uploadPublicImage.mockResolvedValueOnce('https://assets.example.test/demo-event-logo.png');
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<ClientEventAdmin onEventCreated={jest.fn()}/>);});
+    await act(async()=>{await Promise.resolve();await Promise.resolve();});
+    await act(async()=>{clickButton(container,'Events');});
+    await act(async()=>{clickButton(container,'New event');});
+
+    const form=[...container.querySelectorAll('form.tenant-inline-form')].find(item=>item.querySelector('h3')?.textContent==='Create event');
+    const field=label=>[...form.querySelectorAll('label')].find(item=>item.textContent.trim().startsWith(label)).querySelector('input');
+    await act(async()=>{
+      setInputValue(field('Event name'),'Demo Event');
+      setInputValue(field('URL slug'),'demo-event');
+    });
+    const dates={
+      'Event start date':'2027-03-01',
+      'Event end date':'2027-03-02',
+      'Build-up start':'2027-02-28',
+      'Build-up end':'2027-02-28',
+      'Breakdown start':'2027-03-03',
+      'Breakdown end':'2027-03-03',
+    };
+    await act(async()=>{Object.entries(dates).forEach(([label,value])=>setInputValue(field(label),value));});
+    const logo=new File(['logo'],'demo-logo.png',{type:'image/png'});
+    const logoInput=form.querySelector('input[type="file"]');
+    Object.defineProperty(logoInput,'files',{configurable:true,value:[logo]});
+    await act(async()=>{logoInput.dispatchEvent(new Event('change',{bubbles:true}));});
+    await act(async()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});
+
+    expect(uploadPublicImage).toHaveBeenCalledWith('event-logos','logo',logo,'demo-event');
+    expect(getDemoCollection('events',[])).toEqual(expect.arrayContaining([
+      expect.objectContaining({name:'Demo Event',slug:'demo-event',logo_url:'https://assets.example.test/demo-event-logo.png'}),
+    ]));
+    expect(container.textContent).toContain('Event created.');
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    setDemoCollection('events',previousEvents);
     Object.defineProperty(window,'crypto',{configurable:true,value:originalCrypto});
   }
 });

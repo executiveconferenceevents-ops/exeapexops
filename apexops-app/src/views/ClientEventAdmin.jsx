@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getAvailableEvents, getEventAccessCode } from '../lib/eventScope';
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
+import { loadClientDirectory } from '../lib/clientDirectory';
 import { getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
 import { enqueue, isNetworkError } from '../lib/offline';
 import { createInvoicePdf, downloadInvoicePdf } from '../lib/invoicePdf';
@@ -147,11 +148,7 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
         platformAdmin = Boolean(adminResult.data) && !clientWorkspaceOnly;
         currentMemberships = (membershipResult.data || []).filter(membership => !clientWorkspaceOnly || membership.user_id === currentUserId);
         if (platformAdmin) {
-          const { data, error: clientsError } = await supabase.from('clients')
-            .select('id, name, slug, event_limit, account_status, billing_mode, billing_status, billing_plan, paid_through, term_started_at, term_ends_at, committed_events, prepaid_event_credits, trial_started_at, trial_ends_at')
-            .order('name');
-          if (clientsError) throw clientsError;
-          visibleClients = data || [];
+          visibleClients = await loadClientDirectory(supabase);
           const { data:pricing, error:pricingError } = await supabase.from('platform_pricing')
             .select('event_tiers, volume_plans').eq('id', true).maybeSingle();
           if (pricingError) pricingLoadError = 'Pricing settings are unavailable. Apply supabase/platform-pricing-migration.sql to enable the editor.';
