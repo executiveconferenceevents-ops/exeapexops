@@ -8,15 +8,19 @@ import PeopleSetup from './views/PeopleSetup';
 import ExhibitorSetup from './views/ExhibitorSetup';
 import RebookingForm from './views/RebookingForm';
 import ClientQuery from './views/ClientQuery';
+import ExhibitorServices from './views/ExhibitorServices';
+import Deliveries from './views/Deliveries';
+import ExhibitorShop from './views/ExhibitorShop';
+import ExhibitorPortal from './views/ExhibitorPortal';
 import { supabase } from './lib/supabase';
 import { DEMO_MODE } from './lib/demoStore';
 import { clearActiveEvent, getActiveEvent, getAvailableEvents, getEventAccessCode, getEventSlug, getPublicEvents, getUserEventAccess, PRIVACY_NOTICE_VERSION, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
-import { ArrowLeft, ArrowRight, Building2, CheckCircle2, ClipboardPlus, Eye, HardHat, Home, LayoutDashboard, LogIn, LogOut, Mail, Monitor, ShieldCheck, Ticket, Truck, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Building2, CheckCircle2, ClipboardPlus, Eye, HardHat, Home, LayoutDashboard, LogIn, LogOut, Mail, Monitor, PackageCheck, ShieldCheck, ShoppingBag, Ticket, Truck, Users } from 'lucide-react';
 import { AppShell, PageHeader, ServiceCard, StatusBadge, Wordmark } from './components/AppShell';
 import LoginLayout from './components/LoginLayout';
 import ClientRegistrationForm from './components/ClientRegistrationForm';
 import HomeOverview from './components/HomeOverview';
-import { forgetExhibitorPass, loadExhibitorPass, saveExhibitorPass } from './lib/exhibitorPass';
+import { forgetExhibitorPass, loadExhibitorPass, loadExhibitorStand, saveExhibitorPass } from './lib/exhibitorPass';
 import './styles/apex-brand.css';
 
 export default function App() {
@@ -302,6 +306,8 @@ export default function App() {
     && (!membership.event_id || membership.event_id === selectedEvent.id));
   const canOpenOps = Boolean(selectedEvent && ((isPlatformAdmin && selectedEvent.billing_exempt) || activeEventMemberships.some(membership => ['client_admin','event_admin','ops'].includes(membership.role))));
   const canOpenQueue = Boolean(selectedEvent && ((isPlatformAdmin && selectedEvent.billing_exempt) || activeEventMemberships.some(membership => ['client_admin','event_admin','ops','staff'].includes(membership.role))));
+  const canOpenDeliveries = Boolean(selectedEvent && (canOpenQueue || activeEventMemberships.some(membership => membership.role === 'delivery')));
+  const deliveryOnly = canOpenDeliveries && !canOpenQueue && !canOpenOps && !canManageTenants && !isPlatformAdmin;
 
   useEffect(() => {
     if (!session || !loginDestination || eventLoading || eventContextReadyFor !== (session.user?.id || '')) return;
@@ -319,6 +325,8 @@ export default function App() {
         setEventError('No event access is assigned to this account. Ask your organiser to invite this email.');
       } else if (selectedEvent && !canOpenOps && !canManageTenants && !isPlatformAdmin && canOpenQueue) {
         setRole('dept');
+      } else if (deliveryOnly) {
+        setRole('deliveries');
       }
     } else if (loginDestination === 'client') {
       if (canManageTenants) setRole('tenant-admin');
@@ -340,50 +348,58 @@ export default function App() {
           : 'No event access is assigned to this account. Ask the client to invite this email.');
       } else if (canOpenQueue) {
         setRole('dept');
+      } else if (deliveryOnly) {
+        setRole('deliveries');
       } else {
         setEventError('This account has no staff access for the selected event. Ask the client to update its invitation.');
       }
     }
 
     setLoginDestination(null);
-  }, [session, loginDestination, eventLoading, eventContextReadyFor, isPlatformAdmin, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue]);
+  }, [session, loginDestination, eventLoading, eventContextReadyFor, isPlatformAdmin, canManageTenants, selectedEvent, events.length, canOpenOps, canOpenQueue, deliveryOnly]);
 
   useEffect(() => {
     if (!session || eventLoading || !role) return;
-    const operationsRole = ['ops','staff','people','exhibitors','exhibitor','client-query','rebooking'].includes(role);
+    const operationsRole = ['ops','staff','people','exhibitors','exhibitor','client-query','rebooking','services','shop'].includes(role);
     const allowed = role === 'platform-admin' ? isPlatformAdmin
       : role === 'tenant-admin' ? canManageTenants
+      : role === 'deliveries' ? canOpenDeliveries
       : operationsRole ? canOpenOps
         : role === 'dept' ? canOpenQueue
           : true;
     if (!allowed) setRole(null);
-  }, [session, eventLoading, role, isPlatformAdmin, canManageTenants, canOpenOps, canOpenQueue]);
+  }, [session, eventLoading, role, isPlatformAdmin, canManageTenants, canOpenOps, canOpenQueue, canOpenDeliveries]);
 
   if (!authReady) return null;
   if (session && recovering) return <SetPasswordScreen onDone={()=>{ setRecovering(false); window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); }} />;
+  const portalToken = new URLSearchParams(window.location.search).get('portal');
+  if (portalToken) return <ExhibitorPortal token={portalToken} />;
   const needsEvent = !selectedEvent || eventLoading;
   const mainNav = activeKey => [
-    { key:'home', label:'Home', Icon:Home, onClick:()=>setRole(null) },
+    !deliveryOnly && { key:'home', label:'Home', Icon:Home, onClick:()=>setRole(null) },
     canOpenOps && { key:'ops', label:'Event operations', Icon:LayoutDashboard, onClick:()=>setRole('ops'), disabled:needsEvent },
     canOpenQueue && { key:'dept', label:'My queue', Icon:HardHat, onClick:()=>setRole('dept'), disabled:needsEvent },
     canOpenOps && { key:'staff', label:'Suppliers & staff', Icon:Truck, onClick:()=>setRole('staff'), disabled:needsEvent },
     canOpenOps && { key:'people', label:'People', Icon:Users, onClick:()=>setRole('people'), disabled:needsEvent },
     canOpenOps && { key:'exhibitors', label:'Exhibitors', Icon:Building2, onClick:()=>setRole('exhibitors'), disabled:needsEvent },
+    canOpenOps && { key:'services', label:'Orders & packages', Icon:ShoppingBag, onClick:()=>setRole('services'), disabled:needsEvent },
+    canOpenDeliveries && { key:'deliveries', label:'Deliveries', Icon:PackageCheck, onClick:()=>setRole('deliveries'), disabled:needsEvent },
     canOpenOps && { key:'exhibitor', label:'Exhibitor view', Icon:Eye, onClick:()=>openStaffExhibitorView('exhibitor'), disabled:needsEvent },
     canOpenOps && { key:'client-query', label:'Log a query', Icon:ClipboardPlus, onClick:()=>openStaffExhibitorView('client-query'), disabled:needsEvent },
     canOpenOps && { key:'rebooking', label:'Rebooking', Icon:Building2, onClick:()=>openStaffExhibitorView('rebooking'), disabled:needsEvent },
     canManageTenants && { key:'tenant-admin', label:'Events & team', Icon:Users, onClick:()=>setRole('tenant-admin') },
     isPlatformAdmin && role === 'platform-admin' && { key:'platform-admin', label:'Platform admin', Icon:Building2, onClick:()=>setRole('platform-admin') },
   ].filter(Boolean).map(item=>({ ...item, active:item.key === activeKey }));
-  const roleLabel = isPlatformAdmin ? 'Platform owner' : canManageTenants ? 'Organiser' : canOpenOps ? 'Operations' : 'Staff';
+  const roleLabel = isPlatformAdmin ? 'Platform owner' : canManageTenants ? 'Organiser' : canOpenOps ? 'Operations' : deliveryOnly ? 'Delivery' : 'Staff';
   const framed = (activeKey, content, wide = true) => <AppShell
     eventName={selectedEvent?.name} eventMeta={selectedEvent ? formatEventDateRange(selectedEvent.event_start_date, selectedEvent.event_end_date) : undefined}
-    onEventClick={()=>setRole(null)} nav={mainNav(activeKey)} onSignOut={signOut}
+    onEventClick={deliveryOnly ? undefined : ()=>setRole(null)} nav={mainNav(activeKey)} onSignOut={signOut}
     userLabel={session?.user?.email || 'Signed in'} userRole={roleLabel} wide={wide}>{content}</AppShell>;
 
   if (role === 'exhibitor' && session && canOpenOps) return framed('exhibitor', <ExhibitorStatus />);
   if (role === 'client-query' && session && canOpenOps) return framed('client-query', <ClientQuery />);
   if (role === 'exhibitor' && !session) return <WithBack onBack={()=>setRole(null)}><ExhibitorStatus onForgetDevice={()=>{ setRole(null); selectPublicEvent(''); setPublicAccessView('events'); }} /></WithBack>;
+  if (role === 'shop' && !session) return <ExhibitorShop initialStand={loadExhibitorStand(getEventSlug()) || ''} onBack={()=>setRole(null)} />;
   if (role === 'client-query' && !session) return <WithBack onBack={()=>setRole(null)}><ClientQuery /></WithBack>;
   if (role === 'rebooking' && session && canOpenOps) return framed('rebooking', <RebookingForm />);
   if (role === 'rebooking' && !session) {
@@ -401,12 +417,16 @@ export default function App() {
   if (session && role === 'staff' && canOpenOps) return framed('staff', <StaffSetup />);
   if (session && role === 'people' && canOpenOps) return framed('people', <PeopleSetup onBack={()=>setRole('ops')} />);
   if (session && role === 'exhibitors' && canOpenOps) return framed('exhibitors', <ExhibitorSetup onBack={()=>setRole('ops')} />);
+  if (session && role === 'services' && canOpenOps) return framed('services', <ExhibitorServices onOpenShop={()=>openStaffExhibitorView('shop')} />);
+  if (session && role === 'deliveries' && canOpenDeliveries) return framed('deliveries', <Deliveries />);
+  if (session && role === 'shop' && canOpenOps) return framed('services', <ExhibitorShop onBack={()=>setRole('services')} />);
   if (session && role === 'dept' && canOpenQueue) return framed('dept', <DeptQueue allowStaffPicker={canOpenOps} />);
 
   if (session && !role) {
     const hubItems = [
       canOpenOps && { key:'ops', label:'Event Operations', Icon:Monitor, description:'Manage requests and work for the selected event', action:()=>setRole('ops'), needsEvent:true },
       canOpenQueue && { key:'dept', label:'My Queue', Icon:HardHat, description:'Staff: see your assignments and update status', action:()=>setRole('dept'), needsEvent:true },
+      canOpenDeliveries && { key:'deliveries', label:'Deliveries', Icon:PackageCheck, description:'View and update event deliveries', action:()=>setRole('deliveries'), needsEvent:true },
       canManageTenants && { key:'events', label:'Client Workspace', Icon:Building2, description:'Manage your events, team and suppliers', action:()=>setRole('tenant-admin') },
       selectedEvent && canOpenOps && { key:'exhibitor', label:'Exhibitor Status', Icon:Monitor, description:'See what exhibitors see for this event', action:()=>openStaffExhibitorView('exhibitor') },
       selectedEvent && canOpenOps && { key:'query', label:'Log a Query', Icon:ClipboardPlus, description:'Log a query on behalf of an exhibitor', action:()=>openStaffExhibitorView('client-query') },
@@ -429,7 +449,7 @@ export default function App() {
         </div>
         {eventError && <div className="shell-alert" role="alert">{eventError}</div>}
         {!eventLoading && !events.length && !canManageTenants && <p className="shell-note">No event access is assigned to this account.</p>}
-        {selectedEvent && !canOpenOps && !canOpenQueue && <p className="shell-note">No staff access is assigned to this event. Contact your client administrator.</p>}
+        {selectedEvent && !canOpenOps && !canOpenQueue && !canOpenDeliveries && <p className="shell-note">No staff access is assigned to this event. Contact your client administrator.</p>}
         {selectedEvent && canOpenOps && <HomeOverview key={selectedEvent.id} eventId={selectedEvent.id} onOpenOps={queryId=>{setOpenOpsQueryId(queryId || '');setRole('ops');}} />}
         <h2 className="ho-section-title">Your <em>tools.</em></h2>
         <div className="svc-grid">
@@ -482,6 +502,7 @@ export default function App() {
       { key:'overview', label:'Overview', Icon:LayoutDashboard, active:true },
       { key:'query', label:'Log a Query', Icon:ClipboardPlus, onClick:()=>openPublicRole('client-query'), disabled:!servicesReady },
       { key:'status', label:'Check My Status', Icon:Monitor, onClick:()=>openPublicRole('exhibitor'), disabled:!servicesReady },
+      { key:'shop', label:'Order Furniture', Icon:ShoppingBag, onClick:()=>openPublicRole('shop'), disabled:!servicesReady },
       { key:'rebook', label:'Rebook Your Stand', Icon:Building2, onClick:()=>openPublicRole('rebooking'), disabled:!servicesReady },
     ];
     return (
@@ -508,6 +529,7 @@ export default function App() {
         </section> : <div className="svc-grid">
           <ServiceCard icon={ClipboardPlus} eyebrow="Report an issue" title="Log a Query" description="Report an event issue for your stand, with photos if helpful." onClick={()=>openPublicRole('client-query')} />
           <ServiceCard icon={Monitor} eyebrow="Exhibitor status" title="Check My Status" description="Find your stand’s live service requests." onClick={()=>openPublicRole('exhibitor')} />
+          <ServiceCard icon={ShoppingBag} eyebrow="Stand furniture" title="Order Furniture" description="Choose furniture for your stand and get your order form." onClick={()=>openPublicRole('shop')} />
           <ServiceCard icon={Building2} eyebrow="Future events" title="Rebook Your Stand" description={`Register interest in ${selectedEvent.next_event_name || 'the next event'}.`} onClick={()=>openPublicRole('rebooking')} />
         </div>}
       </AppShell>

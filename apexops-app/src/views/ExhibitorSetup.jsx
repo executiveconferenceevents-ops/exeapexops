@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { addExhibitor, getExhibitors, removeExhibitor, updateExhibitor, upsertExhibitorRecords, readableError } from '../lib/mock';
-import { downloadWorkbook, readWorkbookRows } from '../lib/workbook';
+import { downloadWorkbook } from '../lib/workbook';
+import { applyExhibitorImportExtras, EXHIBITOR_TEMPLATE_COLUMNS, EXHIBITOR_TEMPLATE_EXAMPLE, readServiceImportRows } from '../lib/exhibitorServices';
 import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, TEAL, CORAL, BG, FONT } from '../theme';
 
 export default function ExhibitorSetup({ onBack }) {
@@ -28,9 +29,7 @@ export default function ExhibitorSetup({ onBack }) {
   }, [exhibitorSearch, exhibitors]);
 
   function downloadTemplate() {
-    downloadWorkbook('APEXOPS-exhibitors-template.xlsx', [{ name:'Exhibitors', rows:[
-      { Company: 'Example Exhibitor Ltd', Stand: 'A01', Contact: 'Example Contact', Email: 'contact@example.com', 'Work No.': '+27 00 000 0000', 'Cell No.': '+27 00 000 0000' },
-    ] }]);
+    downloadWorkbook('APEXOPS-exhibitors-template.xlsx', [{ name:'Exhibitors', headers:EXHIBITOR_TEMPLATE_COLUMNS, rows:[EXHIBITOR_TEMPLATE_EXAMPLE] }]);
   }
 
   function downloadReport() {
@@ -58,18 +57,23 @@ export default function ExhibitorSetup({ onBack }) {
     if (!file) return;
     setError(''); setMessage('');
     try {
-      const rows = await readWorkbookRows(await file.arrayBuffer());
+      const rows = await readServiceImportRows(file);
       const normalized = rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key.toLowerCase().replace(/[^a-z0-9]/g, '_'), String(value).trim()])));
       const imported = normalized.map(row => ({
         stand: row.stand || row.stand_number,
         name: row.name || row.exhibitor || row.company,
         contact: row.contact || row.contact_name,
-        phone: row.phone || row.mobile || row.contact_number,
+        phone: row.phone || row.mobile || row.cell_no_ || row.cell_no || row.work_no_ || row.work_no || row.contact_number,
         email: row.email,
       })).filter(row => row.stand && row.name);
       if (!imported.length) throw new Error('No rows with Stand and Exhibitor/Company columns were found.');
       await upsertExhibitorRecords(imported);
-      setMessage(`Imported ${imported.length} exhibitor records.`);
+      try {
+        const extras = await applyExhibitorImportExtras(rows);
+        setMessage(`Imported ${imported.length} exhibitor records and ${extras} packages/fascia names.`);
+      } catch (extrasError) {
+        setMessage(`Imported ${imported.length} exhibitor records. Package and fascia details could not be fully imported: ${readableError(extrasError, 'Exhibitor services are not available yet.')}`);
+      }
       await refresh();
     } catch (importError) { setError(readableError(importError, 'Could not import this workbook.')); }
     event.target.value = '';

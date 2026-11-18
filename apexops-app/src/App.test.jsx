@@ -46,6 +46,7 @@ jest.mock('./views/OpsPortal', () => {
   };
 });
 jest.mock('./views/DeptQueue', () => () => 'Staff queue fixture');
+jest.mock('./views/Deliveries', () => () => 'Deliveries fixture');
 jest.mock('./views/ExhibitorStatus', () => () => 'Exhibitor status fixture');
 jest.mock('./views/StaffSetup', () => () => 'Staff setup fixture');
 jest.mock('./views/PeopleSetup', () => () => 'People setup fixture');
@@ -458,6 +459,38 @@ test.each([
     }
   } finally {
     await act(async()=>{root.unmount();});
+    container.remove();
+    window.history.replaceState({}, '', '/');
+  }
+});
+
+test.each(['unified', 'staff'])('delivery-only users enter deliveries from %s sign-in', async entry => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  let activeEvent = null;
+  getActiveEvent.mockImplementation(() => activeEvent);
+  setActiveEvent.mockImplementation(event => { activeEvent = event; });
+  getEventSlug.mockReturnValue('delivery-event');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'delivery-user' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'delivery-event', client_id:'client', slug:'delivery-event', name:'Delivery event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:false, memberships:[{ client_id:'client', event_id:'delivery-event', role:'delivery' }] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<App />); });
+    if (entry === 'staff') await openLegacyTeamRoute(container, 'Staff');
+    await act(async () => { buttonWithText(container, 'Sign in').click(); });
+    expect(container.textContent).toContain('Deliveries fixture');
+    expect(container.textContent).not.toContain('Event operations');
+    expect(container.textContent).not.toContain('Orders & packages');
+    expect(container.textContent).not.toContain('My queue');
+    expect(buttonWithText(container, 'Home')).toBeUndefined();
+  } finally {
+    await act(async () => { root.unmount(); });
     container.remove();
     window.history.replaceState({}, '', '/');
   }
