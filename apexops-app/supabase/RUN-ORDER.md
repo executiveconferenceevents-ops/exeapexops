@@ -1,4 +1,4 @@
-# Supabase SQL run order
+# Supabase SQL run order (best-known; verify live)
 
 This is reconstructed from the project README, TODO, and migration dependencies. The repository does not contain a complete Supabase migration-history export, so the exact order already applied to staging or production is **uncertain**. Do not rerun migrations based only on this list. Compare it with the target project's migration history first. No Supabase connection was made while preparing this file.
 
@@ -7,7 +7,7 @@ This is reconstructed from the project README, TODO, and migration dependencies.
 1. `archive-do-not-run/schema.sql` - legacy base schema. Archived because it creates broad authenticated policies; do not rerun over an event-scoped database.
 2. Feature setup, where needed on the original project: `exhibitor-logo-migration.sql`, `exhibitor-scanner-migration.sql`, `supplier-logo-migration.sql`, `media-buckets.sql`, `staff-photos-bucket.sql`, and `archive-do-not-run/client-ops-notifications-migration.sql`.
 3. Optional staff/supplier field setup: `staff-supplier-fields.sql`; `people-migration.sql` is archived and must not be rerun because it recreates broad supplier policies.
-4. `archive-do-not-run/multi-client-events-migration.sql` - documented as following the base and feature setup and preceding event-scoped imports. Its `allow_all` references only drop an old policy, but the file is archived per the requested scan rule. Review it before any fresh-environment use.
+4. `multi-client-events-migration.sql` - documented as following the base and feature setup and preceding event-scoped imports. Its `allow_all` references are only defensive drops; it creates scoped tenant/event policies.
 5. `event-logo-migration.sql` - documented as following the multi-client migration.
 6. `archive-do-not-run/rebooking-migration.sql` - legacy standalone schema and broad policies; use the event-scoped rebooking setup in the multi-client/client-Ops migrations instead.
 

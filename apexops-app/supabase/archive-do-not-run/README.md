@@ -8,8 +8,7 @@ Files moved here:
 - `people-migration.sql`
 - `rebooking-migration.sql`
 - `client-ops-notifications-migration.sql`
-- `multi-client-events-migration.sql`
 
-Important exception: `multi-client-events-migration.sql` contains the text `allow_all` only in defensive `DROP POLICY` statements. Its created tenant/event policies are scoped, not `USING (true)`. It is archived because it matched the requested text scan, but it is a historical bootstrap migration and should only be used for a fresh environment after a security review.
+`multi-client-events-migration.sql` is intentionally kept in the active `supabase/` folder. Although it mentions `allow_all`, those occurrences only drop old policies; it creates scoped tenant/event policies.
 
 See `../RUN-ORDER.md` for the best-known documented sequence. That sequence is not a live database migration-history export.
