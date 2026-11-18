@@ -3,7 +3,7 @@
 // [APEX exhibitor services 1]
 import React, { useCallback, useEffect, useState } from 'react';
 import { Check, FileText, ImagePlus, Info, Lock, Upload } from 'lucide-react';
-import { formatDay, formatDayTime, getExhibitorPortal, rand, saveExhibitorFascia, uploadExhibitorFile } from '../lib/exhibitorServices';
+import { formatDay, formatDayTime, getExhibitorInvoices, getExhibitorPortal, rand, saveExhibitorFascia, startExhibitorPayfastCheckout, startExhibitorYocoCheckout, submitExhibitorEftProof, uploadExhibitorFile } from '../lib/exhibitorServices';
 import './exhibitor-services.css';
 
 const LOGO_TYPES = '.ai,.eps,.pdf,.svg,.png,.jpg,.jpeg,.tif,.tiff';
@@ -15,9 +15,15 @@ export default function ExhibitorPortal({ token, onOrderFurniture }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
+  const [invoices, setInvoices] = useState([]);
+  const [eftProof, setEftProof] = useState(null);
+  const [eftReference, setEftReference] = useState('');
 
   const load = useCallback(async () => {
-    try { const d = await getExhibitorPortal(token); setData(d); setFascia(d.fascia_name || ''); setError(''); }
+    try {
+      const [d,invoiceRows] = await Promise.all([getExhibitorPortal(token),getExhibitorInvoices(token)]);
+      setData(d); setFascia(d.fascia_name || ''); setInvoices(invoiceRows); setError('');
+    }
     catch (e) { setError(e.message); }
   }, [token]);
   useEffect(() => { load(); }, [load]);
@@ -32,6 +38,26 @@ export default function ExhibitorPortal({ token, onOrderFurniture }) {
     setBusy(kind); setNotice(''); setError('');
     try { for (const f of files) await uploadExhibitorFile(token, kind, f); setNotice(`${files.length} file${files.length === 1 ? '' : 's'} uploaded.`); await load(); }
     catch (e) { setError(e.message); } finally { setBusy(''); }
+  };
+  const submitEft = async invoiceId => {
+    if (!eftReference.trim()||!eftProof) { setError('Add a bank reference and proof of payment.'); return; }
+    setBusy('eft'); setNotice(''); setError('');
+    try {
+      await submitExhibitorEftProof(token,invoiceId,eftReference.trim(),eftProof);
+      setEftReference(''); setEftProof(null);
+      setNotice('Proof submitted for organiser approval.');
+      await load();
+    } catch (e) { setError(e.message); } finally { setBusy(''); }
+  };
+  const startPayfast = async invoiceId => {
+    setBusy('payfast'); setError('');
+    try { await startExhibitorPayfastCheckout(token,invoiceId); }
+    catch (e) { setError(e.message); setBusy(''); }
+  };
+  const startYoco = async invoiceId => {
+    setBusy('yoco'); setError('');
+    try { await startExhibitorYocoCheckout(token,invoiceId); }
+    catch (e) { setError(e.message); setBusy(''); }
   };
 
   if (error && !data) {
@@ -114,6 +140,30 @@ export default function ExhibitorPortal({ token, onOrderFurniture }) {
         </div>
 
         {/* Orders */}
+        {invoices.length > 0 && (
+          <div className="es-card es-pad es-stack">
+            <div className="es-eyebrow">Invoices</div>
+            {invoices.map(invoice => (
+              <div key={invoice.id} className="es-stack" style={{ borderTop:'1px solid #e3eaed', paddingTop:12 }}>
+                <div className="es-summary-line">
+                  <strong>{invoice.invoice_number}</strong>
+                  <span className="es-grow es-small es-muted">{invoice.invoice_date}</span>
+                  <span className="es-badge">{invoice.status === 'proof_uploaded' ? 'Proof submitted' : invoice.status}</span>
+                  <strong>{rand(invoice.total_cents/100)}</strong>
+                </div>
+                {invoice.status==='unpaid'||invoice.status==='proof_uploaded' ? (
+                  <div className="es-grid2">
+                    <button className="es-btn es-btn--primary" disabled={Boolean(busy)} onClick={()=>startPayfast(invoice.id)}>{busy==='payfast'?'Opening…':'Pay with PayFast'}</button>
+                    <button className="es-btn" disabled={Boolean(busy)} onClick={()=>startYoco(invoice.id)}>{busy==='yoco'?'Opening…':'Pay with Yoco'}</button>
+                    <input className="es-input" maxLength={160} value={eftReference} onChange={e=>setEftReference(e.target.value)} placeholder="Bank / EFT reference" aria-label="Bank EFT reference" />
+                    <label className="es-btn es-file"><Upload size={16}/> {eftProof?eftProof.name:'Attach proof'}<input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e=>setEftProof(e.target.files?.[0]||null)} /></label>
+                    <button className="es-btn" disabled={Boolean(busy)||!eftReference.trim()||!eftProof} onClick={()=>submitEft(invoice.id)}>{busy==='eft'?'Submitting…':'Submit EFT proof'}</button>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
         {data.orders?.length > 0 && (
           <div className="es-card es-pad">
             <div className="es-eyebrow">Your orders</div>

@@ -455,7 +455,10 @@ function SettingsTab({ settings, accessWindow, run }) {
   useEffect(() => setForm(settings), [settings]);
   const toInput = v => (v ? new Date(v).toISOString().slice(0, 10) : '');
   const save = () => run(() => saveOrderSettings({
-    prices_exclude_vat: form.prices_exclude_vat, vat_rate: Number(form.vat_rate), platform_fee_rate: Number(form.platform_fee_rate),
+    supplier_vat_registered: form.supplier_vat_registered ?? form.prices_exclude_vat ?? false,
+    prices_exclude_vat: form.supplier_vat_registered ?? form.prices_exclude_vat ?? false,
+    vat_rate: Number(form.vat_rate),
+    platform_fee_rate: 0.03,
     orders_open_at: form.orders_open_at || null, orders_close_at: form.orders_close_at || null,
     supplier_name: form.supplier_name || null, order_terms: form.order_terms, logo_terms: form.logo_terms,
   }), 'Settings saved.');
@@ -472,10 +475,10 @@ function SettingsTab({ settings, accessWindow, run }) {
       </div>
       <div className="es-card es-pad es-stack">
         <h2 className="es-h2">Pricing</h2>
-        <label className="es-check"><input type="checkbox" checked={form.prices_exclude_vat} onChange={e => setForm({ ...form, prices_exclude_vat: e.target.checked })} /> The supplier is VAT registered — add VAT to the stock list prices</label>
+        <label className="es-check"><input type="checkbox" checked={form.supplier_vat_registered ?? form.prices_exclude_vat ?? false} onChange={e => setForm({ ...form, supplier_vat_registered: e.target.checked, prices_exclude_vat: e.target.checked })} /> The supplier is VAT registered — add VAT to the stock list prices</label>
         <div className="es-grid2">
           <label className="es-label">VAT rate (%)<input className="es-input" inputMode="decimal" value={Math.round(form.vat_rate * 1000) / 10} onChange={e => setForm({ ...form, vat_rate: Number(e.target.value) / 100 })} /></label>
-          <label className="es-label">Platform fee (%) — internal<input className="es-input" inputMode="decimal" value={Math.round(form.platform_fee_rate * 1000) / 10} onChange={e => setForm({ ...form, platform_fee_rate: Number(e.target.value) / 100 })} /></label>
+          <label className="es-label">Platform fee (%) — internal<input className="es-input" value="3%" disabled readOnly /></label>
           <label className="es-label">Supplier name (shown on order form)<input className="es-input" value={form.supplier_name || ''} onChange={e => setForm({ ...form, supplier_name: e.target.value })} /></label>
         </div>
       </div>

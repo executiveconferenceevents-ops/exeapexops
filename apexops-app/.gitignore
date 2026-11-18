@@ -3,6 +3,9 @@ node_modules/
 .env
 .env.local
 build/
+_updates/
+data/
+_security-check-build/
 
 dist-desktop/
 desktop-build.log
