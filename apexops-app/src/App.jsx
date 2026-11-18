@@ -463,23 +463,31 @@ export default function App() {
     <LoginLayout
       title="Event operations"
       accent="under control."
-      subtitle="APEXOPS brings organizers, operations teams, staff, and exhibitors into one clear workspace for every event."
-      bullets={['Coordinate event requests and service delivery', 'Give each team access only to the events they support', 'Keep exhibitors informed from build-up to breakdown']}
-      onAdmin={()=>{ setAdminReturnView('home'); setPublicAccessView('clients'); }}
-      onClient={()=>setPublicAccessView('client')}
+      subtitle="Choose the portal for your role. Your account permissions determine which events and tools you can access."
     >
       <div className="lg-journey">
         <div className="lg-journey-intro">
           <span className="lg-eyebrow">APEXOPS EVENT PLATFORM</span>
-          <h2>Welcome <em>back.</em></h2>
-          <p>Choose how you're joining. Your organiser controls access to each event.</p>
+          <h2>Select your <em>portal.</em></h2>
+          <p>Sign in through the workspace that matches your responsibilities.</p>
         </div>
-        <button className="lg-journey-primary" type="button" onClick={()=>setPublicAccessView('events')}>
-          <span><Ticket size={18} /><span><strong>I'm an exhibitor</strong><small>Find your event with the code from your organiser.</small></span></span>
-          <ArrowRight size={17} />
-        </button>
-        <div className="lg-journey-divider"><span>FOR EVENT TEAMS</span></div>
-        <TeamLogin compact onSignedIn={nextSession=>{ setLoginDestination('auto'); setSession(nextSession); }} initiallyOpen />
+        <div className="lg-journey-grid" aria-label="Choose a portal">
+          <button className="lg-journey-option" type="button" onClick={()=>{ setAdminReturnView('home'); setPublicAccessView('clients'); }}>
+            <ShieldCheck size={19} /><span><strong>Platform Admin</strong><small>Manage client accounts, billing, and activation.</small></span>
+          </button>
+          <button className="lg-journey-option" type="button" onClick={()=>setPublicAccessView('client')}>
+            <Building2 size={19} /><span><strong>Client / Organiser</strong><small>Set up events, teams, and organisation details.</small></span>
+          </button>
+          <button className="lg-journey-option" type="button" onClick={()=>setPublicAccessView('organiser')}>
+            <LayoutDashboard size={19} /><span><strong>Event Operations</strong><small>Manage requests and coordinate event delivery.</small></span>
+          </button>
+          <button className="lg-journey-option" type="button" onClick={()=>setPublicAccessView('team')}>
+            <HardHat size={19} /><span><strong>Staff & Delivery</strong><small>Open assigned jobs and update delivery progress.</small></span>
+          </button>
+          <button className="lg-journey-option" type="button" onClick={()=>setPublicAccessView('events')}>
+            <Ticket size={19} /><span><strong>Exhibitor access</strong><small>Find your event and enter its organiser-issued code.</small></span>
+          </button>
+        </div>
         {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
         <div className="lg-journey-contact">
           <span><Building2 size={16} /><span><strong>New to APEXOPS?</strong><small>Request a guided demo for your organisation.</small></span></span>
@@ -540,7 +548,7 @@ export default function App() {
     <LoginLayout title="Platform" accent="admin." subtitle="Sign in to manage client accounts and access.">
       <TeamLogin onSignedIn={nextSession=>{ setLoginDestination('clients'); setSession(nextSession); }} initiallyOpen title="Admin sign in" />
       {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
-      <button type="button" className="lg-link" onClick={()=>setPublicAccessView(adminReturnView)}><ArrowLeft size={14} /> Back</button>
+      <button type="button" className="lg-link" onClick={()=>setPublicAccessView(adminReturnView)}>Back to portal selection</button>
     </LoginLayout>
   );
 
@@ -561,14 +569,7 @@ export default function App() {
       accent={headAccent}
       subtitle={headSubtitle}
       bullets={publicAccessView === 'events' && !publicEventSlug ? ['Report and track issues at your stand', 'See which requests are resolved', 'Plan your next event'] : null}
-      onAdmin={()=>{ setAdminReturnView(publicAccessView); setPublicAccessView('clients'); }}
     >
-      {publicAccessView !== 'client' && <nav className="lg-tabs" aria-label="Event access options">
-        {[['events','Exhibitors'],['team','Staff'],['organiser','Operations']].map(([view,label]) => (
-          <button key={view} type="button" className={publicAccessView === view ? 'active' : ''} aria-current={publicAccessView === view ? 'page' : undefined} onClick={()=>setPublicAccessView(view)}>{label}</button>
-        ))}
-      </nav>}
-
       {publicAccessView === 'events' ? (publicEventSlug ? (
         <div className="lg-code">
           <div className="lg-selected">
@@ -581,6 +582,7 @@ export default function App() {
         </div>
       ) : (
         <>
+          <button type="button" className="lg-link" onClick={()=>setPublicAccessView('home')}>Back to portal selection</button>
           <h2 className="lg-title">Choose your event</h2>
           <p className="lg-sub">Find your event, then enter the code your organiser gave you.</p>
           <div className="lg-filters">
@@ -608,7 +610,7 @@ export default function App() {
       )) : (
         <TeamLogin onSignedIn={nextSession=>{ setLoginDestination(publicAccessView); setSession(nextSession); }} initiallyOpen title={{ client:'Client / Organiser sign in', organiser:'Operations sign in', team:'Staff sign in' }[publicAccessView]} />
       )}
-      {publicAccessView === 'client' && <button type="button" className="lg-link lg-back-home" onClick={()=>setPublicAccessView('home')}><ArrowLeft size={14} /> Back to home</button>}
+      {publicAccessView !== 'events' && <button type="button" className="lg-link lg-back-home" onClick={()=>setPublicAccessView('home')}>Back to portal selection</button>}
       {eventError && <div className="lg-alert" role="alert">{eventError}</div>}
     </LoginLayout>
   );

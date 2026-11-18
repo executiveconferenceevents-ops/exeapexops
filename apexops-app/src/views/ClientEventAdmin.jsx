@@ -1477,7 +1477,7 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
             <td><input aria-label={`Maximum annual events ${plan.id}`} type="number" min="1" step="1" value={plan.maxEvents} onChange={event=>updateVolumePlan(index,'maxEvents',event.target.value === '' ? '' : Number(event.target.value))} /></td>
             <td><input aria-label={`Discount percent ${plan.id}`} type="number" min="0" max="100" step="0.1" value={plan.discountPct} onChange={event=>updateVolumePlan(index,'discountPct',event.target.value === '' ? '' : Number(event.target.value))} /></td>
           </tr>)}</tbody></table></div>
-          <p className="tenant-scope-note">Includes {INCLUDED_INTERNAL_SEATS} internal operational accounts; additional internal accounts are R{EXTRA_STAFF_SEAT_PRICE} per user per event. External participant access is free.</p>
+          <p className="tenant-scope-note">Includes {INCLUDED_INTERNAL_SEATS} internal operational accounts; additional internal accounts are R{EXTRA_STAFF_SEAT_PRICE} per user per event. Exhibitor access is free.</p>
         </section>}
 
         {isPlatformAdmin&&<>

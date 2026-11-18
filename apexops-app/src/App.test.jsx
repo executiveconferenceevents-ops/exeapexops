@@ -59,10 +59,9 @@ function buttonWithText(container, text) {
   return [...container.querySelectorAll('button')].find(button => button.textContent.includes(text) || button.getAttribute('aria-label') === text);
 }
 
-async function openLegacyTeamRoute(container, label) {
-  await act(async () => { buttonWithText(container, "I'm an exhibitor").click(); });
-  const tab=[...container.querySelectorAll('.lg-tabs button')].find(button=>button.textContent.trim()===label);
-  await act(async () => { tab.click(); });
+async function openRolePortal(container, label) {
+  const portal = label === 'Operations' ? 'Event Operations' : label === 'Staff' ? 'Staff & Delivery' : 'Client / Organiser';
+  await act(async () => { buttonWithText(container, portal).click(); });
 }
 
 test.each([true, false])('saved exhibitor access restores only after server validation: %s', async valid => {
@@ -190,13 +189,13 @@ test('platform-admin login opens the admin dashboard without the workspace choos
   await act(async () => { buttonWithText(container, 'Sign out').click(); });
   expect(window.location.search).not.toContain('admin');
   expect(window.location.search).not.toContain('event');
-  expect(container.textContent).toContain('Welcome back.');
+  expect(container.textContent).toContain('Select your portal.');
   await act(async () => { root.unmount(); });
   container.remove();
   window.history.replaceState({}, '', '/');
 });
 
-test('public home explains the product and routes event attendees to event code access', async () => {
+test('public home provides separate role portals and routes exhibitors to event code access', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   window.history.replaceState({}, '', '/');
   supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
@@ -217,11 +216,30 @@ test('public home explains the product and routes event attendees to event code 
   const root = createRoot(container);
 
   await act(async () => { root.render(<App />); });
-  expect(container.textContent).toContain('Welcome back.');
+  expect(container.textContent).toContain('Select your portal.');
   expect(container.textContent).toContain('Client / Organiser');
-  expect(container.querySelector('input[aria-label="Work email"]')).not.toBeNull();
-  expect(container.querySelector('input[aria-label="Password"]')).not.toBeNull();
+  expect(container.textContent).toContain('Platform Admin');
+  expect(container.textContent).toContain('Event Operations');
+  expect(container.textContent).toContain('Staff & Delivery');
+  expect(container.querySelector('input[aria-label="Work email"]')).toBeNull();
+  expect(container.querySelector('input[aria-label="Password"]')).toBeNull();
   expect(container.textContent).toContain('Request a demo');
+
+  await act(async () => { buttonWithText(container, 'Platform Admin').click(); });
+  expect(container.textContent).toContain('Admin sign in');
+  expect(container.querySelector('.lg-tabs')).toBeNull();
+  await act(async () => { buttonWithText(container, 'Back to portal selection').click(); });
+
+  await act(async () => { buttonWithText(container, 'Event Operations').click(); });
+  expect(container.textContent).toContain('Operations sign in');
+  expect(container.querySelector('.lg-tabs')).toBeNull();
+  await act(async () => { buttonWithText(container, 'Back to portal selection').click(); });
+
+  await act(async () => { buttonWithText(container, 'Staff & Delivery').click(); });
+  expect(container.textContent).toContain('Staff sign in');
+  expect(container.querySelector('.lg-tabs')).toBeNull();
+  await act(async () => { buttonWithText(container, 'Back to portal selection').click(); });
+
   await act(async () => { buttonWithText(container, 'Request a client account').click(); });
   expect(container.textContent).toContain('Request an account');
   expect(container.textContent).toContain('This is an account request only.');
@@ -230,11 +248,10 @@ test('public home explains the product and routes event attendees to event code 
   await act(async () => { buttonWithText(container, 'Client / Organiser').click(); });
   expect(container.textContent).toContain('Client / Organiser sign in');
   expect(container.querySelector('.lg-tabs')).toBeNull();
-  await act(async () => { buttonWithText(container, 'Back to home').click(); });
+  await act(async () => { buttonWithText(container, 'Back to portal selection').click(); });
 
-  await act(async () => { buttonWithText(container, "I'm an exhibitor").click(); });
-  expect(container.querySelectorAll('.lg-tabs button')).toHaveLength(3);
-  expect(container.querySelector('.lg-tabs').textContent).not.toContain('Organiser');
+  await act(async () => { buttonWithText(container, 'Exhibitor access').click(); });
+  expect(container.querySelector('.lg-tabs')).toBeNull();
   expect(container.textContent).toContain('Example Expo');
   await act(async () => { buttonWithText(container, 'Example Expo').click(); });
   expect(container.querySelector('#public-event-code')).not.toBeNull();
@@ -285,10 +302,10 @@ test('organization client admins enter the Client Workspace before Event Operati
 });
 
 test.each([
-  ['staff', 'Staff queue fixture'],
-  ['ops', 'Event Operations'],
-  ['client_admin', 'Client Workspace'],
-])('unified sign-in routes %s to the appropriate workspace', async (role, expected) => {
+  ['staff', 'Staff', 'Staff queue fixture'],
+  ['ops', 'Operations', 'Operations event: Unified event'],
+  ['client_admin', 'Client / Organiser', 'Client workspace fixture'],
+])('role-specific %s sign-in routes to the appropriate workspace', async (role, portal, expected) => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   window.history.replaceState({}, '', '/');
   let activeEvent = null;
@@ -306,10 +323,11 @@ test.each([
   const root=createRoot(container);
   try {
     await act(async()=>{root.render(<App />);});
+    if (portal === 'Client / Organiser') await act(async()=>{buttonWithText(container, portal).click();});
+    else await openRolePortal(container, portal);
     await act(async()=>{buttonWithText(container, 'Sign in').click();});
     expect(container.textContent).toContain(expected);
     expect(container.textContent).not.toContain('Owner dashboard fixture');
-    if (role !== 'staff') expect(container.textContent).toContain('Alex.');
   } finally {
     await act(async()=>{root.unmount();});
     container.remove();
@@ -335,7 +353,7 @@ test('event Operations users still enter the Operations workspace', async () => 
   const root = createRoot(container);
 
   await act(async () => { root.render(<App />); });
-  await openLegacyTeamRoute(container, 'Operations');
+  await openRolePortal(container, 'Operations');
   const email = container.querySelector('input[aria-label="Work email"]');
   const password = container.querySelector('input[aria-label="Password"]');
   await act(async () => {
@@ -374,7 +392,7 @@ test.each([
   const root = createRoot(container);
   await act(async () => { root.render(<App />); });
   if (entry === 'Client / Organiser') await act(async () => { buttonWithText(container, entry).click(); });
-  else await openLegacyTeamRoute(container, entry === 'Operations sign in' ? 'Operations' : 'Staff');
+  else await openRolePortal(container, entry === 'Operations sign in' ? 'Operations' : 'Staff');
   const email = container.querySelector('input[aria-label="Work email"]');
   const password = container.querySelector('input[aria-label="Password"]');
   await act(async () => {
@@ -464,7 +482,7 @@ test.each([
   }
 });
 
-test.each(['unified', 'staff'])('delivery-only users enter deliveries from %s sign-in', async entry => {
+test('delivery-only users enter deliveries from the Staff & Delivery portal', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   window.history.replaceState({}, '', '/');
   let activeEvent = null;
@@ -482,7 +500,7 @@ test.each(['unified', 'staff'])('delivery-only users enter deliveries from %s si
   const root = createRoot(container);
   try {
     await act(async () => { root.render(<App />); });
-    if (entry === 'staff') await openLegacyTeamRoute(container, 'Staff');
+    await openRolePortal(container, 'Staff');
     await act(async () => { buttonWithText(container, 'Sign in').click(); });
     expect(container.textContent).toContain('Deliveries fixture');
     expect(container.textContent).not.toContain('Event operations');
