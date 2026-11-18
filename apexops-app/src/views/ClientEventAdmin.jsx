@@ -177,7 +177,9 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
         managedClientEventLimit = managedClient?.event_limit || 1;
         managedClientBilling = managedClient || managedClientBilling;
       } else if (DEMO_MODE) {
-        managedClientBilling = visibleClients[0] || managedClientBilling;
+        managedClientBilling = { ...managedClientBilling, ...(visibleClients[0] || {}) };
+        if (!managedClientBilling.billing_mode) managedClientBilling.billing_mode = 'unmanaged';
+        if (!managedClientBilling.billing_status) managedClientBilling.billing_status = 'active';
         managedClientEventLimit = visibleClients[0]?.event_limit || managedClientEventLimit;
       }
       let managedEvents = clientWorkspaceOnly ? availableEvents.filter(event => currentMemberships.some(membership => membership.client_id === event.client_id && (!membership.event_id || membership.event_id === event.id))) : availableEvents;

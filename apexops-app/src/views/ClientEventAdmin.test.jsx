@@ -208,7 +208,7 @@ test('client administrators can add private suppliers in their workspace', async
   document.body.appendChild(container);
   const root=createRoot(container);
   try {
-    setDemoCollection('clients',[sampleClient]);
+    setDemoCollection('clients',[{id:sampleClient.id,name:sampleClient.name,slug:sampleClient.slug}]);
     setDemoCollection('memberships',[sampleMembership]);
     setDemoCollection('events',[]);
     await act(async()=>{root.render(<ClientEventAdmin clientWorkspaceOnly currentUserId={sampleMembership.user_id}/>);});

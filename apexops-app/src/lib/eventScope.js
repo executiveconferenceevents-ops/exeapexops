@@ -77,7 +77,11 @@ export function clearActiveEvent() {
 
 export async function getAvailableEvents() {
   if (DEMO_MODE) {
-    const clients = getDemoCollection('clients', [{ id:DEMO_CLIENT_ID, name:'Executive Conference Events', slug:'executive-conference-events' }]);
+    const clients = getDemoCollection('clients', [{
+      id:DEMO_CLIENT_ID, name:'Executive Conference Events', slug:'executive-conference-events',
+      event_limit:1, billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy',
+      prepaid_event_credits:0, trial_started_at:null, trial_ends_at:null,
+    }]);
     return getDemoCollection('events', [{
       id:DEMO_EVENT_ID, client_id:clients[0]?.id || DEMO_CLIENT_ID, clients:clients[0], name:'ESG Africa 2026',
       event_start_date:'2026-11-18', event_end_date:'2026-11-20', build_up_start_date:'2026-11-17', build_up_end_date:'2026-11-17',
