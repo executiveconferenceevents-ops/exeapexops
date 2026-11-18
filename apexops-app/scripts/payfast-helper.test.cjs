@@ -26,6 +26,49 @@ test('PayFast custom signature uses ordered PHP-style URL encoding and ignores t
   assert.equal(verifyPayfastSignature(fields,'Pass phrase!'),false);
 });
 
+test('PayFast server validation payload preserves the original signature and field order', async () => {
+  const { payfastValidationBody } = await helpers();
+  const fields = new URLSearchParams([
+    ['merchant_id','10000100'],
+    ['amount_gross','10.00'],
+    ['signature','0123456789abcdef0123456789abcdef'],
+  ]);
+  assert.equal(payfastValidationBody(fields).toString(),'merchant_id=10000100&amount_gross=10.00&signature=0123456789abcdef0123456789abcdef');
+});
+
+test('sandbox checkout leaves buyer identity to PayFast while live checkout uses verified billing email', async () => {
+  const { payfastBuyerEmailField } = await helpers();
+  assert.deepEqual(payfastBuyerEmailField('sandbox','merchant@example.test','buyer@example.test'),{});
+  assert.deepEqual(payfastBuyerEmailField('live','billing@example.test','buyer@example.test'),{email_address:'billing@example.test'});
+  assert.deepEqual(payfastBuyerEmailField('live','','buyer@example.test'),{email_address:'buyer@example.test'});
+});
+
+test('PayFast ITN form parser accepts URL-encoded and multipart requests without dropping repeated fields', async () => {
+  const { parsePayfastForm } = await helpers();
+  const urlEncoded = new Request('https://example.test/itn', {
+    method:'POST',
+    headers:{'content-type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams([['merchant_id','10000100'],['payment_status','COMPLETE'],['tag','one'],['tag','two']]),
+  });
+  const encoded = await parsePayfastForm(urlEncoded);
+  assert.equal(encoded.form.get('merchant_id'),'10000100');
+  assert.deepEqual(encoded.form.getAll('tag'),['one','two']);
+
+  const fields = new FormData();
+  fields.append('merchant_id','10000100');
+  fields.append('payment_status','COMPLETE');
+  fields.append('tag','one');
+  fields.append('tag','two');
+  const multipart = await parsePayfastForm(new Request('https://example.test/itn',{method:'POST',body:fields}));
+  assert.equal(multipart.form.get('merchant_id'),'10000100');
+  assert.deepEqual(multipart.form.getAll('tag'),['one','two']);
+
+  const tooLarge = await parsePayfastForm(new Request('https://example.test/itn',{
+    method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:'x'.repeat(20),
+  }),10);
+  assert.equal(tooLarge.error,'too_large');
+});
+
 test('PayFast amount parsing is exact and source IP filtering follows published IPv4 ranges', async () => {
   const { isPayfastSourceIp, payfastAmountToCents } = await helpers();
   assert.equal(payfastAmountToCents('120.00'),12000);

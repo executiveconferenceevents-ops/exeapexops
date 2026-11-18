@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { createPayfastSignature } from '../_shared/payfast.mjs';
+import { createPayfastSignature, payfastBuyerEmailField } from '../_shared/payfast.mjs';
 
 function respond(status: number, body: Record<string, unknown>, origin: string) {
   return new Response(JSON.stringify(body), {
@@ -66,7 +66,7 @@ Deno.serve(async request => {
     notify_url:notifyUrl,
     name_first:names.shift()||'Client',
     name_last:names.join(' '),
-    email_address:invoice.billed_to_email||userData.user.email||'',
+    ...payfastBuyerEmailField(mode,invoice.billed_to_email,userData.user.email),
     m_payment_id:checkout.checkout_session_id,
     amount:(Number(checkout.amount_cents)/100).toFixed(2),
     item_name:String(invoice.invoice_number).slice(0,100),

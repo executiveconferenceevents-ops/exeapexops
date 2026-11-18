@@ -15,6 +15,7 @@ import { ArrowLeft, ArrowRight, Building2, CalendarDays, CheckCircle2, Clipboard
 import { AppShell, PageHeader, ServiceCard, StatusBadge } from './components/AppShell';
 import LoginLayout from './components/LoginLayout';
 import ClientRegistrationForm from './components/ClientRegistrationForm';
+import { forgetExhibitorPass, loadExhibitorPass, saveExhibitorPass } from './lib/exhibitorPass';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, FONT, DISPLAY_FONT } from './theme';
 
 export default function App() {
@@ -66,6 +67,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!authReady) return undefined;
     let cancelled = false;
     setEventContextReadyFor('');
     setEventLoading(true);
@@ -97,10 +99,10 @@ export default function App() {
           }
           if (cancelled) return;
           const workspaceEvents = platformAdmin
-            ? availableEvents.filter(event => event.billing_exempt)
+            ? availableEvents.filter(event => event.billing_exempt || currentMemberships.some(membership => membership.client_id === event.client_id && (!membership.event_id || membership.event_id === event.id)))
             : availableEvents;
           setIsPlatformAdmin(platformAdmin);
-          setCanManageTenants(platformAdmin || organizationAdmin);
+          setCanManageTenants(organizationAdmin);
           setEventMemberships(currentMemberships);
           setEvents(workspaceEvents);
           const currentEvent = getActiveEvent();
@@ -124,6 +126,32 @@ export default function App() {
           setPrivacyAcknowledged(false);
           setPrivacyNoticeChecked(false);
           setPrivacyAcknowledgementId('');
+          const pass = loadExhibitorPass();
+          const adminRequested = new URLSearchParams(window.location.search).has('admin');
+          if (pass && !adminRequested && (!linkedSlug || linkedSlug === pass.slug)) {
+            try {
+              const rememberedEvent = await resolvePublicEvent(pass.slug, pass.accessCode, { requireOnline:true });
+              if (cancelled) return;
+              if (!rememberedEvent) forgetExhibitorPass();
+              else {
+                const acknowledged = pass.privacyNoticeVersion === PRIVACY_NOTICE_VERSION && Boolean(pass.privacyAcknowledgementId);
+                const restoredEvent = {
+                  ...rememberedEvent,
+                  privacyNoticeVersion:PRIVACY_NOTICE_VERSION,
+                  privacyAcknowledgementId:acknowledged ? pass.privacyAcknowledgementId : crypto.randomUUID(),
+                };
+                setPublicEventSlug(restoredEvent.slug);
+                setSelectedEvent(restoredEvent);
+                setActiveEvent(restoredEvent);
+                setPrivacyAcknowledgementId(restoredEvent.privacyAcknowledgementId);
+                setPrivacyAcknowledged(acknowledged);
+                setPublicAccessView('events');
+                if (acknowledged && pass.stand) setRole('exhibitor');
+              }
+            } catch {
+              if (!cancelled) setEventError('Could not verify your saved event access. Connect to the internet and try again.');
+            }
+          }
         }
       } catch (eventLoadError) {
         if (!cancelled) setEventError(eventLoadError?.message || 'Could not load events for this account.');
@@ -136,7 +164,7 @@ export default function App() {
     };
     loadEventContext();
     return () => { cancelled = true; };
-  }, [session]);
+  }, [session, authReady]);
 
   async function signOut() {
     if (supabase) await supabase.auth.signOut();
@@ -161,16 +189,17 @@ export default function App() {
   }
 
   function handleEventCreated(event) {
-    const canOpenEventOperations = !isPlatformAdmin || Boolean(event.billing_exempt);
+    const canOpenEventOperations = role !== 'platform-admin' || Boolean(event.billing_exempt);
     setEvents(current => {
       const updatedEvents = [...current.filter(item => item.id !== event.id), event];
-      return isPlatformAdmin ? updatedEvents.filter(item => item.billing_exempt) : updatedEvents;
+      return role === 'platform-admin' ? updatedEvents.filter(item => item.billing_exempt) : updatedEvents;
     });
     setSelectedEvent(canOpenEventOperations ? event : null);
     setActiveEvent(canOpenEventOperations ? event : null);
   }
 
   function selectPublicEvent(slug) {
+    forgetExhibitorPass();
     setPublicEventSlug(slug);
     setPublicAccessCode('');
     setSelectedEvent(null);
@@ -252,7 +281,9 @@ export default function App() {
         return;
       }
     }
-    setActiveEvent({ ...selectedEvent, privacyAcknowledgementId, privacyNoticeVersion:PRIVACY_NOTICE_VERSION });
+    const acknowledgedEvent = { ...selectedEvent, privacyAcknowledgementId, privacyNoticeVersion:PRIVACY_NOTICE_VERSION };
+    setActiveEvent(acknowledgedEvent);
+    saveExhibitorPass(acknowledgedEvent);
     setPrivacyAcknowledged(true);
     setEventError('');
   }
@@ -278,16 +309,14 @@ export default function App() {
         const workspaceUrl = new URL(window.location.href);
         workspaceUrl.searchParams.delete('admin');
         window.history.replaceState(window.history.state, '', `${workspaceUrl.pathname}${workspaceUrl.search}${workspaceUrl.hash}`);
-        setRole('tenant-admin');
+        setRole('platform-admin');
       }
       else setEventError('This account is not assigned Platform Admin access. Ask the platform owner to grant this account access. Client administrators use Client Workspace; Operations accounts use Event Operations.');
     } else if (loginDestination === 'client') {
       if (canManageTenants) setRole('tenant-admin');
       else setEventError('This account does not have organisation-wide client administrator access. Use Operations or Staff sign in for your assigned event role.');
     } else if (loginDestination === 'organiser') {
-      if (canManageTenants) {
-        setRole('tenant-admin');
-      } else if (!selectedEvent) {
+      if (!selectedEvent) {
         setEventError(events.length
           ? 'Choose an event from Event workspace to continue.'
           : 'No event access is assigned to this account. Ask the platform owner to invite this email.');
@@ -314,16 +343,17 @@ export default function App() {
   useEffect(() => {
     if (!session || eventLoading || !role) return;
     const operationsRole = ['ops','staff','people','exhibitors','exhibitor','client-query','rebooking'].includes(role);
-    const allowed = role === 'tenant-admin' ? canManageTenants
+    const allowed = role === 'platform-admin' ? isPlatformAdmin
+      : role === 'tenant-admin' ? canManageTenants
       : operationsRole ? canOpenOps
         : role === 'dept' ? canOpenQueue
           : true;
     if (!allowed) setRole(null);
-  }, [session, eventLoading, role, canManageTenants, canOpenOps, canOpenQueue]);
+  }, [session, eventLoading, role, isPlatformAdmin, canManageTenants, canOpenOps, canOpenQueue]);
 
   if (!authReady) return null;
   if (session && recovering) return <SetPasswordScreen onDone={()=>{ setRecovering(false); window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search); }} />;
-  if (role === 'exhibitor' && (!session || canOpenOps)) return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ExhibitorStatus /></WithBack>;
+  if (role === 'exhibitor' && (!session || canOpenOps)) return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ExhibitorStatus onForgetDevice={session ? undefined : ()=>{ setRole(null); selectPublicEvent(''); setPublicAccessView('events'); }} /></WithBack>;
   if (role === 'client-query' && (!session || canOpenOps)) return <WithBack onBack={()=>setRole(null)} onSignOut={session ? signOut : undefined}><ClientQuery /></WithBack>;
   if (role === 'rebooking') {
     const rebookingNav = [
@@ -334,7 +364,8 @@ export default function App() {
     ];
     return <AppShell eventName={selectedEvent?.name} nav={rebookingNav} onSignOut={session ? signOut : undefined}><RebookingForm /></AppShell>;
   }
-  if (session && role === 'tenant-admin' && canManageTenants) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><ClientEventAdmin onEventCreated={handleEventCreated} /></WithBack>;
+  if (session && role === 'platform-admin' && isPlatformAdmin) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><ClientEventAdmin onEventCreated={handleEventCreated} /></WithBack>;
+  if (session && role === 'tenant-admin' && canManageTenants) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><ClientEventAdmin onEventCreated={handleEventCreated} clientWorkspaceOnly currentUserId={session.user?.id} /></WithBack>;
   if (session && role === 'ops' && canOpenOps) return <WithBack onBack={()=>setRole(null)} onSignOut={signOut}><OpsPortal onOpenStaff={()=>setRole('staff')} onOpenExhibitors={()=>setRole('exhibitors')} /></WithBack>;
   if (session && role === 'staff' && canOpenOps) return <WithBack backLabel="Back to Operations" onBack={()=>setRole('ops')} onSignOut={signOut}><StaffSetup /></WithBack>;
   if (session && role === 'people' && canOpenOps) return <WithBack showBack={false} onBack={()=>setRole('ops')} onSignOut={signOut}><PeopleSetup onBack={()=>setRole('ops')} /></WithBack>;
@@ -345,8 +376,7 @@ export default function App() {
     const hubItems = [
       canOpenOps && { key:'ops', label:'Event Operations', Icon:Monitor, description:'Manage requests and work for the selected event', action:()=>setRole('ops'), needsEvent:true },
       canOpenQueue && { key:'dept', label:'My Queue', Icon:HardHat, description:'Staff: see your assignments and update status', action:()=>setRole('dept'), needsEvent:true },
-      isPlatformAdmin && { key:'admin', label:'Platform Admin', Icon:Building2, description:'Manage client accounts and access', action:()=>setRole('tenant-admin') },
-      canManageTenants && !isPlatformAdmin && { key:'events', label:'Client Workspace', Icon:Building2, description:'Manage your events, team and suppliers', action:()=>setRole('tenant-admin') },
+      canManageTenants && { key:'events', label:'Client Workspace', Icon:Building2, description:'Manage your events, team and suppliers', action:()=>setRole('tenant-admin') },
       selectedEvent && canOpenOps && { key:'exhibitor', label:'Exhibitor Status', Icon:Monitor, description:'See what exhibitors see for this event', action:()=>openStaffExhibitorView('exhibitor') },
       selectedEvent && canOpenOps && { key:'query', label:'Log a Query', Icon:ClipboardPlus, description:'Log a query on behalf of an exhibitor', action:()=>openStaffExhibitorView('client-query') },
     ].filter(Boolean);

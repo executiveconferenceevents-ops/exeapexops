@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import { getActiveEvent, getAvailableEvents, getEventSlug, getPublicEvents, getUserEventAccess, setActiveEvent } from './lib/eventScope';
+import { getActiveEvent, getAvailableEvents, getEventSlug, getPublicEvents, getUserEventAccess, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
 import { supabase } from './lib/supabase';
 
 jest.mock('./lib/demoStore', () => ({ DEMO_MODE:false }));
@@ -32,8 +32,10 @@ jest.mock('./lib/eventScope', () => {
 });
 jest.mock('./views/ClientEventAdmin', () => {
   const React = require('react');
-  return function MockClientEventAdmin({ onEventCreated }) {
-    return React.createElement('button', { onClick:() => onEventCreated({ id:'new-event', client_id:'client', slug:'new-event', name:'New event' }) }, 'Create test event');
+  return function MockClientEventAdmin({ onEventCreated, clientWorkspaceOnly }) {
+    return React.createElement('div', null,
+      React.createElement('span', null, clientWorkspaceOnly ? 'Client workspace fixture' : 'Owner dashboard fixture'),
+      React.createElement('button', { onClick:() => onEventCreated({ id:'new-event', client_id:'client', slug:'new-event', name:'New event' }) }, 'Create test event'));
   };
 });
 jest.mock('./views/OpsPortal', () => {
@@ -43,8 +45,8 @@ jest.mock('./views/OpsPortal', () => {
     return React.createElement('div', null, `Operations event: ${getActiveEvent()?.name}`);
   };
 });
-jest.mock('./views/DeptQueue', () => () => null);
-jest.mock('./views/ExhibitorStatus', () => () => null);
+jest.mock('./views/DeptQueue', () => () => 'Staff queue fixture');
+jest.mock('./views/ExhibitorStatus', () => () => 'Exhibitor status fixture');
 jest.mock('./views/StaffSetup', () => () => null);
 jest.mock('./views/PeopleSetup', () => () => null);
 jest.mock('./views/ExhibitorSetup', () => () => null);
@@ -54,6 +56,36 @@ jest.mock('./views/ClientQuery', () => () => null);
 function buttonWithText(container, text) {
   return [...container.querySelectorAll('button')].find(button => button.textContent.includes(text));
 }
+
+test.each([true, false])('saved exhibitor access restores only after server validation: %s', async valid => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  window.localStorage.setItem('apexops-exhibitor-pass-v1', JSON.stringify({
+    slug:'saved-event', accessCode:'TEST-CODE', stand:'A01', privacyAcknowledgementId:'ack-1',
+    privacyNoticeVersion:'test', expiresAt:Date.now()+60000,
+  }));
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getPublicEvents.mockResolvedValue([]);
+  resolvePublicEvent.mockResolvedValue(valid ? { id:'saved', slug:'saved-event', name:'Saved event', accessCode:'TEST-CODE' } : null);
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<App />);});
+    expect(resolvePublicEvent).toHaveBeenCalledWith('saved-event','TEST-CODE',{requireOnline:true});
+    if (valid) expect(container.textContent).toContain('Exhibitor status fixture');
+    else {
+      expect(container.textContent).not.toContain('Exhibitor status fixture');
+      expect(window.localStorage.getItem('apexops-exhibitor-pass-v1')).toBeNull();
+    }
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    window.localStorage.removeItem('apexops-exhibitor-pass-v1');
+    window.history.replaceState({}, '', '/');
+  }
+});
 
 test('a newly created event becomes the selected Operations workspace', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -138,6 +170,7 @@ test('platform-admin login opens the admin dashboard without the workspace choos
   await act(async () => { buttonWithText(container, 'Sign in').click(); });
 
   expect(container.textContent).toContain('Create test event');
+  expect(container.textContent).toContain('Owner dashboard fixture');
   expect(container.textContent).not.toContain('Choose your workspace');
   expect(window.location.search).not.toContain('admin');
   await act(async () => { buttonWithText(container, 'Back to workspace').click(); });
@@ -145,6 +178,7 @@ test('platform-admin login opens the admin dashboard without the workspace choos
   expect(activeEventOptions).toContain('Internal event');
   expect(activeEventOptions).not.toContain('Client event');
   expect(container.textContent).toContain('Event Operations');
+  expect(container.textContent).not.toContain('Platform Admin');
   await act(async () => { buttonWithText(container, 'Sign out').click(); });
   expect(window.location.search).not.toContain('admin');
   expect(window.location.search).not.toContain('event');
@@ -272,6 +306,75 @@ test('event Operations users still enter the Operations workspace', async () => 
   await act(async () => { buttonWithText(container, 'Sign in').click(); });
 
   expect(container.textContent).toContain('Operations event: Operations event');
+  await act(async () => { root.unmount(); });
+  container.remove();
+  window.history.replaceState({}, '', '/');
+});
+
+test.each([
+  ['Client / Organiser', 'organisation-wide client administrator access'],
+  ['Operations sign in', 'Operations event: Internal event'],
+  ['Staff sign in', 'Staff queue fixture'],
+])('Platform Owner using %s does not open the owner dashboard', async (entry, expected) => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  let activeEvent = null;
+  getActiveEvent.mockImplementation(() => activeEvent);
+  setActiveEvent.mockImplementation(event => { activeEvent = event; });
+  getEventSlug.mockReturnValue('internal-event');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'platform-admin' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'internal', client_id:'ece', slug:'internal-event', name:'Internal event', billing_exempt:true }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:true, memberships:[] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => { root.render(<App />); });
+  await act(async () => { buttonWithText(container, entry).click(); });
+  const email = container.querySelector('input[aria-label="Work email"]');
+  const password = container.querySelector('input[aria-label="Password"]');
+  await act(async () => {
+    email.value = 'owner@example.test';
+    email.dispatchEvent(new Event('input', { bubbles:true }));
+    password.value = 'test-password';
+    password.dispatchEvent(new Event('input', { bubbles:true }));
+  });
+  await act(async () => { buttonWithText(container, 'Sign in').click(); });
+  expect(container.textContent).toContain(expected);
+  expect(container.textContent).not.toContain('Owner dashboard fixture');
+  expect(container.textContent).not.toContain('Platform Admin');
+  await act(async () => { root.unmount(); });
+  container.remove();
+  window.history.replaceState({}, '', '/');
+});
+
+test('a Platform Owner with a client membership enters client-only mode from client sign-in', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'dual-user' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'client-event', client_id:'client', slug:'client-event', name:'Client event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:true, memberships:[{ user_id:'dual-user', client_id:'client', event_id:null, role:'client_admin' }] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => { root.render(<App />); });
+  await act(async () => { buttonWithText(container, 'Client / Organiser').click(); });
+  const email = container.querySelector('input[aria-label="Work email"]');
+  const password = container.querySelector('input[aria-label="Password"]');
+  await act(async () => {
+    email.value = 'dual@example.test';
+    email.dispatchEvent(new Event('input', { bubbles:true }));
+    password.value = 'test-password';
+    password.dispatchEvent(new Event('input', { bubbles:true }));
+  });
+  await act(async () => { buttonWithText(container, 'Sign in').click(); });
+  expect(container.textContent).toContain('Client workspace fixture');
+  expect(container.textContent).not.toContain('Owner dashboard fixture');
   await act(async () => { root.unmount(); });
   container.remove();
   window.history.replaceState({}, '', '/');

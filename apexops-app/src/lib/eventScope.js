@@ -103,7 +103,7 @@ export async function getUserEventAccess(userId) {
   return loadCachedPublicValue(`event-access:${userId}`, async () => {
     const [adminResult, membershipResult] = await Promise.all([
       supabase.rpc('is_platform_admin'),
-      supabase.from('client_event_memberships').select('client_id, event_id, role'),
+      supabase.from('client_event_memberships').select('client_id, event_id, role').eq('user_id', userId),
     ]);
     if (adminResult.error) throw adminResult.error;
     if (membershipResult.error) throw membershipResult.error;
@@ -142,7 +142,7 @@ export async function getPublicEvents() {
   });
 }
 
-export async function resolvePublicEvent(slug = getEventSlug(), accessCode) {
+export async function resolvePublicEvent(slug = getEventSlug(), accessCode, { requireOnline = false } = {}) {
   const requestedSlug = String(slug || DEFAULT_EVENT_SLUG).trim().toLowerCase();
   if (DEMO_MODE) {
     const event = (await getAvailableEvents()).find(item => item.slug === requestedSlug && item.is_public);
@@ -152,12 +152,12 @@ export async function resolvePublicEvent(slug = getEventSlug(), accessCode) {
   if (!supabase) return null;
   const normalizedCode = String(accessCode || '').trim().toUpperCase();
   if (!normalizedCode) return null;
-  const cacheKey = `public-event:${requestedSlug}:${await hashCode(normalizedCode)}`;
-  const event = await loadCachedPublicValue(cacheKey, async () => {
+  const loadEvent = async () => {
     const { data, error } = await supabase.rpc('get_public_event', { requested_slug:requestedSlug, requested_code:normalizedCode });
     if (error) throw error;
     return Array.isArray(data) ? data[0] || null : data;
-  });
+  };
+  const event = requireOnline ? await loadEvent() : await loadCachedPublicValue(`public-event:${requestedSlug}:${await hashCode(normalizedCode)}`, loadEvent);
   return event ? { ...event, accessCode:normalizedCode } : null;
 }
 

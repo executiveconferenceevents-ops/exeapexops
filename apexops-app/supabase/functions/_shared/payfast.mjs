@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash } from 'node:crypto';
 
 const PAYFAST_IPV4_RANGES = [
   ['197.97.145.144', 28],
@@ -30,13 +30,51 @@ export function createPayfastSignature(parameters, passphrase = '') {
   return createHash('md5').update(parameterString, 'utf8').digest('hex');
 }
 
+export function payfastBuyerEmailField(mode, invoiceEmail, accountEmail) {
+  if (mode === 'sandbox') return {};
+  const email = String(invoiceEmail || accountEmail || '').trim();
+  return email ? { email_address:email } : {};
+}
+
+export async function parsePayfastForm(request, maxBytes = 16384) {
+  const contentLength = Number(request.headers.get('content-length') || 0);
+  if (!Number.isFinite(contentLength) || contentLength > maxBytes) return { error:'too_large' };
+  let rawBody;
+  try { rawBody = await request.clone().text(); }
+  catch { return { error:'invalid_body' }; }
+  if (new TextEncoder().encode(rawBody).byteLength > maxBytes) return { error:'too_large' };
+  try {
+    const data = await request.formData();
+    const form = new URLSearchParams();
+    for (const [name,value] of data.entries()) {
+      if (typeof value !== 'string') return { error:'invalid_body' };
+      form.append(name,value);
+    }
+    return { form };
+  } catch {
+    return { error:'invalid_body' };
+  }
+}
+
 export function verifyPayfastSignature(parameters, passphrase = '') {
   const supplied = parameters instanceof URLSearchParams
     ? parameters.get('signature')
     : parameters?.signature;
   if (typeof supplied !== 'string' || !/^[a-f0-9]{32}$/i.test(supplied)) return false;
   const expected = createPayfastSignature(parameters, passphrase);
-  return timingSafeEqual(Buffer.from(supplied.toLowerCase(), 'hex'), Buffer.from(expected, 'hex'));
+  const candidate = supplied.toLowerCase();
+  let difference = 0;
+  for (let index = 0; index < expected.length; index += 1) {
+    difference |= candidate.charCodeAt(index) ^ expected.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
+export function payfastValidationBody(parameters) {
+  const entries = parameters instanceof URLSearchParams
+    ? [...parameters.entries()]
+    : Object.entries(parameters || {});
+  return new URLSearchParams(entries);
 }
 
 export function payfastAmountToCents(value) {

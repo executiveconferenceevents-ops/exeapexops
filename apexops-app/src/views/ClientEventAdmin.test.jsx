@@ -130,9 +130,26 @@ test('Platform Owner console exposes grouped navigation and data-backed detail v
   expect(container.textContent).toContain('settled');
   expect(container.textContent).toContain('Payment recorded and allocated');
 
+  const originalAuditEntries=getDemoCollection('audit_log',[]);
+  setDemoCollection('audit_log',[{
+    id:1,actor_user_id:'user-12345678',client_id:'client-1',action:'invoice_issued',entity_type:'client_invoices',
+    entity_id:'invoice-12345678',reason:'Approved invoice',created_at:'2026-11-17T10:00:00Z',
+    clients:{name:'Northstar Events'},previous_values:{private_value:'do not display'},
+  }]);
+  await act(async()=>{clickButton(container,'Activity & audit logs');});
+  expect(container.textContent).toContain('invoice_issued');
+  expect(container.textContent).toContain('Northstar Events');
+  expect(container.textContent).toContain('Approved invoice');
+  expect(container.textContent).not.toContain('do not display');
+  setDemoCollection('audit_log',originalAuditEntries);
+
   await act(async()=>{clickButton(container,'Clients & organisations');});
   expect(container.textContent).toContain('Northstar Events');
   expect(container.textContent).toContain('4');
+  const clientActivityTab=[...container.querySelectorAll('.adm-detail-tabs button')].find(button=>button.textContent==='Activity');
+  await act(async()=>{clientActivityTab.click();});
+  expect(container.textContent).toContain('invoice_issued');
+  expect(container.textContent).not.toContain('do not display');
   await act(async()=>{clickButton(container,'Users & access');});
   expect(container.textContent).toContain('user-123…');
   const roleSelect=container.querySelector('select[aria-label="Role for user-12345678"]');
@@ -181,6 +198,41 @@ test('Client billing submits private EFT proof into pending review', async () =>
   }
 });
 
+test('Platform Owner finance summaries use ledger statuses and keep currencies separate', async()=>{
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  const originalInvoices=getDemoCollection('invoices',[]);
+  const originalPayments=getDemoCollection('payments',[]);
+  setDemoCollection('invoices',[
+    {id:'issued-zar',client_id:'client-1',status:'issued',total_cents:10000,currency:'ZAR'},
+    {id:'draft-usd',client_id:'client-1',status:'draft',total_cents:9000,currency:'USD'},
+  ]);
+  setDemoCollection('payments',[
+    {id:'settled-zar',client_id:'client-1',payment_method:'payfast',status:'settled',amount_cents:10000,currency:'ZAR'},
+    {id:'pending-zar',client_id:'client-1',payment_method:'eft',status:'pending_review',amount_cents:2500,currency:'ZAR'},
+    {id:'settled-usd',client_id:'client-1',payment_method:'eft',status:'settled',amount_cents:5000,currency:'USD'},
+    {id:'rejected-usd',client_id:'client-1',payment_method:'eft',status:'rejected',amount_cents:8000,currency:'USD'},
+  ]);
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<ClientEventAdmin onEventCreated={jest.fn()}/>);});
+    await act(async()=>{await Promise.resolve();await Promise.resolve();await Promise.resolve();});
+    expect(container.textContent).toContain('Settled payments · ZAR (1)');
+    expect(container.textContent).toContain('EFT awaiting review · ZAR (1)');
+    expect(container.textContent).toContain('Settled payments · USD (1)');
+    expect(container.textContent).not.toContain('rejected-usd');
+    await act(async()=>{clickButton(container,'Revenue & reports');});
+    expect(container.textContent).toContain('Collection summary · not accounting revenue');
+    expect(container.textContent).toContain('Non-draft invoices');
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    setDemoCollection('invoices',originalInvoices);
+    setDemoCollection('payments',originalPayments);
+  }
+});
+
 test('Platform Owner reviews a registration, verifies billing, then explicitly activates and invites', async()=>{
   globalThis.IS_REACT_ACT_ENVIRONMENT=true;
   const originalPrompt=window.prompt;
@@ -209,5 +261,45 @@ test('Platform Owner reviews a registration, verifies billing, then explicitly a
     await act(async()=>{root.unmount();});
     container.remove();
     window.prompt=originalPrompt;
+  }
+});
+
+test('client-only workspace hides owner controls and other organisations events', async()=>{
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  const originalClients=getDemoCollection('clients',[]);
+  const originalMemberships=getDemoCollection('memberships',[]);
+  const originalEvents=getDemoCollection('events',[]);
+  const originalInvoices=getDemoCollection('invoices',[]);
+  setDemoCollection('clients',[sampleClient,{id:'client-2',name:'Other organisation',event_limit:1}]);
+  setDemoCollection('memberships',[
+    {id:'own',user_id:'dual-user',client_id:'client-1',event_id:null,role:'client_admin'},
+    {id:'other',user_id:'another-user',client_id:'client-2',event_id:null,role:'client_admin'},
+  ]);
+  setDemoCollection('events',[
+    {id:'own-event',client_id:'client-1',name:'Own event',slug:'own-event'},
+    {id:'other-event',client_id:'client-2',name:'Other event',slug:'other-event'},
+  ]);
+  setDemoCollection('invoices',[{id:'own-invoice',invoice_number:'ECE-TEST-000001',client_id:'client-1',status:'issued',currency:'ZAR',invoice_date:'2026-11-17',billed_to_name:'Northstar Events',description:'Staging test invoice',subtotal_cents:1000,line_discount_cents:0,invoice_discount_cents:0,tax_cents:0,total_cents:1000}]);
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<ClientEventAdmin onEventCreated={jest.fn()} clientWorkspaceOnly currentUserId="dual-user"/>);});
+    await act(async()=>{clickButton(container,'Invoices & payments');});
+    await act(async()=>{await Promise.resolve();});
+    await act(async()=>{await Promise.resolve();await Promise.resolve();});
+    expect(container.textContent).toContain('ECE-TEST-000001');
+    expect(container.textContent).toContain('CLIENT WORKSPACE');
+    expect(container.textContent).toContain('Own event');
+    expect(container.textContent).not.toContain('Other event');
+    expect(container.textContent).not.toContain('PLATFORM OWNER');
+    expect(container.textContent).not.toContain('Payments & EFT verification');
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    setDemoCollection('clients',originalClients);
+    setDemoCollection('memberships',originalMemberships);
+    setDemoCollection('events',originalEvents);
+    setDemoCollection('invoices',originalInvoices);
   }
 });

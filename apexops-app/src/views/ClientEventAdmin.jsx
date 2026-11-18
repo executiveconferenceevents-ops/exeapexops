@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getAvailableEvents, getEventAccessCode } from '../lib/eventScope';
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
@@ -61,7 +61,7 @@ function createSecureUuid() {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 }
 
-export default function ClientEventAdmin({ onEventCreated }) {
+export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly = false, currentUserId }) {
   const [section, setSection] = useState('overview');
   const [clients, setClients] = useState([]);
   const [events, setEvents] = useState([]);
@@ -110,6 +110,11 @@ export default function ClientEventAdmin({ onEventCreated }) {
   const [paymentForm, setPaymentForm] = useState(emptyPaymentForm);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [evidenceLinks, setEvidenceLinks] = useState({});
+  const [auditEntries, setAuditEntries] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [clientAuditEntries, setClientAuditEntries] = useState([]);
+  const [clientAuditLoading, setClientAuditLoading] = useState(false);
 
   async function refresh() {
     if (!supabase && !DEMO_MODE) {
@@ -127,8 +132,9 @@ export default function ClientEventAdmin({ onEventCreated }) {
       let nextPricingConfig = getDefaultPricingConfig();
       let pricingLoadError = '';
       if (DEMO_MODE) {
-        platformAdmin = true;
+        platformAdmin = !clientWorkspaceOnly;
         currentMemberships = getDemoCollection('memberships', [{ id:'demo-owner-membership', user_id:'demo-owner', client_id:'demo-client-ece', event_id:null, role:'client_admin' }]);
+        if (clientWorkspaceOnly && currentUserId) currentMemberships = currentMemberships.filter(membership => membership.user_id === currentUserId);
         visibleClients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events', event_limit:1, billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy', prepaid_event_credits:0, trial_started_at:null, trial_ends_at:null }]);
         nextPricingConfig = getDemoCollection('pricing', nextPricingConfig);
       } else {
@@ -138,8 +144,8 @@ export default function ClientEventAdmin({ onEventCreated }) {
         ]);
         if (membershipResult.error) throw membershipResult.error;
         if (adminResult.error) throw adminResult.error;
-        platformAdmin = Boolean(adminResult.data);
-        currentMemberships = membershipResult.data || [];
+        platformAdmin = Boolean(adminResult.data) && !clientWorkspaceOnly;
+        currentMemberships = (membershipResult.data || []).filter(membership => !clientWorkspaceOnly || membership.user_id === currentUserId);
         if (platformAdmin) {
           const { data, error: clientsError } = await supabase.from('clients')
             .select('id, name, slug, event_limit, account_status, billing_mode, billing_status, billing_plan, paid_through, term_started_at, term_ends_at, committed_events, prepaid_event_credits, trial_started_at, trial_ends_at')
@@ -153,6 +159,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
         }
       }
       const managedClientId = currentMemberships.find(membership => membership.role === 'client_admin' && !membership.event_id)?.client_id || '';
+      if (clientWorkspaceOnly) visibleClients = visibleClients.filter(client => client.id === managedClientId);
       let managedClientEventLimit = 1;
       let managedClientBilling = { billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy', paid_through:null, term_ends_at:null, committed_events:0, prepaid_event_credits:0, trial_started_at:null, trial_ends_at:null };
       if (!DEMO_MODE && !platformAdmin && managedClientId) {
@@ -164,20 +171,21 @@ export default function ClientEventAdmin({ onEventCreated }) {
         managedClientBilling = managedClient || managedClientBilling;
       } else if (DEMO_MODE) {
         managedClientBilling = visibleClients[0] || managedClientBilling;
+        managedClientEventLimit = visibleClients[0]?.event_limit || managedClientEventLimit;
       }
-      let managedEvents = availableEvents;
-      if (!DEMO_MODE && availableEvents.length) {
+      let managedEvents = clientWorkspaceOnly ? availableEvents.filter(event => currentMemberships.some(membership => membership.client_id === event.client_id && (!membership.event_id || membership.event_id === event.id))) : availableEvents;
+      if (!DEMO_MODE && managedEvents.length) {
         const { data: codeRows, error: codeError } = await supabase.rpc('get_event_access_codes', {
-          requested_event_ids:availableEvents.map(event => event.id),
+          requested_event_ids:managedEvents.map(event => event.id),
         });
         let rows = codeRows || [];
         if (codeError?.code === 'PGRST202') {
-          const { data:legacyRows, error:legacyError } = await supabase.from('events').select('id, exhibitor_code').in('id', availableEvents.map(event => event.id));
+          const { data:legacyRows, error:legacyError } = await supabase.from('events').select('id, exhibitor_code').in('id', managedEvents.map(event => event.id));
           if (legacyError) throw legacyError;
           rows = legacyRows || [];
         } else if (codeError) throw codeError;
         const codeByEventId = new Map(rows.map(row => [row.event_id || row.id, row.exhibitor_code]));
-        managedEvents = availableEvents.map(event => ({ ...event, exhibitor_code:codeByEventId.get(event.id) || '' }));
+        managedEvents = managedEvents.map(event => ({ ...event, exhibitor_code:codeByEventId.get(event.id) || '' }));
       }
       setClients(visibleClients);
       setEvents(managedEvents);
@@ -202,6 +210,10 @@ export default function ClientEventAdmin({ onEventCreated }) {
   }
 
   useEffect(() => { refresh(); }, []);
+
+  useEffect(() => {
+    if (!loading && section === 'billing' && managedClientId) loadInvoices();
+  }, [loading, section, managedClientId]);
 
   async function loadRegistrations() {
     setRegistrationLoading(true);
@@ -296,6 +308,50 @@ export default function ClientEventAdmin({ onEventCreated }) {
       setError(loadError?.message || 'Could not load payment records.');
     } finally {
       setPaymentLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!loading && isPlatformAdmin && ['overview','reports'].includes(section)) loadPayments();
+  }, [loading, isPlatformAdmin, section]);
+
+  async function loadAuditLog() {
+    setAuditLoading(true);
+    setError('');
+    try {
+      if (DEMO_MODE) {
+        setAuditEntries(getDemoCollection('audit_log', []));
+      } else {
+        const { data, error:auditError } = await supabase.from('platform_audit_log')
+          .select('id,actor_user_id,client_id,action,entity_type,entity_id,reason,created_at,clients(name)')
+          .order('created_at', { ascending:false }).limit(200);
+        if (auditError) throw auditError;
+        setAuditEntries(data || []);
+      }
+    } catch (loadError) {
+      setError(loadError?.message || 'Could not load platform audit activity.');
+    } finally {
+      setAuditLoading(false);
+    }
+  }
+
+  async function loadClientAuditLog(clientId) {
+    setClientAuditLoading(true);
+    setError('');
+    try {
+      if (DEMO_MODE) {
+        setClientAuditEntries(getDemoCollection('audit_log', []).filter(entry => entry.client_id === clientId));
+      } else {
+        const { data, error:auditError } = await supabase.from('platform_audit_log')
+          .select('id,actor_user_id,client_id,action,entity_type,entity_id,reason,created_at')
+          .eq('client_id',clientId).order('created_at', { ascending:false }).limit(100);
+        if (auditError) throw auditError;
+        setClientAuditEntries(data || []);
+      }
+    } catch (loadError) {
+      setError(loadError?.message || 'Could not load client activity.');
+    } finally {
+      setClientAuditLoading(false);
     }
   }
 
@@ -1255,6 +1311,26 @@ export default function ClientEventAdmin({ onEventCreated }) {
     return matchesQuery && (clientStatusFilter === 'all' || client.billing_status === clientStatusFilter);
   });
   const visibleInvoices = invoices.filter(invoice => invoiceClientFilter === 'all' || invoice.client_id === invoiceClientFilter);
+  const auditNeedle = auditSearch.trim().toLowerCase();
+  const visibleAuditEntries = auditEntries.filter(entry => !auditNeedle || [
+    entry.action, entry.entity_type, entry.entity_id, entry.actor_user_id, entry.reason, entry.clients?.name,
+  ].some(value => String(value || '').toLowerCase().includes(auditNeedle)));
+  const paymentTotalsByCurrency = payments.reduce((totals, payment) => {
+    const currency = payment.currency || 'ZAR';
+    const summary = totals[currency] || { settledCents:0, settledCount:0, pendingEftCents:0, pendingEftCount:0 };
+    if (payment.status === 'settled') {
+      summary.settledCents += Number(payment.amount_cents || 0);
+      summary.settledCount += 1;
+    }
+    if (payment.status === 'pending_review' && payment.payment_method === 'eft') {
+      summary.pendingEftCents += Number(payment.amount_cents || 0);
+      summary.pendingEftCount += 1;
+    }
+    totals[currency] = summary;
+    return totals;
+  }, {});
+  const paymentCurrencySummaries = Object.entries(paymentTotalsByCurrency);
+  const issuedInvoiceCount = invoices.filter(invoice => !['draft','cancelled'].includes(invoice.status)).length;
   const selectedInvoice = invoices.find(invoice => invoice.id === selectedInvoiceId) || null;
   const clientById = new Map(clients.map(client => [client.id, client]));
   const eventById = new Map(events.map(event => [event.id, event]));
@@ -1273,7 +1349,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
         <nav aria-label={isPlatformAdmin ? 'Platform administration' : 'Client workspace'}>
           {navGroups.map(group=><div className="adm-nav-group" key={group.label}>
             <span className="adm-nav-label">{group.label}</span>
-            {group.items.map(([key,label,Icon])=><button key={key} type="button" className={section === key ? 'active' : ''} aria-current={section === key ? 'page' : undefined} onClick={()=>{setSection(key);if(key==='invoices'){setInvoiceClientFilter('all');loadInvoices();}if(key==='payments')loadPayments();if(key==='billing'){loadInvoices();loadPayments();}if(key==='registrations')loadRegistrations();}}><Icon size={16} aria-hidden="true" /><span>{label}</span></button>)}
+            {group.items.map(([key,label,Icon])=><button key={key} type="button" className={section === key ? 'active' : ''} aria-current={section === key ? 'page' : undefined} onClick={()=>{setSection(key);if(key==='invoices'){setInvoiceClientFilter('all');loadInvoices();}if(key==='payments')loadPayments();if(key==='registrations')loadRegistrations();if(key==='activity')loadAuditLog();}}><Icon size={16} aria-hidden="true" /><span>{label}</span></button>)}
           </div>)}
         </nav>
         {isPlatformAdmin && <div className="adm-sidebar-foot"><span className="adm-sidebar-dot" /> Platform controls</div>}
@@ -1309,7 +1385,11 @@ export default function ClientEventAdmin({ onEventCreated }) {
             </section>
             {isPlatformAdmin && <section className="tenant-section adm-panel adm-finance-panel">
               <div className="tenant-section-heading"><CreditCard size={17} /><div><h2>Commercial overview</h2><p>Verified records currently available to this portal.</p></div></div>
-              <div className="adm-finance-empty"><span className="adm-finance-mark"><FileText size={17} /></span><div><strong>Financial ledger not connected</strong><p>Invoices, payments, and revenue will appear here when their records are available.</p></div></div>
+              {paymentCurrencySummaries.length ? paymentCurrencySummaries.map(([currency,summary])=><Fragment key={currency}>
+                <div className="adm-finance-foot"><span>Settled payments · {currency} ({summary.settledCount})</span><strong>{formatCurrency(summary.settledCents,currency)}</strong></div>
+                <div className="adm-finance-foot"><span>EFT awaiting review · {currency} ({summary.pendingEftCount})</span><strong>{formatCurrency(summary.pendingEftCents,currency)}</strong></div>
+              </Fragment>) : <div className="adm-finance-empty"><span className="adm-finance-mark"><FileText size={17} /></span><div><strong>No payment records yet</strong><p>Settled receipts and EFTs awaiting review will appear here.</p></div></div>}
+              <div className="adm-finance-foot"><span>Non-draft invoices</span><strong>{issuedInvoiceCount}</strong></div>
               <div className="adm-finance-foot"><span>Non-billable internal events</span><strong>{internalEventCount}</strong></div>
             </section>}
           </div>
@@ -1337,7 +1417,7 @@ export default function ClientEventAdmin({ onEventCreated }) {
           {selectedClient&&<div className="adm-client-detail">
             <div className="adm-detail-heading"><div><span className="adm-section-count">CLIENT ACCOUNT</span><h3>{selectedClient.name}</h3><p>{selectedClient.slug} · {selectedClient.id}</p></div><span className={`adm-status-pill adm-status-${selectedClient.billing_status||'pending'}`}>{(selectedClient.billing_status||'pending').replace('_',' ')}</span></div>
             <div className="adm-detail-tabs" role="tablist" aria-label={`${selectedClient.name} details`}>
-              {clientDetailTabs.map(([key,label])=><button key={key} type="button" role="tab" aria-selected={clientDetailTab===key} className={clientDetailTab===key?'active':''} onClick={()=>{if(key==='invoices'){setInvoiceClientFilter(selectedClient.id);setSection('invoices');loadInvoices();}else setClientDetailTab(key);}}>{label}</button>)}
+              {clientDetailTabs.map(([key,label])=><button key={key} type="button" role="tab" aria-selected={clientDetailTab===key} className={clientDetailTab===key?'active':''} onClick={()=>{if(key==='invoices'){setInvoiceClientFilter(selectedClient.id);setSection('invoices');loadInvoices();}else {setClientDetailTab(key);if(key==='activity')loadClientAuditLog(selectedClient.id);}}}>{label}</button>)}
             </div>
             {clientDetailTab==='overview'&&<div className="adm-detail-grid">
               <div className="adm-detail-fact"><span>Organisation URL</span><strong>{selectedClient.slug}</strong></div>
@@ -1363,7 +1443,11 @@ export default function ClientEventAdmin({ onEventCreated }) {
             )}
             {clientDetailTab==='subscription'&&<BillingControls client={selectedClient} saving={saving} onSave={updateClientBilling} volumePlans={pricingConfig.volumePlans} />}
             {clientDetailTab==='events'&&<EventTable events={selectedClientEvents} />}
-            {clientDetailTab==='activity'&&<ModuleEmptyState title="No client activity log connected" detail="Administrative activity will appear here when audit records are available." />}
+            {clientDetailTab==='activity'&&<div>
+              {clientAuditLoading?<p className="tenant-loading">Loading client activity…</p>:<div className="adm-table-wrap"><table className="adm-data-table"><thead><tr><th>Date</th><th>Actor</th><th>Action</th><th>Record</th><th>Reason</th></tr></thead><tbody>
+                {clientAuditEntries.map(entry=><tr key={entry.id}><td>{entry.created_at?new Date(entry.created_at).toLocaleString('en-ZA'):'—'}</td><td><code>{entry.actor_user_id?`${entry.actor_user_id.slice(0,8)}…`:'System'}</code></td><td>{entry.action}</td><td>{entry.entity_type}{entry.entity_id&&<small>{entry.entity_id.slice(0,8)}…</small>}</td><td>{entry.reason||'—'}</td></tr>)}
+              </tbody></table>{!clientAuditEntries.length&&<p className="tenant-empty">No client activity has been recorded yet.</p>}</div>}
+            </div>}
           </div>}
           {isPlatformAdmin && <form className="tenant-form tenant-inline-form" onSubmit={createClient}>
             <h3>Create client workspace</h3>
@@ -1421,7 +1505,14 @@ export default function ClientEventAdmin({ onEventCreated }) {
             <div className="adm-table-wrap"><table className="adm-data-table"><thead><tr><th>Organisation</th><th>Billable events</th><th>Internal exempt</th><th>Allowance</th><th>Usage</th></tr></thead><tbody>
               {clients.map(client=>{const billable=events.filter(event=>event.client_id===client.id&&!event.billing_exempt).length;const exempt=events.filter(event=>event.client_id===client.id&&event.billing_exempt).length;const allowance=Number(client.event_limit||1);return <tr key={client.id}><td><strong>{client.name}</strong></td><td>{billable}</td><td>{exempt}</td><td>{allowance}</td><td><div className="adm-usage-track"><span style={{width:`${Math.min(100,Math.round((billable/allowance)*100))}%`}} /></div><small>{billable} / {allowance}</small></td></tr>;})}
             </tbody></table>{!clients.length&&<p className="tenant-empty">No client usage data available.</p>}</div>
-            <div className="adm-report-note"><strong>Revenue reports unavailable</strong><span>Invoice and payment records are not connected, so revenue figures are not shown.</span></div>
+            <div className="adm-report-note"><strong>Collection summary · not accounting revenue</strong><span>Settled receipts and EFTs awaiting review are shown separately by currency from the payment ledger.</span></div>
+            <div className="adm-stats">
+              {paymentCurrencySummaries.map(([currency,summary])=><Fragment key={currency}>
+                <div className="adm-stat"><div className="adm-stat-head"><span>Settled payments · {currency}</span><CreditCard size={17} aria-hidden="true" /></div><strong>{formatCurrency(summary.settledCents,currency)}</strong><small>{summary.settledCount} settled records</small></div>
+                <div className="adm-stat"><div className="adm-stat-head"><span>EFT awaiting review · {currency}</span><FileText size={17} aria-hidden="true" /></div><strong>{formatCurrency(summary.pendingEftCents,currency)}</strong><small>{summary.pendingEftCount} pending submissions</small></div>
+              </Fragment>)}
+              <div className="adm-stat"><div className="adm-stat-head"><span>Non-draft invoices</span><FileText size={17} aria-hidden="true" /></div><strong>{issuedInvoiceCount}</strong><small>Issued, paid, overdue, or credited</small></div>
+            </div>
           </section>
           <section className="tenant-section adm-workspace-section" hidden={section!=='invoices'}>
             <div className="adm-page-heading">
@@ -1504,7 +1595,13 @@ export default function ClientEventAdmin({ onEventCreated }) {
               })}
             </tbody></table>{!payments.length&&<p className="tenant-empty">{error||'No payment records yet.'}</p>}</div>}
           </section>
-          <section className="tenant-section adm-workspace-section" hidden={section!=='activity'}><ModuleEmptyState title="Audit log is not connected" detail="Platform activity will appear when audit events are available." /></section>
+          <section className="tenant-section adm-workspace-section" hidden={section!=='activity'}>
+            <div className="adm-page-heading"><div><span className="adm-section-count">{auditEntries.length} RECENT EVENTS</span><h2 className="adm-page-title"><Activity size={18} aria-hidden="true" />Activity & audit log</h2><p>Platform changes recorded by billing, registration, invoice, and payment workflows.</p></div><button className="tenant-refresh" type="button" onClick={loadAuditLog} disabled={auditLoading}><RefreshCw size={14}/> Refresh activity</button></div>
+            <div className="adm-table-tools"><label className="adm-search"><span className="sr-only">Search audit activity</span><input type="search" aria-label="Search audit activity" value={auditSearch} onChange={event=>setAuditSearch(event.target.value)} placeholder="Search actions, organisations, or records" /></label></div>
+            {auditLoading?<p className="tenant-loading">Loading audit activity…</p>:<div className="adm-table-wrap"><table className="adm-data-table"><thead><tr><th>Date</th><th>Actor</th><th>Organisation</th><th>Action</th><th>Record</th><th>Reason</th></tr></thead><tbody>
+              {visibleAuditEntries.map(entry=><tr key={entry.id}><td>{entry.created_at?new Date(entry.created_at).toLocaleString('en-ZA'):'—'}</td><td><code>{entry.actor_user_id?`${entry.actor_user_id.slice(0,8)}…`:'System'}</code></td><td>{entry.clients?.name||'—'}</td><td>{entry.action}</td><td>{entry.entity_type}{entry.entity_id&&<small>{entry.entity_id.slice(0,8)}…</small>}</td><td>{entry.reason||'—'}</td></tr>)}
+            </tbody></table>{!visibleAuditEntries.length&&<p className="tenant-empty">{auditEntries.length?'No audit entries match this search.':'No platform activity has been recorded yet.'}</p>}</div>}
+          </section>
           <section className="tenant-section adm-workspace-section" hidden={section!=='security'}>
             <div className="adm-page-heading"><div><span className="adm-section-count">CURRENT MEMBERSHIPS</span><h2 className="adm-page-title"><Shield size={18} aria-hidden="true" />Security & permissions</h2><p>Current role assignments. Tenant and event access remain enforced by Supabase policies.</p></div></div>
             <div className="adm-role-grid">{['client_admin','event_admin','ops','staff'].map(role=><div className="adm-role-count" key={role}><span>{role.replace('_',' ')}</span><strong>{memberships.filter(membership=>membership.role===role).length}</strong></div>)}</div>
