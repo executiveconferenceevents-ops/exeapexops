@@ -18,6 +18,7 @@ Deno.serve(async request=>{
   const supabaseUrl=Deno.env.get('SUPABASE_URL');
   const serviceRoleKey=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!merchantId||!passphrase||!supabaseUrl||!serviceRoleKey||!['sandbox','live'].includes(mode)) return respond(503,'ITN receiver is not configured.');
+  // Forwarded IP headers are trustworthy only when a controlled proxy overwrites them.
   const clientIp=request.headers.get('x-forwarded-for')?.split(',')[0].trim()
     ||request.headers.get('cf-connecting-ip')?.trim()
     ||request.headers.get('x-real-ip')?.trim()||'';
@@ -46,7 +47,10 @@ Deno.serve(async request=>{
     console.warn('PayFast ITN rejected: authentication mismatch.',{merchantMatches,signatureValid,fieldNames:[...form.keys()].filter(name=>name!=='signature')});
     return respond(403,'ITN signature or merchant check failed.');
   }
-  if (!signatureValid) console.warn('PayFast ITN local signature mismatch; relying on PayFast server validation.');
+  if (!signatureValid) {
+    console.warn('PayFast ITN rejected: local signature mismatch.');
+    return respond(400,'ITN signature check failed.');
+  }
   if (form.get('payment_status')!=='COMPLETE') return respond(200,'IGNORED');
   const checkoutId=form.get('m_payment_id')||'';
   const providerTransactionId=form.get('pf_payment_id')||'';
