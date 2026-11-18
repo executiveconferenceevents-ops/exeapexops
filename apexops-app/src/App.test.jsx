@@ -47,14 +47,21 @@ jest.mock('./views/OpsPortal', () => {
 });
 jest.mock('./views/DeptQueue', () => () => 'Staff queue fixture');
 jest.mock('./views/ExhibitorStatus', () => () => 'Exhibitor status fixture');
-jest.mock('./views/StaffSetup', () => () => null);
-jest.mock('./views/PeopleSetup', () => () => null);
-jest.mock('./views/ExhibitorSetup', () => () => null);
-jest.mock('./views/RebookingForm', () => () => null);
-jest.mock('./views/ClientQuery', () => () => null);
+jest.mock('./views/StaffSetup', () => () => 'Staff setup fixture');
+jest.mock('./views/PeopleSetup', () => () => 'People setup fixture');
+jest.mock('./views/ExhibitorSetup', () => () => 'Exhibitor setup fixture');
+jest.mock('./views/RebookingForm', () => () => 'Rebooking fixture');
+jest.mock('./views/ClientQuery', () => () => 'Client query fixture');
+jest.mock('./components/HomeOverview', () => () => 'Home overview fixture');
 
 function buttonWithText(container, text) {
-  return [...container.querySelectorAll('button')].find(button => button.textContent.includes(text));
+  return [...container.querySelectorAll('button')].find(button => button.textContent.includes(text) || button.getAttribute('aria-label') === text);
+}
+
+async function openLegacyTeamRoute(container, label) {
+  await act(async () => { buttonWithText(container, "I'm an exhibitor").click(); });
+  const tab=[...container.querySelectorAll('.lg-tabs button')].find(button=>button.textContent.trim()===label);
+  await act(async () => { tab.click(); });
 }
 
 test.each([true, false])('saved exhibitor access restores only after server validation: %s', async valid => {
@@ -106,7 +113,7 @@ test('a newly created event becomes the selected Operations workspace', async ()
 
   await act(async () => { buttonWithText(container, 'Client Workspace').click(); });
   await act(async () => { buttonWithText(container, 'Create test event').click(); });
-  await act(async () => { buttonWithText(container, 'Back to workspace').click(); });
+  await act(async () => { buttonWithText(container, 'Home').click(); });
 
   expect(container.querySelector('#active-event').value).toBe('new-event');
   expect(getActiveEvent().id).toBe('new-event');
@@ -173,7 +180,7 @@ test('platform-admin login opens the admin dashboard without the workspace choos
   expect(container.textContent).toContain('Owner dashboard fixture');
   expect(container.textContent).not.toContain('Choose your workspace');
   expect(window.location.search).not.toContain('admin');
-  await act(async () => { buttonWithText(container, 'Back to workspace').click(); });
+  await act(async () => { buttonWithText(container, 'Home').click(); });
   const activeEventOptions = [...container.querySelector('#active-event').options].map(option => option.textContent);
   expect(activeEventOptions).toContain('Internal event');
   expect(activeEventOptions).not.toContain('Client event');
@@ -182,7 +189,7 @@ test('platform-admin login opens the admin dashboard without the workspace choos
   await act(async () => { buttonWithText(container, 'Sign out').click(); });
   expect(window.location.search).not.toContain('admin');
   expect(window.location.search).not.toContain('event');
-  expect(container.textContent).toContain('Welcome to APEXOPS');
+  expect(container.textContent).toContain('Welcome back.');
   await act(async () => { root.unmount(); });
   container.remove();
   window.history.replaceState({}, '', '/');
@@ -209,10 +216,10 @@ test('public home explains the product and routes event attendees to event code 
   const root = createRoot(container);
 
   await act(async () => { root.render(<App />); });
-  expect(container.textContent).toContain('Welcome to APEXOPS');
+  expect(container.textContent).toContain('Welcome back.');
   expect(container.textContent).toContain('Client / Organiser');
-  expect(container.textContent).toContain('Staff sign in');
-  expect(container.textContent).toContain('Operations sign in');
+  expect(container.querySelector('input[aria-label="Work email"]')).not.toBeNull();
+  expect(container.querySelector('input[aria-label="Password"]')).not.toBeNull();
   expect(container.textContent).toContain('Request a demo');
   await act(async () => { buttonWithText(container, 'Request a client account').click(); });
   expect(container.textContent).toContain('Request an account');
@@ -224,7 +231,7 @@ test('public home explains the product and routes event attendees to event code 
   expect(container.querySelector('.lg-tabs')).toBeNull();
   await act(async () => { buttonWithText(container, 'Back to home').click(); });
 
-  await act(async () => { buttonWithText(container, 'Find your event').click(); });
+  await act(async () => { buttonWithText(container, "I'm an exhibitor").click(); });
   expect(container.querySelectorAll('.lg-tabs button')).toHaveLength(3);
   expect(container.querySelector('.lg-tabs').textContent).not.toContain('Organiser');
   expect(container.textContent).toContain('Example Expo');
@@ -276,6 +283,39 @@ test('organization client admins enter the Client Workspace before Event Operati
   window.history.replaceState({}, '', '/');
 });
 
+test.each([
+  ['staff', 'Staff queue fixture'],
+  ['ops', 'Event Operations'],
+  ['client_admin', 'Client Workspace'],
+])('unified sign-in routes %s to the appropriate workspace', async (role, expected) => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  let activeEvent = null;
+  getActiveEvent.mockImplementation(() => activeEvent);
+  setActiveEvent.mockImplementation(event => { activeEvent = event; });
+  getEventSlug.mockReturnValue('unified-event');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'unified-user', email:'alex@example.test' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'unified-event', client_id:'client', slug:'unified-event', name:'Unified event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:false, memberships:[{ client_id:'client', event_id:role === 'client_admin' ? null : 'unified-event', role }] });
+  getPublicEvents.mockResolvedValue([]);
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<App />);});
+    await act(async()=>{buttonWithText(container, 'Sign in').click();});
+    expect(container.textContent).toContain(expected);
+    expect(container.textContent).not.toContain('Owner dashboard fixture');
+    if (role !== 'staff') expect(container.textContent).toContain('Alex.');
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    window.history.replaceState({}, '', '/');
+  }
+});
+
 test('event Operations users still enter the Operations workspace', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   window.history.replaceState({}, '', '/');
@@ -294,7 +334,7 @@ test('event Operations users still enter the Operations workspace', async () => 
   const root = createRoot(container);
 
   await act(async () => { root.render(<App />); });
-  await act(async () => { buttonWithText(container, 'Operations sign in').click(); });
+  await openLegacyTeamRoute(container, 'Operations');
   const email = container.querySelector('input[aria-label="Work email"]');
   const password = container.querySelector('input[aria-label="Password"]');
   await act(async () => {
@@ -332,7 +372,8 @@ test.each([
   document.body.appendChild(container);
   const root = createRoot(container);
   await act(async () => { root.render(<App />); });
-  await act(async () => { buttonWithText(container, entry).click(); });
+  if (entry === 'Client / Organiser') await act(async () => { buttonWithText(container, entry).click(); });
+  else await openLegacyTeamRoute(container, entry === 'Operations sign in' ? 'Operations' : 'Staff');
   const email = container.querySelector('input[aria-label="Work email"]');
   const password = container.querySelector('input[aria-label="Password"]');
   await act(async () => {
@@ -378,4 +419,46 @@ test('a Platform Owner with a client membership enters client-only mode from cli
   await act(async () => { root.unmount(); });
   container.remove();
   window.history.replaceState({}, '', '/');
+});
+
+test.each([
+  ['staff', ['Home','My queue'], ['Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query','Rebooking','Events & team']],
+  ['ops', ['Home','My queue','Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query','Rebooking'], ['Events & team']],
+  ['client_admin', ['Home','My queue','Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query','Rebooking','Events & team'], []],
+])('shared menu exposes only %s role tools and stays visible inside them', async(role, allowed, forbidden)=>{
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  let activeEvent=null;
+  getActiveEvent.mockImplementation(()=>activeEvent);
+  setActiveEvent.mockImplementation(event=>{activeEvent=event;});
+  getEventSlug.mockReturnValue('role-event');
+  getAvailableEvents.mockResolvedValue([{id:'role-event',client_id:'client',slug:'role-event',name:'Role event',exhibitor_code:'TEST'}]);
+  getUserEventAccess.mockResolvedValue({platformAdmin:false,memberships:[{client_id:'client',event_id:role==='client_admin'?null:'role-event',role}]});
+  supabase.auth.getSession.mockResolvedValue({data:{session:{user:{id:'role-user',email:'role@example.test'}}}});
+  supabase.auth.onAuthStateChange.mockReturnValue({data:{subscription:{unsubscribe:jest.fn()}}});
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<App />);});
+    const nav=()=>container.querySelector('nav[aria-label="Main navigation"]');
+    const navButton=label=>[...nav().querySelectorAll('button')].find(button=>button.textContent.trim()===label);
+    allowed.forEach(label=>expect(navButton(label)).toBeDefined());
+    forbidden.forEach(label=>expect(navButton(label)).toBeUndefined());
+    expect(navButton('Platform admin')).toBeUndefined();
+    const expectedViews={
+      'Event operations':'Operations event: Role event','My queue':'Staff queue fixture','Suppliers & staff':'Staff setup fixture',
+      'People':'People setup fixture','Exhibitors':'Exhibitor setup fixture','Exhibitor view':'Exhibitor status fixture',
+      'Log a query':'Client query fixture','Rebooking':'Rebooking fixture','Events & team':'Client workspace fixture',
+    };
+    for (const [label, expected] of Object.entries(expectedViews)) {
+      if (!allowed.includes(label)) continue;
+      await act(async()=>{navButton(label).click();await Promise.resolve();});
+      expect(container.textContent).toContain(expected);
+      expect(nav()).not.toBeNull();
+    }
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    window.history.replaceState({}, '', '/');
+  }
 });

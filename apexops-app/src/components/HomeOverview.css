@@ -1,0 +1,50 @@
+/* Home: today's numbers + "Needs your attention" (APEXOPS look & feel) */
+.ho { display: flex; flex-direction: column; gap: 18px; margin: 4px 0 26px; }
+
+.ho-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+.ho-stat {
+  display: flex; flex-direction: column; gap: 8px; padding: 18px 20px;
+  background: #fff; border: 1px solid #ece8df; border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(20, 36, 61, .04), 0 12px 32px rgba(20, 36, 61, .05);
+}
+.ho-stat-top { display: flex; align-items: center; justify-content: space-between; color: #5d6b73; font-size: 13px; font-weight: 600; }
+.ho-stat-icon { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; background: #f7f2e7; border: 1px solid #efe6d3; color: #8d7448; }
+.ho-stat strong { font: 600 34px/1 'Playfair Display', Georgia, serif; color: #14243d; }
+.ho-stat small { color: #5d6b73; font-size: 13px; }
+
+.ho-attention {
+  padding: 20px 22px; background: #fff; border: 1px solid #ece8df; border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(20, 36, 61, .04), 0 12px 32px rgba(20, 36, 61, .05);
+}
+.ho-attention-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.ho-attention-head h2 { margin: 0; font: 600 22px/1.2 'Playfair Display', Georgia, serif; color: #14243d; }
+.ho-attention-head h2 em { color: #b49a6a; font-style: italic; font-weight: 500; }
+.ho-count { min-width: 28px; padding: 2px 10px; border-radius: 999px; background: #14243d; color: #fff; font-size: 13px; font-weight: 700; text-align: center; }
+
+.ho-list { list-style: none; margin: 0; padding: 0; }
+.ho-list li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid #f0ede6; }
+.ho-list li:first-child { border-top: 0; }
+.ho-tile { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 12px; display: grid; place-items: center; background: var(--tone-bg, #f1eee6); color: var(--tone, #14243d); }
+.ho-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ho-text strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ho-text small { display: inline-flex; align-items: center; gap: 5px; color: #5d6b73; font-size: 13px; }
+.ho-btn { min-height: 38px !important; padding: 0 14px !important; font-size: 13px !important; }
+.ho-empty { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; color: #5d6b73; font-size: 14px; }
+.ho-empty svg { color: #1f9d5b; }
+.ho-more { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 0; border: 0; background: none; color: #2e6fa3; font: 700 14px/1 'Inter', sans-serif; cursor: pointer; }
+
+/* department tones (same palette as the Ops board) */
+.ho-tone--electric  { --tone: #A87A12; --tone-bg: #FBF3DC; }
+.ho-tone--av        { --tone: #2E6FA3; --tone-bg: #E3EEF7; }
+.ho-tone--wifi      { --tone: #1F8A85; --tone-bg: #DDF2F0; }
+.ho-tone--furniture { --tone: #2F8A57; --tone-bg: #E0F1E6; }
+.ho-tone--graphics  { --tone: #7A55A8; --tone-bg: #EEE7F6; }
+.ho-tone--build     { --tone: #8A6A43; --tone-bg: #F2EBE1; }
+.ho-tone--freight   { --tone: #4F6D8F; --tone-bg: #E5ECF3; }
+.ho-tone--security  { --tone: #3D4C63; --tone-bg: #E4E8EE; }
+.ho-tone--medic     { --tone: #5868B0; --tone-bg: #E8EAF6; }
+.ho-tone--organiser { --tone: #14243D; --tone-bg: #EFE9DC; }
+.ho-tone--neutral   { --tone: #5D6B73; --tone-bg: #ECEFF0; }
+
+.ho-section-title { margin: 6px 0 12px; font: 600 22px/1.2 'Playfair Display', Georgia, serif; color: #14243d; }
+.ho-section-title em { color: #b49a6a; font-style: italic; font-weight: 500; }
