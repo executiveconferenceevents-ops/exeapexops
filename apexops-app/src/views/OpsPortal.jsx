@@ -519,7 +519,7 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors, initialQueryI
       </div>
 
       {tab === 'DASHBOARD' && <AreaStrip queries={queries} activeArea={filter} onPick={setFilter} isOverdue={isOverdue} />}
-      {tab !== 'NOTIFICATIONS' && <StaffQuickTabs staff={staff} selectedId={staffFilter} onSelect={setStaffFilter} rows={taskRows} showAll showUnassigned />}
+      {tab !== 'NOTIFICATIONS' && <StaffQuickTabs staff={staff} selectedId={staffFilter} onSelect={setStaffFilter} rows={taskRows} showAll showUnassigned selectLabel="Filter by staff member" />}
 
       {/* Query list */}
       <div className="ops-query-workspace">
@@ -565,7 +565,7 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors, initialQueryI
       {/* Log new query modal */}
       {showForm && (
         <Modal title="Log New Query" onClose={()=>setShowForm(false)} wide>
-          <QueryForm exhibitors={exhibitors} onSubmit={submitQuery} onCancel={()=>setShowForm(false)} />
+          <QueryForm exhibitors={exhibitors} staff={staff} onSubmit={submitQuery} onCancel={()=>setShowForm(false)} />
         </Modal>
       )}
 

@@ -1,3 +1,27 @@
+.staff-quick-controls {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.staff-quick-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #536571;
+  font-size: 10px;
+  font-weight: 700;
+}
+.staff-quick-picker select {
+  min-width: 210px;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 6px 30px 6px 9px;
+  border: 1px solid #cbd6dc;
+  border-radius: 7px;
+  background: #fff;
+  color: #23384d;
+  font: inherit;
+}
 .staff-quick-tabs {
   display: flex;
   align-items: stretch;
@@ -73,11 +97,19 @@
 .staff-quick-tabs--dark button.is-selected {
   border-color: #d7c5a0;
   box-shadow: inset 0 0 0 1px #d7c5a0;
-  background: rgba(215,197,160,.16);
+  background: #d7c5a0;
+  color: #14243d;
 }
-.staff-quick-tabs--dark .staff-quick-name small { color: rgba(255,255,255,.64); }
+.staff-quick-tabs--dark .staff-quick-name small { color: rgba(255,255,255,.72); }
+.staff-quick-tabs--dark button.is-selected .staff-quick-name small { color: #314254; }
 .staff-quick-tabs--dark .staff-quick-count { background: rgba(255,255,255,.16); color: #fff; }
+.staff-quick-tabs--dark button.is-selected .staff-quick-count { background: rgba(20,36,61,.12); color: #14243d; }
 .staff-quick-tabs--dark .staff-quick-name strong { color: #fff; }
+.staff-quick-tabs--dark button.is-selected .staff-quick-name strong { color: #14243d; }
+.staff-quick-controls--dark .staff-quick-picker { color: rgba(255,255,255,.9); }
+.staff-quick-controls--dark .staff-quick-picker select { border-color: rgba(215,197,160,.6); }
 @media (max-width: 640px) {
   .staff-quick-tabs button { min-height: 40px; }
+  .staff-quick-picker { align-items: flex-start; flex-direction: column; }
+  .staff-quick-picker select { width: 100%; min-width: 0; }
 }

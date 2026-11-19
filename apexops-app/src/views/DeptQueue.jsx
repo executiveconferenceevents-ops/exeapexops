@@ -200,7 +200,7 @@ export default function DeptQueue({ allowStaffPicker = false, initialStaffId = '
             </span>
           </div>
         )}
-        {canPickStaff && <StaffQuickTabs staff={staff} selectedId={staffId} onSelect={setStaffId} rows={queries} variant="dark" showAll={false} label="Choose a staff member" />}
+        {canPickStaff && <StaffQuickTabs staff={staff} selectedId={staffId} onSelect={setStaffId} rows={queries} variant="dark" showAll={false} label="Choose a staff member" selectLabel="Choose a staff member" />}
       </header>
 
       {!staffId ? (

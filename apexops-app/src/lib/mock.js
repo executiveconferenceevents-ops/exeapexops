@@ -1040,7 +1040,7 @@ export async function addQuery(input) {
     id,
     loggedAt,
     status: "LOGGED",
-    assignedTo: null,
+    assignedTo: q.assignedTo || null,
     sourceTab: q.sourceTab || q.category,
     queuePos: (DEMO_MODE ? getDemoCollection('queries', DEMO_QUERIES) : _queries).filter(x => x.status !== "COMPLETED").length + 1,
   };

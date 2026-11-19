@@ -217,11 +217,7 @@ export default function StaffSetup({ onViewJobs }) {
         {message && <div className="staff-directory-message" role="status">{message}</div>}
         {error && <div className="staff-directory-error" role="alert">{error}</div>}
         {directoryTab==='staff' && <>
-          <label className="staff-directory-select"><span>Jump to staff member</span><select value={staffFilter} onChange={event=>setStaffFilter(event.target.value)} aria-label="Select staff member">
-            <option value="ALL">All staff</option>
-            {staff.map(member=><option key={member.id} value={String(member.id)}>{member.name}{member.supplier_name ? ` · ${member.supplier_name}` : ''}</option>)}
-          </select></label>
-          <StaffQuickTabs staff={staff} selectedId={staffFilter} onSelect={setStaffFilter} rows={queries} label="Filter staff directory" />
+          <StaffQuickTabs staff={staff} selectedId={staffFilter} onSelect={setStaffFilter} rows={queries} label="Filter staff directory" selectLabel="Jump to staff member" />
           <form className="directory-form" ref={formRef} onSubmit={save} style={{ background:'linear-gradient(135deg, #fff 0%, #f8fbfd 100%)', padding:22, borderRadius:14, marginBottom:22, border:'1px solid #dce7ed', borderTop:`3px solid ${TEAL}`, boxShadow:'0 10px 26px rgba(13,26,50,.08)', scrollMarginTop:20 }}>
             <h3 className="staff-form-title">{editing ? 'Edit staff member' : 'Add staff member'}</h3>
             <div className="staff-form-fields">

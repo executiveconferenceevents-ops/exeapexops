@@ -34,3 +34,35 @@ test('report form submits the selected stand and clears contact details when swi
     Object.defineProperty(globalThis,'crypto',{configurable:true,value:originalCrypto});
   }
 });
+
+
+test('operations can choose a staff member when logging a query', async()=>{
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  const originalCrypto=globalThis.crypto;
+  Object.defineProperty(globalThis,'crypto',{configurable:true,value:{randomUUID:()=> 'staff-assignment-test'}});
+  const submit=jest.fn().mockResolvedValue(undefined);
+  const exhibitors=[{name:'First',stand:'A01'}];
+  const staff=[{id:'staff-1',name:'Taylor Example',supplier_name:'Bright Spark',departments:['Electrical']}];
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<QueryForm exhibitors={exhibitors} staff={staff} onSubmit={submit} />);});
+    const standSelect=container.querySelector('[aria-label="Exhibitor / Stand"]');
+    await act(async()=>{standSelect.value='First';standSelect.dispatchEvent(new Event('change',{bubbles:true}));});
+    const staffSelect=container.querySelector('[aria-label="Assign to staff"]');
+    expect([...staffSelect.options].map(option=>option.textContent)).toContain('Taylor Example · Bright Spark · Electrical');
+    await act(async()=>{staffSelect.value='staff-1';staffSelect.dispatchEvent(new Event('change',{bubbles:true}));});
+    const button=text=>[...container.querySelectorAll('button')].find(item=>item.textContent.trim()===text);
+    await act(async()=>{button('Power').click();});
+    await act(async()=>{button('No power').click();});
+    await act(async()=>{button('Log query').click();});
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      exhibitor:'First',stand:'A01',category:'Electrical',description:'No power',assignedTo:'staff-1',
+    }));
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    Object.defineProperty(globalThis,'crypto',{configurable:true,value:originalCrypto});
+  }
+});

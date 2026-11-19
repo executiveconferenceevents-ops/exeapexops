@@ -24,10 +24,18 @@ test('staff shortcut shows both supplier and department and selects the staff me
     expect(staffButton.textContent).toContain('Bright Spark · Electrical');
     expect(staffButton.getAttribute('aria-label')).toContain('Bright Spark · Electrical');
 
+    const picker = container.querySelector('select[aria-label="Select staff member"]');
+    expect([...picker.options].map(option => option.textContent)).toContain('Taylor Example · Bright Spark · Electrical');
+    await act(async () => {
+      picker.value = 'staff-1';
+      picker.dispatchEvent(new Event('change', { bubbles:true }));
+    });
+    expect(onSelect).toHaveBeenCalledWith('staff-1');
+
     await act(async () => {
       staffButton.click();
     });
-    expect(onSelect).toHaveBeenCalledWith('staff-1');
+    expect(onSelect).toHaveBeenLastCalledWith('staff-1');
   } finally {
     await act(async () => {
       root.unmount();

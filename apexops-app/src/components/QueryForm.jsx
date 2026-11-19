@@ -20,9 +20,9 @@ const DEPARTMENT_ISSUES = {
   Other: ['Venue issue', 'Parking/access issue', 'Air-conditioning issue', 'Toilet issue', 'Catering issue', 'Noise issue', 'Other'],
 };
 
-const blank = { stand: '', exhibitor: '', contact: '', phone: '', category: '', est: '1 hour' };
+const blank = { stand: '', exhibitor: '', contact: '', phone: '', category: '', est: '1 hour', assignedTo: '' };
 
-export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmit, onCancel, clientMode = false }) {
+export default function QueryForm({ exhibitors = [], staff = [], initialValues = {}, onSubmit, onCancel, clientMode = false }) {
   const [form, setForm] = useState(() => ({ ...blank, ...initialValues }));
   const [quickIssues, setQuickIssues] = useState([]);
   const [customIssue, setCustomIssue] = useState('');
@@ -108,6 +108,18 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
           </select>
         </label>
       )}
+
+      {!clientMode && staff.length > 0 && <label className="qf-field">
+        <span className="qf-label">Assign to staff (optional)</span>
+        <select className="qf-input" aria-label="Assign to staff" value={form.assignedTo} onChange={event => setForm(current => ({ ...current, assignedTo:event.target.value }))}>
+          <option value="">Leave unassigned</option>
+          {staff.map(member => {
+            const departments = (Array.isArray(member.departments) ? member.departments : [member.category]).filter(Boolean);
+            const context = [member.supplier_name, ...departments].filter(Boolean).join(' · ');
+            return <option key={member.id} value={String(member.id)}>{[member.name || 'Unnamed staff', context].filter(Boolean).join(' · ')}</option>;
+          })}
+        </select>
+      </label>}
 
       {!form.category ? (
         <section className="qf-step">
