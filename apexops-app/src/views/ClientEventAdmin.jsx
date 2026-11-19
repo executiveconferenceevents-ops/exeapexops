@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { getAvailableEvents, getEventAccessCode } from '../lib/eventScope';
 import { DEMO_MODE, getDemoCollection, setDemoCollection } from '../lib/demoStore';
+import { loadClientDirectory } from '../lib/clientDirectory';
 import { getClientRebookingRequests, getSuppliers, removeSupplier, upsertSuppliers, uploadPublicImage } from '../lib/mock';
 import { enqueue, isNetworkError } from '../lib/offline';
 import { createInvoicePdf, downloadInvoicePdf } from '../lib/invoicePdf';
@@ -157,11 +158,7 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
         platformAdmin = Boolean(adminResult.data) && !clientWorkspaceOnly;
         currentMemberships = (membershipResult.data || []).filter(membership => !clientWorkspaceOnly || membership.user_id === currentUserId);
         if (platformAdmin) {
-          const { data, error: clientsError } = await supabase.from('clients')
-            .select('id, name, slug, event_limit, account_status, billing_mode, billing_status, billing_plan, paid_through, term_started_at, term_ends_at, committed_events, prepaid_event_credits, trial_started_at, trial_ends_at')
-            .order('name');
-          if (clientsError) throw clientsError;
-          visibleClients = data || [];
+          visibleClients = await loadClientDirectory(supabase);
           const { data:pricing, error:pricingError } = await supabase.from('platform_pricing')
             .select('event_tiers, volume_plans').eq('id', true).maybeSingle();
           if (pricingError) pricingLoadError = 'Pricing settings are unavailable. Apply supabase/platform-pricing-migration.sql to enable the editor.';
@@ -180,7 +177,9 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
         managedClientEventLimit = managedClient?.event_limit || 1;
         managedClientBilling = managedClient || managedClientBilling;
       } else if (DEMO_MODE) {
-        managedClientBilling = visibleClients[0] || managedClientBilling;
+        managedClientBilling = { ...managedClientBilling, ...(visibleClients[0] || {}) };
+        if (!managedClientBilling.billing_mode) managedClientBilling.billing_mode = 'unmanaged';
+        if (!managedClientBilling.billing_status) managedClientBilling.billing_status = 'active';
         managedClientEventLimit = visibleClients[0]?.event_limit || managedClientEventLimit;
       }
       let managedEvents = clientWorkspaceOnly ? availableEvents.filter(event => currentMemberships.some(membership => membership.client_id === event.client_id && (!membership.event_id || membership.event_id === event.id))) : availableEvents;
@@ -1573,7 +1572,7 @@ export default function ClientEventAdmin({ onEventCreated, clientWorkspaceOnly =
             <td><input aria-label={`Maximum annual events ${plan.id}`} type="number" min="1" step="1" value={plan.maxEvents} onChange={event=>updateVolumePlan(index,'maxEvents',event.target.value === '' ? '' : Number(event.target.value))} /></td>
             <td><input aria-label={`Discount percent ${plan.id}`} type="number" min="0" max="100" step="0.1" value={plan.discountPct} onChange={event=>updateVolumePlan(index,'discountPct',event.target.value === '' ? '' : Number(event.target.value))} /></td>
           </tr>)}</tbody></table></div>
-          <p className="tenant-scope-note">Includes {INCLUDED_INTERNAL_SEATS} internal operational accounts; additional internal accounts are R{EXTRA_STAFF_SEAT_PRICE} per user per event. External participant access is free.</p>
+          <p className="tenant-scope-note">Includes {INCLUDED_INTERNAL_SEATS} internal operational accounts; additional internal accounts are R{EXTRA_STAFF_SEAT_PRICE} per user per event. Exhibitor access is free.</p>
         </section>}
 
         {isPlatformAdmin&&<>

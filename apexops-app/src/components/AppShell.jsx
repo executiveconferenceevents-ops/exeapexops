@@ -5,7 +5,7 @@
 //   AppShell: eventMeta, userLabel, userRole, topActions, wide (full-width pages), onEventClick
 //   PageHeader: eyebrow, accent (gold italic words after the title)
 //   ServiceCard: cta (defaults to "Open")
-import { ArrowRight, LogOut } from 'lucide-react';
+import { ArrowLeft, ArrowRight, LogOut } from 'lucide-react';
 import './shell.css';
 
 export function Wordmark({ dark = false, byline = true }) {
@@ -21,7 +21,7 @@ function initials(value) {
   return String(value || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
 }
 
-export function AppShell({ eventName, eventMeta, badge, nav = [], onSignOut, topActions, userLabel, userRole, wide = false, onEventClick, children }) {  // [APEX look 2] wide, onEventClick
+export function AppShell({ eventName, eventMeta, badge, nav = [], onSignOut, onBack, backLabel = 'Back to dashboard', topActions, userLabel, userRole, wide = false, onEventClick, children }) {  // [APEX look 2] wide, onEventClick
   return (
     <div className="shell">
       <aside className="shell-side">
@@ -49,7 +49,10 @@ export function AppShell({ eventName, eventMeta, badge, nav = [], onSignOut, top
         )}
       </aside>
       <div className="shell-content">
-        {(topActions || badge) && <header className="shell-top">{badge}{topActions}</header>}
+        {(onBack || topActions || badge) && <header className="shell-top">
+          {onBack && <button type="button" className="shell-back" onClick={onBack}><ArrowLeft size={16} aria-hidden="true" />{backLabel}</button>}
+          {badge}{topActions}
+        </header>}
         <main className={`shell-main${wide ? ' is-wide' : ''}`}>{children}</main>
       </div>
     </div>

@@ -1,11 +1,11 @@
 import { supabase } from './supabase';
 import { DEMO_MODE, getDemoCollection } from './demoStore';
+import { DEMO_CLIENT_ID, DEMO_EVENT_ID } from './demoAccounts';
 import { getCacheRecord, saveCacheRecord } from './offlineDb';
 
 const LEGACY_DEMO_EVENT_SLUG = 'esg-africa-2026';
 const DEFAULT_EVENT_SLUG = DEMO_MODE ? 'apexops-expo-demo-2026' : process.env.REACT_APP_DEFAULT_EVENT_SLUG || LEGACY_DEMO_EVENT_SLUG;
 const ACTIVE_EVENT_KEY = 'apexops-active-event-v1';
-const DEMO_EVENT_ID = 'demo-event-esg-africa-2026';
 const DEMO_EVENT_CODE = 'APEXDM-20260930';
 export const PRIVACY_NOTICE_VERSION = '2026-10-04-v1';
 let activeEvent = null;
@@ -85,14 +85,18 @@ export function clearActiveEvent() {
 
 export async function getAvailableEvents() {
   if (DEMO_MODE) {
-    const clients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events' }]);
+    const clients = getDemoCollection('clients', [{
+      id:DEMO_CLIENT_ID, name:'Executive Conference Events', slug:'executive-conference-events',
+      event_limit:1, billing_mode:'unmanaged', billing_status:'active', billing_plan:'legacy',
+      prepaid_event_credits:0, trial_started_at:null, trial_ends_at:null,
+    }]);
     return getDemoCollection('events', [{
-      id:DEMO_EVENT_ID, client_id:clients[0]?.id || 'demo-client-ece', clients:clients[0], name:'APEX Expo Demo 2026',
-      event_start_date:'2026-09-30', event_end_date:'2026-10-01', build_up_start_date:'2026-09-29', build_up_end_date:'2026-09-29',
+     id:DEMO_EVENT_ID, client_id:clients[0]?.id || DEMO_CLIENT_ID, clients:clients[0], name:'APEX Expo Demo 2026',
+     event_start_date:'2026-11-18', event_end_date:'2026-11-20', build_up_start_date:'2026-11-17', build_up_end_date:'2026-11-17',
       event_start_time:'09:00', event_end_time:'17:00', build_up_start_time:'08:00', build_up_end_time:'18:00',
       breakdown_start_time:'17:00', breakdown_end_time:'20:00',
-      breakdown_start_date:'2026-10-01', breakdown_end_date:'2026-10-01', next_event_name:'APEX Expo Demo 2027',
-      slug:DEFAULT_EVENT_SLUG, exhibitor_code:DEMO_EVENT_CODE, is_public:true, logo_url:'',
+     breakdown_start_date:'2026-11-21', breakdown_end_date:'2026-11-21', next_event_name:'APEX Expo Demo 2027',
+     slug:DEFAULT_EVENT_SLUG, exhibitor_code:DEMO_EVENT_CODE, is_public:true, billing_exempt:true, logo_url:'',
     }]).map(event => presentDemoEvent({ ...event, clients:clients.find(client => client.id === event.client_id) || event.clients }));
   }
   if (!supabase) return [];

@@ -61,6 +61,9 @@
 
 .lg-title { margin: 0; color:var(--lg-navy); font-size: 24px; font-weight: 700; }
 .lg-sub { margin: 5px 0 0; color: var(--lg-muted); font-size: 14px; line-height:1.55; }
+.lg-demo-accounts { display: grid; gap: 5px; padding: 11px 13px; border: 1px solid var(--lg-border); border-radius: 8px; background: #f7f6f2; color: var(--lg-navy); font-size: 12px; overflow-wrap: anywhere; }
+.lg-demo-accounts > strong { font-size: 13px; }
+.lg-demo-accounts small { margin-top: 2px; color: var(--lg-muted); line-height: 1.45; }
 .lg-filters { display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 10px; margin: 18px 0 14px; }
 .lg-input, .lg-card input, .lg-card select { width: 100%; min-height: 46px; padding: 0 13px; border: 1px solid #d3d8df; border-radius: 5px; background: #fff; color: var(--lg-ink); font-size: 14px; }
 .lg-card input:focus, .lg-card select:focus { border-color: var(--lg-navy); }

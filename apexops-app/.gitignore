@@ -2,6 +2,7 @@ node_modules/
 .npm-cache/
 .env
 .env.local
+.env.production
 build/
 _updates/
 data/
@@ -9,3 +10,7 @@ _security-check-build/
 
 dist-desktop/
 desktop-build.log
+
+.env
+.env.local
+*.zip
