@@ -5,7 +5,7 @@
 import Papa from 'papaparse';
 import { supabase } from './supabase';
 import { DEMO_MODE } from './demoStore';
-import { getActiveEvent, getActiveEventCode, getActiveEventId, getEventSlug } from './eventScope';
+import { getActiveEvent, getActiveEventCode, getActiveEventId, getAvailableEvents, getEventSlug } from './eventScope';
 import { getExhibitors, normalizeStand } from './mock';
 import { readWorkbookRows } from './workbook';
 
@@ -76,6 +76,16 @@ export const STANDARD_FEATURES = [
 const featureKey = label => { const std = STANDARD_FEATURES.find(f => f.label.toLowerCase() === String(label).trim().toLowerCase()); return std ? std.key : `custom_${key(label)}`; };
 export const featureFromLabel = label => ({ key: featureKey(label), label: String(label).trim() });
 export const hasLogo = pkg => Boolean(pkg?.includes_fascia_logo || (pkg?.features || []).some(f => f.key === 'fascia_logo'));
+export function packageFulfillmentKey(packageCode, item, index) {
+  return `${packageCode}:${index}:${key(item?.code || item?.label)}`;
+}
+export function packageFulfillmentRows(profile, pkg) {
+  return (pkg?.items || []).map((item, index) => {
+    const id = packageFulfillmentKey(pkg.code, item, index);
+    const state = profile?.package_fulfillment?.[id] || {};
+    return { ...item, id, packed:Boolean(state.packed), on_stand:Boolean(state.on_stand), returned:Boolean(state.returned) };
+  });
+}
 
 // ── Standard shell scheme packages (one click to create, then edit) ─────────
 export const SHELL_SIZES = [6, 9, 12, 18, 24, 32];
@@ -136,8 +146,9 @@ export function parsePackageRows(rows) {
 }
 
 // ── Demo store ───────────────────────────────────────────────────────────────
-const DEMO_KEY = 'apexops-services-demo-v1';
+const DEMO_KEY = 'apexops-services-demo-v2';
 const PHOTO = code => `${process.env.PUBLIC_URL || ''}/demo-furniture/${code}.jpg`;
+const demoOrderTime = minutesAgo => new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
 const DEMO_SEED = {
   settings: {},
   catalogue: [
@@ -149,11 +160,15 @@ const DEMO_SEED = {
   ].map(([code, name, options, size, price], i) => ({ id: `demo-cat-${code}`, category: 'Furniture', code, name, options, size, price_excl_vat: price, stock_qty: 40, photo_url: PHOTO(code), active: true, sort_order: i })),
   packages: [
     { id: 'demo-pkg-shell9', code: 'SHELL9', name: 'Shell scheme 9m²', size_sqm: 9, description: '3 × 3 m shell scheme', includes_fascia_logo: false, features: STANDARD_FEATURES.filter(f => ['fascia_name', 'carpet', 'lighting', 'power'].includes(f.key)), items: [{ qty: 2, label: 'Stella Chair' }, { qty: 1, label: 'Table on Milan Base' }, { qty: 1, label: 'Plug point' }, { qty: 3, label: 'Spotlight' }], sort_order: 0 },
-    { id: 'demo-pkg-prem18', code: 'PREM18', name: 'Premium 18m²', size_sqm: 18, description: 'Premium shell with branded walls', includes_fascia_logo: true, features: STANDARD_FEATURES.filter(f => ['fascia_name', 'fascia_logo', 'carpet', 'lighting', 'power', 'fabric_wall', 'storage'].includes(f.key)), items: [{ qty: 4, label: 'Stella Chair' }, { qty: 1, label: 'Glass Top Counter' }, { qty: 1, label: 'Small Refrigerator' }, { qty: 2, label: 'Plug point' }, { qty: 6, label: 'Spotlight' }], sort_order: 1 },
+    { id: 'demo-pkg-prem18', code: 'PREM18', name: 'Premium 18m²', size_sqm: 18, description: 'Premium shell with branded walls', includes_fascia_logo: true, features: STANDARD_FEATURES.filter(f => ['fascia_name', 'fascia_logo', 'carpet', 'lighting', 'power', 'fabric_wall', 'vinyl', 'storage'].includes(f.key)), items: [{ qty: 4, label: 'Stella Chair' }, { qty: 1, label: 'Glass Top Counter' }, { qty: 1, label: 'Small Refrigerator' }, { qty: 2, label: 'Plug point' }, { qty: 6, label: 'Spotlight' }], sort_order: 1 },
   ],
   profiles: {},
   files: [],
-  orders: [],
+  orders: [
+    { id:'demo-order-1001', ref:'FO-01001', stand:'D01', exhibitor_name:'Northstar Demo Co', status:'submitted', payment_status:'unpaid', total_payable:1448, delivery_at:null, created_at:demoOrderTime(95), items:[{ id:'demo-order-1001-1', code:'H133', name:'Stella Chair', option:'White', qty:2, unit_payable:486, picked:false, loaded:false, delivered:false },{ id:'demo-order-1001-2', code:'H42', name:'Table on Milan Base', option:'Round', qty:1, unit_payable:476, picked:false, loaded:false, delivered:false }] },
+    { id:'demo-order-1002', ref:'FO-01002', stand:'D02', exhibitor_name:'Blue Peak Sample Group', status:'picking', payment_status:'unpaid', total_payable:925, delivery_at:null, created_at:demoOrderTime(48), items:[{ id:'demo-order-1002-1', code:'H34', name:'Chrome Cocktail Table', option:'', qty:1, unit_payable:925, picked:true, loaded:false, delivered:false }] },
+    { id:'demo-order-1003', ref:'FO-01003', stand:'D03', exhibitor_name:'Cedar Works Demo', status:'delivered', payment_status:'paid', total_payable:294, delivery_at:demoOrderTime(20), created_at:demoOrderTime(180), items:[{ id:'demo-order-1003-1', code:'H01', name:'Carlton Office Chair', option:'Black', qty:1, unit_payable:294, picked:true, loaded:true, delivered:true }] },
+  ],
 };
 function demoRead() {
   try { return { ...DEMO_SEED, ...JSON.parse(window.sessionStorage.getItem(DEMO_KEY) || '{}') }; } catch { return { ...DEMO_SEED }; }
@@ -250,7 +265,18 @@ export async function getExhibitorProfiles() {
   let profiles = [];
   if (DEMO_MODE) {
     const s = demoRead(); let changed = false;
-    exhibitors.forEach(ex => { const st = normalizeStand(ex.stand); if (!s.profiles[st]) { s.profiles[st] = { stand: st, package_code: '', fascia_name: '', fascia_status: 'pending', logo_paid: false, portal_token: uid() }; changed = true; } });
+    const sampleProfiles = {
+      D01:{ package_code:'SHELL9', fascia_name:'NORTHSTAR DEMO', fascia_status:'submitted' },
+      D02:{ package_code:'PREM18', fascia_name:'BLUE PEAK SAMPLE', fascia_status:'approved' },
+      D03:{ package_code:'SHELL9', fascia_name:'', fascia_status:'pending' },
+    };
+    exhibitors.forEach(ex => {
+      const st = normalizeStand(ex.stand);
+      if (!s.profiles[st]) {
+        s.profiles[st] = { stand:st, package_code:'', fascia_name:'', fascia_status:'pending', logo_paid:false, package_fulfillment:{}, portal_token:uid(), ...(sampleProfiles[st] || {}) };
+        changed = true;
+      }
+    });
     if (changed) demoWrite(s);
     profiles = Object.values(s.profiles);
   } else {
@@ -266,7 +292,10 @@ export async function getExhibitorProfiles() {
 export async function saveExhibitorProfile(stand, patch) {
   const st = normalizeStand(stand);
   if (DEMO_MODE) { const s = demoRead(); s.profiles[st] = { ...(s.profiles[st] || { stand: st, portal_token: uid() }), ...patch }; demoWrite(s); return; }
-  need(await supabase.from('exhibitor_profiles').upsert({ event_id: getActiveEventId(), stand: st, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'event_id,stand' }));
+  const eventId = getActiveEventId();
+  const profilePatch = { ...patch, updated_at:new Date().toISOString() };
+  const updated = need(await supabase.from('exhibitor_profiles').update(profilePatch).eq('event_id', eventId).eq('stand', st).select('stand').maybeSingle());
+  if (!updated) need(await supabase.from('exhibitor_profiles').upsert({ event_id:eventId, stand:st, ...profilePatch }, { onConflict:'event_id,stand' }));
 }
 export async function getExhibitorFiles() {
   if (DEMO_MODE) return demoRead().files;
@@ -403,11 +432,11 @@ export async function getExhibitorPortal(token) {
   if (DEMO_MODE) {
     const s = demoRead(); const p = Object.values(s.profiles).find(x => x.portal_token === token);
     if (!p) throw new Error('This link is not valid.');
-    const event = getActiveEvent() || { name: 'Demo event' };
+    const event = getActiveEvent() || (await getAvailableEvents()).find(item => item.slug === getEventSlug()) || { name:'Demo event' };
     const pkg = s.packages.find(x => x.code === p.package_code);
     const ex = (await getExhibitors()).find(e => normalizeStand(e.stand) === normalizeStand(p.stand));
     const settings = { ...DEFAULT_SETTINGS, ...s.settings };
-    return { open: true, event: { name: event.name, start: event.event_start_date, end: event.event_end_date }, stand: p.stand, exhibitor_name: ex?.name, package: pkg || null, logo_included: Boolean(pkg?.includes_fascia_logo || p.logo_paid), logo_terms: settings.logo_terms, fascia_name: p.fascia_name, fascia_status: p.fascia_status, files: s.files.filter(f => normalizeStand(f.stand) === normalizeStand(p.stand)), orders: s.orders.filter(o => o.stand === normalizeStand(p.stand)) };
+    return { open: true, event: { name: event.name, start: event.event_start_date, end: event.event_end_date }, stand: p.stand, exhibitor_name: ex?.name, package: pkg || null, package_fulfillment:p.package_fulfillment || {}, logo_included: Boolean(pkg?.includes_fascia_logo || p.logo_paid), logo_terms: settings.logo_terms, fascia_name: p.fascia_name, fascia_status: p.fascia_status, files: s.files.filter(f => normalizeStand(f.stand) === normalizeStand(p.stand)), orders: s.orders.filter(o => o.stand === normalizeStand(p.stand)) };
   }
   return need(await supabase.rpc('get_exhibitor_portal', { requested_token: token }));
 }

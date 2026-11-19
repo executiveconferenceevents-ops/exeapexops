@@ -2,10 +2,18 @@ import { supabase } from './supabase';
 import { DEMO_MODE, getDemoCollection } from './demoStore';
 import { getCacheRecord, saveCacheRecord } from './offlineDb';
 
-const DEFAULT_EVENT_SLUG = process.env.REACT_APP_DEFAULT_EVENT_SLUG || 'esg-africa-2026';
+const LEGACY_DEMO_EVENT_SLUG = 'esg-africa-2026';
+const DEFAULT_EVENT_SLUG = DEMO_MODE ? 'apexops-expo-demo-2026' : process.env.REACT_APP_DEFAULT_EVENT_SLUG || LEGACY_DEMO_EVENT_SLUG;
 const ACTIVE_EVENT_KEY = 'apexops-active-event-v1';
+const DEMO_EVENT_ID = 'demo-event-esg-africa-2026';
+const DEMO_EVENT_CODE = 'APEXDM-20260930';
 export const PRIVACY_NOTICE_VERSION = '2026-10-04-v1';
 let activeEvent = null;
+
+function presentDemoEvent(event) {
+  if (!DEMO_MODE || event?.id !== DEMO_EVENT_ID) return event;
+  return { ...event, name:'APEX Expo Demo 2026', next_event_name:'APEX Expo Demo 2027', slug:DEFAULT_EVENT_SLUG, exhibitor_code:DEMO_EVENT_CODE };
+}
 
 async function loadCachedPublicValue(key, loader) {
   const cached = await getCacheRecord(key);
@@ -27,14 +35,15 @@ async function hashCode(value) {
 
 export function getEventSlug() {
   const querySlug = new URLSearchParams(window.location.search).get('event');
-  return (querySlug || activeEvent?.slug || DEFAULT_EVENT_SLUG).trim().toLowerCase();
+  const slug = (querySlug || activeEvent?.slug || DEFAULT_EVENT_SLUG).trim().toLowerCase();
+  return DEMO_MODE && slug === LEGACY_DEMO_EVENT_SLUG ? DEFAULT_EVENT_SLUG : slug;
 }
 
 export function getActiveEvent() {
   if (activeEvent) return activeEvent;
   try {
     const stored = JSON.parse(window.sessionStorage.getItem(ACTIVE_EVENT_KEY) || 'null');
-    if (stored?.id && stored?.slug) activeEvent = stored;
+    if (stored?.id && stored?.slug) activeEvent = presentDemoEvent(stored);
   } catch { /* session storage may be unavailable */ }
   return activeEvent;
 }
@@ -78,13 +87,13 @@ export async function getAvailableEvents() {
   if (DEMO_MODE) {
     const clients = getDemoCollection('clients', [{ id:'demo-client-ece', name:'Executive Conference Events', slug:'executive-conference-events' }]);
     return getDemoCollection('events', [{
-      id:'demo-event-esg-africa-2026', client_id:clients[0]?.id || 'demo-client-ece', clients:clients[0], name:'ESG Africa 2026',
+      id:DEMO_EVENT_ID, client_id:clients[0]?.id || 'demo-client-ece', clients:clients[0], name:'APEX Expo Demo 2026',
       event_start_date:'2026-09-30', event_end_date:'2026-10-01', build_up_start_date:'2026-09-29', build_up_end_date:'2026-09-29',
       event_start_time:'09:00', event_end_time:'17:00', build_up_start_time:'08:00', build_up_end_time:'18:00',
       breakdown_start_time:'17:00', breakdown_end_time:'20:00',
-      breakdown_start_date:'2026-10-01', breakdown_end_date:'2026-10-01', next_event_name:'ESG Africa 2027',
-      slug:DEFAULT_EVENT_SLUG, exhibitor_code:'ESGAF-20260930', is_public:true, logo_url:'',
-    }]).map(event => ({ ...event, clients:clients.find(client => client.id === event.client_id) || event.clients }));
+      breakdown_start_date:'2026-10-01', breakdown_end_date:'2026-10-01', next_event_name:'APEX Expo Demo 2027',
+      slug:DEFAULT_EVENT_SLUG, exhibitor_code:DEMO_EVENT_CODE, is_public:true, logo_url:'',
+    }]).map(event => presentDemoEvent({ ...event, clients:clients.find(client => client.id === event.client_id) || event.clients }));
   }
   if (!supabase) return [];
   const { data: sessionData } = await supabase.auth.getSession();
@@ -145,10 +154,13 @@ export async function getPublicEvents() {
 }
 
 export async function resolvePublicEvent(slug = getEventSlug(), accessCode, { requireOnline = false } = {}) {
-  const requestedSlug = String(slug || DEFAULT_EVENT_SLUG).trim().toLowerCase();
+  const normalizedSlug = String(slug || DEFAULT_EVENT_SLUG).trim().toLowerCase();
+  const requestedSlug = DEMO_MODE && normalizedSlug === LEGACY_DEMO_EVENT_SLUG ? DEFAULT_EVENT_SLUG : normalizedSlug;
   if (DEMO_MODE) {
     const event = (await getAvailableEvents()).find(item => item.slug === requestedSlug && item.is_public);
-    if (!event || String(accessCode || '').trim().toUpperCase() !== event.exhibitor_code) return null;
+    const enteredCode = String(accessCode || '').trim().toUpperCase();
+    const legacyCode = requestedSlug === DEFAULT_EVENT_SLUG && enteredCode === 'ESGAF-20260930';
+    if (!event || (enteredCode !== event.exhibitor_code && !legacyCode)) return null;
     return { ...event, accessCode:event.exhibitor_code };
   }
   if (!supabase) return null;

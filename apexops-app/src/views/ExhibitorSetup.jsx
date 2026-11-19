@@ -318,6 +318,18 @@ function getChecklistTasks(exhibitor, { packages, orders, checklistItems }) {
     complete:Boolean(exhibitor.logo_url || logoFiles.length), hint:logoFiles.length ? `${logoFiles.length} file${logoFiles.length === 1 ? '' : 's'} uploaded` : exhibitor.logo_url ? 'Logo added to directory' : logoRequired ? 'Logo required by package' : 'Optional',
     files:logoFiles,
   });
+  [
+    { feature:'vinyl', kind:'artwork_vinyl', label:'Vinyl graphics artwork' },
+    { feature:'fabric_wall', kind:'artwork_fabric', label:'Fabric banner artwork' },
+  ].filter(task => (pkg?.features || []).some(item => item.key === task.feature)).forEach(task => {
+    const artworkFiles = filesOf(task.kind);
+    tasks.push({
+      id:task.kind, label:task.label, required:true, automatic:true,
+      complete:artworkFiles.length > 0,
+      hint:artworkFiles.length ? `${artworkFiles.length} file${artworkFiles.length === 1 ? '' : 's'} uploaded` : 'Required by package',
+      files:artworkFiles,
+    });
+  });
   tasks.push({
     id:'welcome-pack', source:'pack', label:'Welcome pack collected', required:true, automatic:false,
     complete:Boolean(exhibitor.pack_collected), hint:exhibitor.pack_collected_by ? `Received by ${exhibitor.pack_collected_by}` : 'Not collected',

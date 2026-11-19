@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { addStaff, CATEGORIES, getQueries, getStaff, normalizeDepartments, readableError, removeStaff, updateStaff, updateSupplierLogo, upsertStaffRecords } from '../lib/mock';
+import { addStaff, CATEGORIES, getQueries, getStaff, getSuppliers, normalizeDepartments, readableError, removeStaff, removeSupplier, updateStaff, updateSupplierLogo, upsertStaffRecords, upsertSuppliers } from '../lib/mock';
 import { downloadWorkbook, readWorkbookRows } from '../lib/workbook';
 import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, TEAL, CORAL, BG, FONT } from '../theme';
 import StaffQuickTabs from '../components/StaffQuickTabs';
@@ -8,20 +8,25 @@ import './StaffSetup.css';
 export default function StaffSetup({ onViewJobs }) {
   const [staff, setStaff] = useState([]);
   const [queries, setQueries] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [directoryTab, setDirectoryTab] = useState('staff');
   const [staffFilter, setStaffFilter] = useState('ALL');
-  const [supplierEdit, setSupplierEdit] = useState(null);
   const formRef = useRef(null);
+  const supplierFormRef = useRef(null);
   const emptyForm = { supplier_name: '', name: '', email: '', category: '', departments: [], mobile: '', photo: null };
+  const emptySupplierForm = { name:'', contact:'', email:'', mobile:'', category:'Other' };
   const [form, setForm] = useState(emptyForm);
+  const [supplierForm, setSupplierForm] = useState(emptySupplierForm);
   const [editing, setEditing] = useState(null);
+  const [editingSupplier, setEditingSupplier] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
   async function refresh() {
     try {
-      const rows = await getStaff();
+      const [rows, supplierRows] = await Promise.all([getStaff(), getSuppliers()]);
       setStaff(rows);
+      setSuppliers(supplierRows);
       setError(rows.some(member => member.departmentsMigrationPending)
         ? 'Existing staff are shown, but multiple departments cannot be saved until you run supabase/staff-departments-migration.sql in the Supabase SQL Editor.'
         : '');
@@ -115,32 +120,42 @@ export default function StaffSetup({ onViewJobs }) {
     }
   }
 
-  async function saveSupplierName(event) {
+  async function saveSupplier(event) {
     event.preventDefault();
-    const oldName = supplierEdit?.original || '';
-    const newName = String(supplierEdit?.name || '').trim();
+    const newName = String(supplierForm.name || '').trim();
     if (!newName) {
-      setError('Enter a supplier name.');
+      setError('Enter a supplier company name.');
       return;
     }
     setError('');
     setMessage('');
-    const affected = staff.filter(member => String(member.supplier_name || '').toLowerCase() === oldName.toLowerCase());
     try {
-      await upsertStaffRecords(affected.map(member => ({ ...member, supplier_name:newName })));
-      setSupplierEdit(null);
-      setMessage(`${oldName} updated for ${affected.length} staff member${affected.length === 1 ? '' : 's'}.`);
+      const oldName = editingSupplier?.name || '';
+      const duplicate = supplierEntries.find(supplier => supplier.name.toLowerCase() === newName.toLowerCase() && supplier.id !== editingSupplier?.id);
+      if (duplicate) throw new Error('A supplier with that name already exists.');
+      const affected = oldName && oldName.toLowerCase() !== newName.toLowerCase()
+        ? staff.filter(member => String(member.supplier_name || '').toLowerCase() === oldName.toLowerCase())
+        : [];
+      if (affected.length) await upsertStaffRecords(affected.map(member => ({ ...member, supplier_name:newName })));
+      await upsertSuppliers([{ ...supplierForm, id:editingSupplier?.id, name:newName }]);
+      setSupplierForm(emptySupplierForm);
+      setEditingSupplier(null);
+      setMessage(editingSupplier ? `${newName} updated.` : `${newName} added to suppliers.`);
       await refresh();
     } catch (saveError) {
-      setError(readableError(saveError, 'Could not update the supplier name.'));
+      setError(readableError(saveError, 'Could not save the supplier.'));
     }
   }
 
-  async function removeSupplierFromDirectory(supplierName) {
+  async function removeSupplierFromDirectory(supplier) {
+    const supplierName = supplier.name;
     const affected = staff.filter(member => String(member.supplier_name || '').toLowerCase() === supplierName.toLowerCase());
-    if (!window.confirm(`Remove ${supplierName} from the supplier list? Its ${affected.length} staff record${affected.length === 1 ? '' : 's'} will be kept without a supplier assignment.`)) return;
+    if (!window.confirm(`Remove ${supplierName} from the supplier list? Its ${affected.length} linked staff record${affected.length === 1 ? '' : 's'} will be kept without a supplier assignment.`)) return;
     try {
-      await upsertStaffRecords(affected.map(member => ({ ...member, supplier_name:'' })));
+      if (affected.length) await upsertStaffRecords(affected.map(member => ({ ...member, supplier_name:'' })));
+      if (supplier.id) await removeSupplier(supplier.id);
+      setSupplierForm(emptySupplierForm);
+      setEditingSupplier(null);
       setMessage(`${supplierName} removed. Staff records were kept.`);
       await refresh();
     } catch (removeError) {
@@ -176,6 +191,15 @@ export default function StaffSetup({ onViewJobs }) {
     groups.get(key).members.push(member);
     return groups;
   }, new Map()).values()];
+  const supplierEntries = [
+    ...suppliers.map(supplier => ({
+      ...supplier,
+      members:staff.filter(member => String(member.supplier_name || '').toLowerCase() === String(supplier.name || '').toLowerCase()),
+    })),
+    ...supplierGroups
+      .filter(group => !suppliers.some(supplier => String(supplier.name || '').toLowerCase() === group.name.toLowerCase()))
+      .map(group => ({ ...group, category:'Other', members:group.members })),
+  ].sort((first, second) => first.name.localeCompare(second.name));
   const visibleStaff = staffFilter === 'ALL' ? staff : staff.filter(member => String(member.id) === String(staffFilter));
 
   return (
@@ -188,11 +212,15 @@ export default function StaffSetup({ onViewJobs }) {
         <div className="staff-directory-heading"><div><div style={eyebrow}>Operations directory</div><h2 style={{ color:NAVY, margin:'6px 0 0', fontSize:28 }}>People &amp; suppliers</h2><div style={{ color:'#687780', fontSize:13, marginTop:6 }}>Keep supplier companies and their assigned staff easy to find.</div></div><div className="staff-directory-actions"><button type="button" onClick={downloadReport} style={secondaryButton}>Export directory</button><button type="button" onClick={downloadTemplate} style={secondaryButton}>Download template</button><label style={{ ...primaryButton, cursor:'pointer', whiteSpace:'nowrap' }}>Import CSV / Excel<input type="file" accept=".csv,.xlsx,.xls" onChange={importWorkbook} style={{ display:'none' }} /></label></div></div>
         <div className="staff-directory-tabs" role="tablist" aria-label="Directory sections">
           <button type="button" role="tab" aria-selected={directoryTab==='staff'} className={directoryTab==='staff'?'is-active':''} onClick={()=>setDirectoryTab('staff')}>Staff <span>{staff.length}</span></button>
-          <button type="button" role="tab" aria-selected={directoryTab==='suppliers'} className={directoryTab==='suppliers'?'is-active':''} onClick={()=>setDirectoryTab('suppliers')}>Suppliers <span>{supplierGroups.length}</span></button>
+          <button type="button" role="tab" aria-selected={directoryTab==='suppliers'} className={directoryTab==='suppliers'?'is-active':''} onClick={()=>setDirectoryTab('suppliers')}>Suppliers <span>{supplierEntries.length}</span></button>
         </div>
         {message && <div className="staff-directory-message" role="status">{message}</div>}
         {error && <div className="staff-directory-error" role="alert">{error}</div>}
         {directoryTab==='staff' && <>
+          <label className="staff-directory-select"><span>Jump to staff member</span><select value={staffFilter} onChange={event=>setStaffFilter(event.target.value)} aria-label="Select staff member">
+            <option value="ALL">All staff</option>
+            {staff.map(member=><option key={member.id} value={String(member.id)}>{member.name}{member.supplier_name ? ` · ${member.supplier_name}` : ''}</option>)}
+          </select></label>
           <StaffQuickTabs staff={staff} selectedId={staffFilter} onSelect={setStaffFilter} rows={queries} label="Filter staff directory" />
           <form className="directory-form" ref={formRef} onSubmit={save} style={{ background:'linear-gradient(135deg, #fff 0%, #f8fbfd 100%)', padding:22, borderRadius:14, marginBottom:22, border:'1px solid #dce7ed', borderTop:`3px solid ${TEAL}`, boxShadow:'0 10px 26px rgba(13,26,50,.08)', scrollMarginTop:20 }}>
             <h3 className="staff-form-title">{editing ? 'Edit staff member' : 'Add staff member'}</h3>
@@ -232,16 +260,27 @@ export default function StaffSetup({ onViewJobs }) {
           {!visibleStaff.length && <p className="tenant-empty">{staff.length ? 'No staff member matches this filter.' : 'No staff members yet. Add the first staff member above.'}</p>}
         </>}
         {directoryTab==='suppliers' && <section className="staff-supplier-list" aria-label="Supplier companies">
-          <div className="staff-supplier-intro"><p>Supplier companies are grouped from the staff records below. Editing a supplier name updates every linked staff member; removing a supplier keeps its staff records and clears only the company assignment.</p><button type="button" onClick={()=>{setDirectoryTab('staff');setEditing(null);setForm(emptyForm);window.requestAnimationFrame(()=>formRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));}}>Add supplier &amp; staff</button></div>
-          {supplierEdit && <form className="staff-supplier-edit" onSubmit={saveSupplierName}><label>Supplier name<input required value={supplierEdit.name} onChange={event=>setSupplierEdit(current=>({...current,name:event.target.value}))}/></label><button type="submit" style={primaryButton}>Save name</button><button type="button" style={secondaryButton} onClick={()=>setSupplierEdit(null)}>Cancel</button></form>}
-          {supplierGroups.map(group=>{
-            const representative=group.members.find(member=>member.supplier_logo_url)||group.members[0];
-            return <article className="staff-supplier-card" key={group.name.toLowerCase()}>
-              <div className="staff-supplier-card-head">{representative?.supplier_logo_url?<img src={representative.supplier_logo_url} alt={`${group.name} logo`}/>:<div className="staff-supplier-initials">{initials(group.name)}</div>}<div><h3>{group.name}</h3><span>{group.members.length} staff member{group.members.length===1?'':'s'}</span></div><div className="staff-supplier-actions"><button type="button" style={secondaryButton} onClick={()=>{setDirectoryTab('staff');setForm({...emptyForm,supplier_name:group.name});setEditing(null);window.requestAnimationFrame(()=>formRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));}}>Add staff</button><button type="button" style={secondaryButton} onClick={()=>setSupplierEdit({original:group.name,name:group.name})}>Edit supplier</button><button type="button" style={deleteButton} onClick={()=>removeSupplierFromDirectory(group.name)}>Remove supplier</button></div></div>
-              <div className="staff-supplier-members">{group.members.map(member=><span key={member.id}>{member.name} <small>{(member.departments||[member.category]).filter(Boolean).join(', ')}</small></span>)}</div>
+          <div className="staff-supplier-intro"><p>Manage supplier companies here, separately from staff records. Adding a supplier stays on this tab; staff can be added independently and linked to a company.</p><button type="button" onClick={()=>{setEditingSupplier(null);setSupplierForm(emptySupplierForm);window.requestAnimationFrame(()=>supplierFormRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));}}>Add supplier</button></div>
+          <form className="staff-supplier-form" ref={supplierFormRef} onSubmit={saveSupplier}>
+            <h3>{editingSupplier ? 'Edit supplier' : 'Add supplier company'}</h3>
+            <div className="staff-supplier-fields">
+              <label>Supplier name<input required value={supplierForm.name} onChange={event=>setSupplierForm(current=>({...current,name:event.target.value}))}/></label>
+              <label>Contact name<input value={supplierForm.contact} onChange={event=>setSupplierForm(current=>({...current,contact:event.target.value}))}/></label>
+              <label>Email<input type="email" value={supplierForm.email} onChange={event=>setSupplierForm(current=>({...current,email:event.target.value}))}/></label>
+              <label>Mobile<input value={supplierForm.mobile} onChange={event=>setSupplierForm(current=>({...current,mobile:event.target.value}))}/></label>
+              <label>Department / service<input value={supplierForm.category} onChange={event=>setSupplierForm(current=>({...current,category:event.target.value}))}/></label>
+            </div>
+            <div className="staff-form-actions"><button type="submit" style={primaryButton}>{editingSupplier ? 'Save supplier' : 'Add supplier'}</button>{editingSupplier && <button type="button" style={secondaryButton} onClick={()=>{setEditingSupplier(null);setSupplierForm(emptySupplierForm);}}>Cancel</button>}</div>
+          </form>
+          {supplierEntries.map(supplier=>{
+            const representative=supplier.members.find(member=>member.supplier_logo_url)||supplier.members[0];
+            return <article className="staff-supplier-card" key={supplier.id || supplier.name.toLowerCase()}>
+              <div className="staff-supplier-card-head">{representative?.supplier_logo_url?<img src={representative.supplier_logo_url} alt={`${supplier.name} logo`}/>:<div className="staff-supplier-initials">{initials(supplier.name)}</div>}<div><h3>{supplier.name}</h3><span>{supplier.category || 'Supplier'} · {supplier.members.length} linked staff member{supplier.members.length===1?'':'s'}</span></div><div className="staff-supplier-actions"><button type="button" style={secondaryButton} onClick={()=>{setEditingSupplier(supplier.id ? supplier : null);setSupplierForm({name:supplier.name,contact:supplier.contact||'',email:supplier.email||'',mobile:supplier.mobile||'',category:supplier.category||'Other'});window.requestAnimationFrame(()=>supplierFormRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));}}>{supplier.id ? 'Edit supplier' : 'Add supplier record'}</button><button type="button" style={secondaryButton} onClick={()=>{setDirectoryTab('staff');setForm({...emptyForm,supplier_name:supplier.name});setEditing(null);window.requestAnimationFrame(()=>formRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));}}>Add staff</button><button type="button" style={deleteButton} onClick={()=>removeSupplierFromDirectory(supplier)}>Remove supplier</button></div></div>
+              {(supplier.contact || supplier.email || supplier.mobile) && <div className="staff-supplier-contact">{supplier.contact && <span>{supplier.contact}</span>}{supplier.email && <a href={`mailto:${supplier.email}`}>{supplier.email}</a>}{supplier.mobile && <span>{supplier.mobile}</span>}</div>}
+              <div className="staff-supplier-members">{supplier.members.map(member=><span key={member.id}>{member.name} <small>{(member.departments||[member.category]).filter(Boolean).join(', ')}</small></span>)}</div>
             </article>;
           })}
-          {!supplierGroups.length && <p className="tenant-empty">No supplier companies yet. Add a staff member and assign their company to create the first supplier entry.</p>}
+          {!supplierEntries.length && <p className="tenant-empty">No supplier companies yet. Add the first supplier above.</p>}
         </section>}
       </main>
     </div>

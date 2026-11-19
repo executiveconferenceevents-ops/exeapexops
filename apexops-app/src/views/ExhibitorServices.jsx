@@ -7,7 +7,7 @@ import { PageHeader } from '../components/AppShell';
 import { downloadWorkbook } from '../lib/workbook';
 import { getActiveEvent } from '../lib/eventScope';
 import {
-  DEFAULT_SETTINGS, PACKAGE_TEMPLATE_COLUMNS, SHELL_SIZES, STANDARD_FEATURES, createStandardPackages, featureFromLabel, hasLogo, PACKAGE_TEMPLATE_EXAMPLE, STOCK_TEMPLATE_COLUMNS, STOCK_TEMPLATE_EXAMPLE,
+  DEFAULT_SETTINGS, PACKAGE_TEMPLATE_COLUMNS, SHELL_SIZES, STANDARD_FEATURES, createStandardPackages, featureFromLabel, hasLogo, packageFulfillmentRows, PACKAGE_TEMPLATE_EXAMPLE, STOCK_TEMPLATE_COLUMNS, STOCK_TEMPLATE_EXAMPLE,
   deliveryRows, eventAccessWindow, formatDay, formatDayTime, getCatalogue, getEventExhibitorPayments, getExhibitorFileUrl, getExhibitorPaymentProofUrl, getExhibitorProfiles, getOrderSettings,
   getOrders, getPackages, importCatalogue, importPackages, packageInfrastructure, parsePackageRows, parseStockRows,
   portalLink, priceBreakdown, rand, rand2, readServiceImportRows, removeCatalogueItem, removePackage, reviewExhibitorEft, saveCatalogueItem, saveExhibitorProfile, saveOrderSettings,
@@ -305,7 +305,7 @@ function PackagesTab({ packages, profiles, catalogue, run, flash, event }) {
     { name: 'Items to pack', rows: infrastructure.lines.map(r => ({ Item: r.label, 'Total qty': r.qty })) },
     { name: 'Features to prepare', rows: infrastructure.features.map(r => ({ Feature: r.label, Stands: r.qty })) },
     { name: 'Per stand', rows: profiles.filter(p => p.package_code).flatMap(p => { const pkg = byCode.get(p.package_code); return [
-      ...(pkg?.items || []).map(it => ({ Stand: p.stand, Exhibitor: p.name, Package: p.package_code, Type: 'Item', 'Item / feature': it.label, Qty: it.qty, 'Fascia name': p.fascia_name || '' })),
+      ...packageFulfillmentRows(p, pkg).map(it => ({ Stand: p.stand, Exhibitor: p.name, Package: p.package_code, Type: 'Package stock', 'Item / feature': it.label, Qty: it.qty, Packed:it.packed ? 'Yes' : 'No', 'On stand':it.on_stand ? 'Yes' : 'No', Returned:it.returned ? 'Yes' : 'No', 'Fascia name': p.fascia_name || '' })),
       ...(pkg?.features || []).map(f => ({ Stand: p.stand, Exhibitor: p.name, Package: p.package_code, Type: 'Feature', 'Item / feature': f.label, Qty: 1, 'Fascia name': p.fascia_name || '' })),
       ...(!hasLogo(pkg) && p.logo_paid ? [{ Stand: p.stand, Exhibitor: p.name, Package: p.package_code, Type: 'Feature (paid extra)', 'Item / feature': 'Logo printed on fascia', Qty: 1, 'Fascia name': p.fascia_name || '' }] : []),
     ]; }) },
@@ -355,12 +355,39 @@ function PackagesTab({ packages, profiles, catalogue, run, flash, event }) {
         </div>
         <div className="es-grid2" style={{ alignItems: 'start' }}>
           <table className="es-lines">
-            <thead><tr><th>Item to pack</th><th style={{ textAlign: 'right' }}>Total</th><th className="tick">Packed</th></tr></thead>
-            <tbody>{infrastructure.lines.length === 0 ? <tr><td colSpan={3} className="es-muted">Assign packages to exhibitors to see totals.</td></tr> : infrastructure.lines.map(r => <tr key={r.label}><td>{r.label}</td><td style={{ textAlign: 'right' }}><strong>{r.qty}</strong></td><td className="tick">☐</td></tr>)}</tbody>
+            <thead><tr><th>Package stock to pack</th><th style={{ textAlign: 'right' }}>Total</th></tr></thead>
+            <tbody>{infrastructure.lines.length === 0 ? <tr><td colSpan={2} className="es-muted">Assign packages to exhibitors to see totals.</td></tr> : infrastructure.lines.map(r => <tr key={r.label}><td>{r.label}</td><td style={{ textAlign: 'right' }}><strong>{r.qty}</strong></td></tr>)}</tbody>
           </table>
           <table className="es-lines">
-            <thead><tr><th>Feature to prepare</th><th style={{ textAlign: 'right' }}>Stands</th><th className="tick">Done</th></tr></thead>
-            <tbody>{infrastructure.features.length === 0 ? <tr><td colSpan={3} className="es-muted">—</td></tr> : infrastructure.features.map(r => <tr key={r.label}><td>{r.label}</td><td style={{ textAlign: 'right' }}><strong>{r.qty}</strong></td><td className="tick">☐</td></tr>)}</tbody>
+            <thead><tr><th>Package feature to prepare</th><th style={{ textAlign: 'right' }}>Stands</th></tr></thead>
+            <tbody>{infrastructure.features.length === 0 ? <tr><td colSpan={2} className="es-muted">—</td></tr> : infrastructure.features.map(r => <tr key={r.label}><td>{r.label}</td><td style={{ textAlign: 'right' }}><strong>{r.qty}</strong></td></tr>)}</tbody>
+          </table>
+        </div>
+      </div>
+      <div className="es-card es-pad es-stack">
+        <div className="es-row">
+          <div className="es-grow"><div className="es-eyebrow">Warehouse pack-out</div><h2 className="es-h2">Package stock by stand</h2>
+            <p className="es-small es-muted" style={{ margin:'4px 0 0' }}>Track package items separately from exhibitor furniture orders and truck deliveries.</p></div>
+          <button className="es-btn es-no-print" onClick={exportInfra}><Download size={16} strokeWidth={1.75} /> Download pack list</button>
+        </div>
+        <div className="es-packout-table-wrap">
+          <table className="es-lines es-packout-table">
+            <thead><tr><th>Stand / exhibitor</th><th>Package item</th><th>Qty</th><th>Packed</th><th>On stand</th><th>Returned</th></tr></thead>
+            <tbody>
+              {profiles.filter(profile=>profile.package_code).flatMap(profile=>{
+                const pkg=byCode.get(profile.package_code);
+                return packageFulfillmentRows(profile,pkg).map(item=><tr key={`${profile.stand}-${item.id}`}>
+                  <td><strong>{profile.stand}</strong><small>{profile.name}</small></td><td>{item.label}</td><td>{item.qty}</td>
+                  {['packed','on_stand','returned'].map(status=><td key={status} className="tick"><label className="es-check"><input type="checkbox" checked={item[status]} aria-label={`Mark ${status === 'on_stand' ? 'on stand' : status} for stand ${profile.stand}, ${item.label}`} onChange={event=>{
+                    const current=profile.package_fulfillment||{};
+                    const previous=current[item.id]||{};
+                    const package_fulfillment={...current,[item.id]:{...previous,[status]:event.target.checked}};
+                    run(()=>saveExhibitorProfile(profile.stand,{package_fulfillment}),`Pack-out updated for stand ${profile.stand}.`);
+                  }}/></label></td>)}
+                </tr>);
+              })}
+              {!profiles.some(profile=>profile.package_code&&byCode.has(profile.package_code))&&<tr><td colSpan={6} className="es-muted">Assign a package to an exhibitor to create its stand pack list.</td></tr>}
+            </tbody>
           </table>
         </div>
       </div>

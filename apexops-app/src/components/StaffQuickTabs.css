@@ -50,6 +50,8 @@
 }
 .staff-quick-name strong { font-size: 11px; }
 .staff-quick-name small { color: #71808a; font-size: 9px; }
+.staff-quick-tabs:not(.staff-quick-tabs--dark) .staff-quick-name strong { color: #23384d; }
+.staff-quick-tabs:not(.staff-quick-tabs--dark) .staff-quick-name small { color: #667780; }
 .staff-quick-count {
   display: grid;
   place-items: center;
@@ -75,6 +77,7 @@
 }
 .staff-quick-tabs--dark .staff-quick-name small { color: rgba(255,255,255,.64); }
 .staff-quick-tabs--dark .staff-quick-count { background: rgba(255,255,255,.16); color: #fff; }
+.staff-quick-tabs--dark .staff-quick-name strong { color: #fff; }
 @media (max-width: 640px) {
   .staff-quick-tabs button { min-height: 40px; }
 }

@@ -3,7 +3,7 @@
 // [APEX exhibitor services 1]
 import React, { useCallback, useEffect, useState } from 'react';
 import { Check, Download, FileText, ImagePlus, Info, Lock, Upload } from 'lucide-react';
-import { formatDay, formatDayTime, getExhibitorInvoices, getExhibitorPortal, rand, saveExhibitorFascia, startExhibitorPayfastCheckout, startExhibitorYocoCheckout, submitExhibitorEftProof, uploadExhibitorFile } from '../lib/exhibitorServices';
+import { formatDay, formatDayTime, getExhibitorInvoices, getExhibitorPortal, packageFulfillmentRows, rand, saveExhibitorFascia, startExhibitorPayfastCheckout, startExhibitorYocoCheckout, submitExhibitorEftProof, uploadExhibitorFile } from '../lib/exhibitorServices';
 import './exhibitor-services.css';
 
 const LOGO_TYPES = '.ai,.eps,.pdf,.svg,.png,.jpg,.jpeg,.tif,.tiff';
@@ -101,7 +101,12 @@ export default function ExhibitorPortal({ token, onOrderFurniture }) {
               <h2 className="es-h2">{data.package.name}</h2>
               {data.package.description && <p className="es-small es-muted" style={{ margin: 0 }}>{data.package.description}</p>}
               {data.package.features?.length > 0 && <div className="es-feature-list">{data.package.features.map(f => <span key={f.key} className={`es-feature ${f.key === 'fascia_logo' ? 'is-logo' : ''}`}><Check size={13} strokeWidth={2.25} /> {f.label}</span>)}</div>}
-              <div className="es-pkg" style={{ padding: 0 }}><ul>{(data.package.items || []).map((it, i) => <li key={i}><b>{it.qty}×</b>{it.label}</li>)}</ul></div>
+              <div className="es-package-status-list" aria-label="Package stock status">
+                {packageFulfillmentRows({package_fulfillment:data.package_fulfillment},data.package).map(item=><div className="es-package-status-row" key={item.id}>
+                  <strong>{item.qty}× {item.label}</strong>
+                  <div><span className={`es-badge ${item.packed?'es-badge--green':''}`}>{item.packed?'Packed':'Not packed'}</span><span className={`es-badge ${item.on_stand?'es-badge--blue':''}`}>{item.on_stand?'On stand':'Not placed'}</span><span className={`es-badge ${item.returned?'es-badge--amber':''}`}>{item.returned?'Returned':'Not returned'}</span></div>
+                </div>)}
+              </div>
             </>
           ) : <p className="es-muted" style={{ margin: 0 }}>The organiser hasn't linked a package to your stand yet.</p>}
           {onOrderFurniture && !closed && <button className="es-btn" style={{ alignSelf: 'flex-start' }} onClick={onOrderFurniture}>Need more? Order furniture</button>}
@@ -205,14 +210,26 @@ export default function ExhibitorPortal({ token, onOrderFurniture }) {
             ))}
           </div>
         )}
-        {data.orders?.length > 0 && (
-          <div className="es-card es-pad">
-            <div className="es-eyebrow">Your orders</div>
-            {data.orders.map(o => (
-              <div key={o.ref} className="es-summary-line"><strong>{o.ref}</strong><span className="es-grow es-small es-muted">{o.delivery_at ? `Deliver by ${formatDayTime(o.delivery_at)}` : ''}</span><span className="es-badge">{o.status}</span><strong>{rand(o.total_payable)}</strong></div>
-            ))}
-          </div>
-        )}
+        <div className="es-card es-pad es-stack">
+          <div><div className="es-eyebrow">Furniture orders</div><h2 className="es-h2">Orders &amp; delivery updates</h2></div>
+          {data.orders?.length > 0 ? data.orders.map(order=>(
+            <section className="es-portal-order" key={order.ref}>
+              <div className="es-summary-line">
+                <strong>{order.ref}</strong>
+                <span className="es-grow es-small es-muted">Submitted {order.created_at ? formatDayTime(order.created_at) : '—'}</span>
+                <span className="es-badge">{String(order.status||'submitted').replace(/_/g,' ')}</span>
+                <strong>{rand(order.total_payable)}</strong>
+              </div>
+              <p className="es-small es-muted">{order.delivery_at ? `Scheduled delivery: ${formatDayTime(order.delivery_at)}` : 'Delivery is with the next truck to the event; a delivery time is not selected when ordering.'}</p>
+              {(order.items||[]).map((item,index)=><div className="es-portal-order-item" key={item.id||`${order.ref}-${index}`}>
+                <strong>{item.qty}× {item.name || item.label}{item.option ? ` · ${item.option}` : ''}</strong>
+                <span className={`es-badge ${item.picked?'es-badge--green':''}`}>{item.picked?'Picked':'Awaiting pick'}</span>
+                <span className={`es-badge ${item.loaded?'es-badge--blue':''}`}>{item.loaded?'Loaded':'Not loaded'}</span>
+                <span className={`es-badge ${item.delivered?'es-badge--green':''}`}>{item.delivered?'Delivered':'Not delivered'}</span>
+              </div>)}
+            </section>
+          )) : <p className="es-small es-muted" style={{ margin:0 }}>No furniture orders have been placed for this stand.</p>}
+        </div>
       </main>
     </div>
   );

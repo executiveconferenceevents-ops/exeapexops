@@ -45,6 +45,25 @@
   background: #edf2f4;
   font-size: 10px;
 }
+.staff-directory-select {
+  display: grid;
+  grid-template-columns: auto minmax(200px, 360px);
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  color: #536571;
+  font-size: 11px;
+  font-weight: 700;
+}
+.staff-directory-select select {
+  min-height: 36px;
+  padding: 6px 9px;
+  border: 1px solid #d5dae0;
+  border-radius: 6px;
+  background: #fff;
+  color: #23384d;
+  font: inherit;
+}
 .staff-directory-message,.staff-directory-error {
   margin: 10px 0;
   padding: 10px 12px;
@@ -113,17 +132,18 @@
   font-weight: 700;
   cursor: pointer;
 }
-.staff-supplier-edit {
-  display: flex;
-  align-items: end;
-  gap: 8px;
-  padding: 12px;
+.staff-supplier-form {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
   border: 1px solid #dce7ed;
   border-radius: 8px;
   background: #fff;
 }
-.staff-supplier-edit label { display: grid; flex: 1; gap: 5px; color: #64778a; font-size: 10px; font-weight: 700; }
-.staff-supplier-edit input { min-height: 35px; padding: 7px 9px; border: 1px solid #d5dae0; border-radius: 4px; }
+.staff-supplier-form h3 { margin: 0; color: #14243d; font-size: 13px; }
+.staff-supplier-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); gap: 8px; }
+.staff-supplier-fields label { display: grid; gap: 5px; color: #64778a; font-size: 10px; font-weight: 700; }
+.staff-supplier-fields input { min-height: 35px; padding: 7px 9px; border: 1px solid #d5dae0; border-radius: 4px; color: #23384d; }
 .staff-supplier-card {
   padding: 14px 16px;
   border: 1px solid #dce7ed;
@@ -141,12 +161,14 @@
 .staff-supplier-members { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #edf1f3; }
 .staff-supplier-members>span { padding: 5px 8px; border-radius: 999px; background: #f1f5f7; color: #40515b; font-size: 10px; }
 .staff-supplier-members small { margin-left: 4px; color: #78858b; }
+.staff-supplier-contact { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0 0 52px; color: #64778a; font-size: 10px; }
+.staff-supplier-contact a { color: #2e6fa3; }
 @media (max-width: 760px) {
   .staff-directory-heading { align-items: flex-start; flex-direction: column; }
   .staff-directory-actions { justify-content: flex-start; }
   .staff-form-fields { grid-template-columns: 1fr; }
   .staff-supplier-intro,.staff-supplier-card-head { align-items: flex-start; flex-wrap: wrap; }
   .staff-supplier-actions { width: 100%; margin-left: 0; justify-content: flex-start; }
-  .staff-supplier-edit { align-items: stretch; flex-wrap: wrap; }
-  .staff-supplier-edit label { flex-basis: 100%; }
+  .staff-directory-select { grid-template-columns: 1fr; gap: 5px; }
+  .staff-supplier-contact { margin-left: 0; }
 }

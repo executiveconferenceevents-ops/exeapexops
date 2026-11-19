@@ -105,6 +105,18 @@
 .es-lines th { color: var(--es-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; border-top: 0; }
 .es-lines .tick { width: 84px; text-align: center; }
 .es-lines input[type="checkbox"] { width: 22px; height: 22px; accent-color: var(--es-green); cursor: pointer; }
+.es-packout-table-wrap { max-width: 100%; overflow-x: auto; }
+.es-packout-table { min-width: 760px; }
+.es-packout-table td:first-child small { display: block; margin-top: 2px; color: var(--es-muted); font-size: 11px; }
+.es-packout-table .es-check { justify-content: center; }
+.es-package-status-list { display: grid; gap: 6px; }
+.es-package-status-row { display: grid; grid-template-columns: minmax(160px,1fr) auto; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid #f0ede6; }
+.es-package-status-row > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.es-package-status-row .es-badge,.es-portal-order-item .es-badge { font-size: 10px; }
+.es-portal-order { padding-top: 6px; border-top: 1px solid var(--es-line); }
+.es-portal-order > p { margin: 0 0 6px; }
+.es-portal-order-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 7px 0; border-top: 1px solid #f0ede6; }
+.es-portal-order-item strong { flex: 1 1 220px; font-size: 12px; }
 
 /* exhibitor shop (phone first) */
 .es-public { min-height: 100vh; background: var(--es-stone); }
@@ -139,6 +151,10 @@
 .es-fascia { padding: 18px; border-radius: 14px; background: #fff; border: 2px solid var(--es-navy); text-align: center; font-weight: 800; font-size: 22px; letter-spacing: 3px; text-transform: uppercase; color: var(--es-navy); min-height: 64px; display: grid; place-items: center; }
 
 @media (max-width: 860px) { .es-page { padding: 20px 16px 40px; } }
+@media (max-width: 640px) {
+  .es-package-status-row { grid-template-columns: 1fr; }
+  .es-package-status-row > div { justify-content: flex-start; }
+}
 @media print {
   .shell-side, .es-tabs, .es-no-print, .ax-topbar { display: none !important; }
   .es-card { box-shadow: none; border-color: #ccc; break-inside: avoid; }

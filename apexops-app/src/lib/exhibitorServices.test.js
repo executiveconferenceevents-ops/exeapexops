@@ -1,4 +1,4 @@
-import { eventAccessWindow, packageInfrastructure, parseStockRows, priceBreakdown, readServiceImportRows, SHELL_SIZES, standardShellPackage } from './exhibitorServices';
+import { eventAccessWindow, packageFulfillmentRows, packageInfrastructure, parseStockRows, priceBreakdown, readServiceImportRows, SHELL_SIZES, standardShellPackage } from './exhibitorServices';
 
 test('standard shell schemes cover all six sizes and infrastructure totals assigned stands', () => {
   expect(SHELL_SIZES).toEqual([6, 9, 12, 18, 24, 32]);
@@ -7,6 +7,15 @@ test('standard shell schemes cover all six sizes and infrastructure totals assig
   expect(totals.lines).toContainEqual({ label:'Chair', qty:6 });
   expect(totals.features).toContainEqual({ label:'Fascia name board', qty:3 });
   expect(totals.features).toContainEqual({ label:'Logo printed on fascia', qty:1 });
+});
+
+test('package pack-out rows retain independent packed, on-stand, and returned states', () => {
+  const pkg = { code:'SHELL9', items:[{ qty:2, label:'Chair' },{ qty:1, label:'Table' }] };
+  const rows = packageFulfillmentRows({ package_fulfillment:{ 'SHELL9:0:chair':{ packed:true, on_stand:true } } },pkg);
+  expect(rows).toEqual([
+    expect.objectContaining({ id:'SHELL9:0:chair', packed:true, on_stand:true, returned:false }),
+    expect.objectContaining({ id:'SHELL9:1:table', packed:false, on_stand:false, returned:false }),
+  ]);
 });
 
 test('CSV import preserves quoted commas and leading zeroes', async () => {
