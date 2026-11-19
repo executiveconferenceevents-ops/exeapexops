@@ -29,10 +29,11 @@ export default function StaffQuickTabs({
       {staff.map(member => {
         const id = String(member.id);
         const name = member.name || 'Unnamed staff';
-        const company = member.supplier_name || (member.departments || [member.category]).filter(Boolean).join(', ');
-        return <button key={id} type="button" className={String(selectedId) === id ? 'is-selected' : ''} aria-pressed={String(selectedId) === id} aria-label={`${name}${company ? `, ${company}` : ''}, ${countFor(id)} assigned jobs`} onClick={() => onSelect(id)}>
+        const departments = (Array.isArray(member.departments) ? member.departments : [member.category]).filter(Boolean);
+        const context = [member.supplier_name, ...departments].filter(Boolean).join(' · ') || 'No supplier assigned';
+        return <button key={id} type="button" className={String(selectedId) === id ? 'is-selected' : ''} aria-pressed={String(selectedId) === id} aria-label={`${name}, ${context}, ${countFor(id)} assigned jobs`} onClick={() => onSelect(id)}>
           <span className="staff-quick-avatar">{member.photo_url ? <img src={member.photo_url} alt="" /> : initials(name)}</span>
-          <span className="staff-quick-name"><strong>{name}</strong><small>{company || 'No supplier assigned'}</small></span>
+          <span className="staff-quick-name"><strong>{name}</strong><small>{context}</small></span>
           <span className="staff-quick-count">{countFor(id)}</span>
         </button>;
       })}
