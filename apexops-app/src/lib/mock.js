@@ -362,22 +362,28 @@ export async function submitRebookingRequest(request) {
   return row;
 }
 
-export async function getRebookingRequests() {
-  if (!supabase) return DEMO_MODE ? getDemoCollection('rebookings', DEMO_REBOOKINGS) : [];
+export async function getClientRebookingRequests(eventIds = []) {
+  const ids = [...new Set(eventIds.filter(Boolean))];
+  if (!supabase) {
+    const requests = DEMO_MODE ? getDemoCollection('rebookings', DEMO_REBOOKINGS) : [];
+    return ids.length ? requests.filter(request => !request.event_id || ids.includes(request.event_id)) : [];
+  }
+  if (!ids.length) return [];
   const { data, error } = await supabase
     .from('rebooking_requests')
     .select('*')
-    .eq('event_id', getActiveEventId())
-    .order('created_at', { ascending: false });
+    .in('event_id', ids)
+    .order('created_at', { ascending:false });
   if (error) throw error;
   return data || [];
 }
 
 export async function getOpsNotifications() {
-  if (!supabase) return DEMO_MODE ? getDemoCollection('notifications', DEMO_NOTIFICATIONS) : [];
+  if (!supabase) return DEMO_MODE ? getDemoCollection('notifications', DEMO_NOTIFICATIONS).filter(notification => notification.kind !== 'REBOOKING') : [];
   const { data, error } = await supabase
     .from('ops_notifications')
     .select('*')
+    .neq('kind', 'REBOOKING')
     .eq('event_id', getActiveEventId())
     .order('created_at', { ascending: false })
     .limit(100);
@@ -1034,7 +1040,7 @@ export async function addQuery(input) {
     id,
     loggedAt,
     status: "LOGGED",
-    assignedTo: null,
+    assignedTo: q.assignedTo || null,
     sourceTab: q.sourceTab || q.category,
     queuePos: (DEMO_MODE ? getDemoCollection('queries', DEMO_QUERIES) : _queries).filter(x => x.status !== "COMPLETED").length + 1,
   };

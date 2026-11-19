@@ -1,6 +1,6 @@
 export const DEMO_MODE = process.env.REACT_APP_DEMO_MODE === 'true';
 
-const DEMO_SESSION_KEY = 'apexops-demo-session-v1';
+const DEMO_SESSION_KEY = 'apexops-demo-session-v3';
 
 function readState() {
   try {

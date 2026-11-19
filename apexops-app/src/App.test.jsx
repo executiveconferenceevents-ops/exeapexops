@@ -1,10 +1,10 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import { getActiveEvent, getAvailableEvents, getEventSlug, getPublicEvents, getUserEventAccess, setActiveEvent } from './lib/eventScope';
+import { getActiveEvent, getAvailableEvents, getEventSlug, getPublicEvents, getUserEventAccess, resolvePublicEvent, setActiveEvent } from './lib/eventScope';
 import { supabase } from './lib/supabase';
 
-jest.mock('./lib/demoStore', () => ({ DEMO_MODE:false }));
+jest.mock('./lib/demoStore', () => ({ get DEMO_MODE() { return global.__DEMO_MODE__ === true; } }));
 jest.mock('./lib/supabase', () => ({
   supabase:{
     auth:{
@@ -32,8 +32,10 @@ jest.mock('./lib/eventScope', () => {
 });
 jest.mock('./views/ClientEventAdmin', () => {
   const React = require('react');
-  return function MockClientEventAdmin({ onEventCreated }) {
-    return React.createElement('button', { onClick:() => onEventCreated({ id:'new-event', client_id:'client', slug:'new-event', name:'New event' }) }, 'Create test event');
+  return function MockClientEventAdmin({ onEventCreated, clientWorkspaceOnly }) {
+    return React.createElement('div', null,
+      React.createElement('span', null, clientWorkspaceOnly ? 'Client workspace fixture' : 'Owner dashboard fixture'),
+      React.createElement('button', { onClick:() => onEventCreated({ id:'new-event', client_id:'client', slug:'new-event', name:'New event' }) }, 'Create test event'));
   };
 });
 jest.mock('./views/OpsPortal', () => {
@@ -43,17 +45,59 @@ jest.mock('./views/OpsPortal', () => {
     return React.createElement('div', null, `Operations event: ${getActiveEvent()?.name}`);
   };
 });
-jest.mock('./views/DeptQueue', () => () => null);
-jest.mock('./views/ExhibitorStatus', () => () => null);
-jest.mock('./views/StaffSetup', () => () => null);
-jest.mock('./views/PeopleSetup', () => () => null);
-jest.mock('./views/ExhibitorSetup', () => () => null);
-jest.mock('./views/RebookingForm', () => () => null);
-jest.mock('./views/ClientQuery', () => () => null);
+jest.mock('./views/DeptQueue', () => () => 'Staff queue fixture');
+jest.mock('./views/Deliveries', () => () => 'Deliveries fixture');
+jest.mock('./views/ExhibitorStatus', () => () => 'Exhibitor status fixture');
+jest.mock('./views/StaffSetup', () => () => 'Staff setup fixture');
+jest.mock('./views/PeopleSetup', () => () => 'People setup fixture');
+jest.mock('./views/ExhibitorSetup', () => () => 'Exhibitor setup fixture');
+jest.mock('./views/RebookingForm', () => () => 'Rebooking fixture');
+jest.mock('./views/ClientQuery', () => () => 'Client query fixture');
+jest.mock('./components/HomeOverview', () => () => 'Home overview fixture');
 
 function buttonWithText(container, text) {
-  return [...container.querySelectorAll('button')].find(button => button.textContent.includes(text));
+  return [...container.querySelectorAll('button')].find(button => button.textContent.includes(text) || button.getAttribute('aria-label') === text);
 }
+
+function changeInputValue(input, value) {
+  Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles:true }));
+}
+
+async function openRolePortal(container, label) {
+  const portal = label === 'Operations' ? 'Event Operations' : label === 'Staff' ? 'Staff & Delivery' : 'Client / Organiser';
+  await act(async () => { buttonWithText(container, portal).click(); });
+}
+
+test.each([true, false])('saved exhibitor access restores only after server validation: %s', async valid => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  window.localStorage.setItem('apexops-exhibitor-pass-v1', JSON.stringify({
+    slug:'saved-event', accessCode:'TEST-CODE', stand:'A01', privacyAcknowledgementId:'ack-1',
+    privacyNoticeVersion:'test', expiresAt:Date.now()+60000,
+  }));
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getPublicEvents.mockResolvedValue([]);
+  resolvePublicEvent.mockResolvedValue(valid ? { id:'saved', slug:'saved-event', name:'Saved event', accessCode:'TEST-CODE' } : null);
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<App />);});
+    expect(resolvePublicEvent).toHaveBeenCalledWith('saved-event','TEST-CODE',{requireOnline:true});
+    if (valid) expect(container.textContent).toContain('Exhibitor status fixture');
+    else {
+      expect(container.textContent).not.toContain('Exhibitor status fixture');
+      expect(window.localStorage.getItem('apexops-exhibitor-pass-v1')).toBeNull();
+    }
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    window.localStorage.removeItem('apexops-exhibitor-pass-v1');
+    window.history.replaceState({}, '', '/');
+  }
+});
 
 test('a newly created event becomes the selected Operations workspace', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -74,7 +118,7 @@ test('a newly created event becomes the selected Operations workspace', async ()
 
   await act(async () => { buttonWithText(container, 'Client Workspace').click(); });
   await act(async () => { buttonWithText(container, 'Create test event').click(); });
-  await act(async () => { buttonWithText(container, 'Back to workspace').click(); });
+  await act(async () => { buttonWithText(container, 'Home').click(); });
 
   expect(container.querySelector('#active-event').value).toBe('new-event');
   expect(getActiveEvent().id).toBe('new-event');
@@ -138,23 +182,25 @@ test('platform-admin login opens the admin dashboard without the workspace choos
   await act(async () => { buttonWithText(container, 'Sign in').click(); });
 
   expect(container.textContent).toContain('Create test event');
+  expect(container.textContent).toContain('Owner dashboard fixture');
   expect(container.textContent).not.toContain('Choose your workspace');
   expect(window.location.search).not.toContain('admin');
-  await act(async () => { buttonWithText(container, 'Back to workspace').click(); });
+  await act(async () => { buttonWithText(container, 'Home').click(); });
   const activeEventOptions = [...container.querySelector('#active-event').options].map(option => option.textContent);
   expect(activeEventOptions).toContain('Internal event');
   expect(activeEventOptions).not.toContain('Client event');
   expect(container.textContent).toContain('Event Operations');
+  expect(container.textContent).not.toContain('Platform Admin');
   await act(async () => { buttonWithText(container, 'Sign out').click(); });
   expect(window.location.search).not.toContain('admin');
   expect(window.location.search).not.toContain('event');
-  expect(container.textContent).toContain('Welcome to APEXOPS');
+  expect(container.textContent).toContain('Select your portal.');
   await act(async () => { root.unmount(); });
   container.remove();
   window.history.replaceState({}, '', '/');
 });
 
-test('public home explains the product and routes event attendees to event code access', async () => {
+test('public home provides separate role portals and routes exhibitors to event code access', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   window.history.replaceState({}, '', '/');
   supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
@@ -164,24 +210,436 @@ test('public home explains the product and routes event attendees to event code 
     event_start_date:'2027-05-01', event_end_date:'2027-05-02',
     build_up_start_date:'2027-04-29', build_up_end_date:'2027-04-30',
     breakdown_start_date:'2027-05-03', breakdown_end_date:'2027-05-03', logo_url:'',
+  }, {
+    client_name:'Second Organizer', event_name:'Second Expo', slug:'second-expo',
+    event_start_date:'2027-06-01', event_end_date:'2027-06-02',
+    build_up_start_date:'2027-05-30', build_up_end_date:'2027-05-31',
+    breakdown_start_date:'2027-06-03', breakdown_end_date:'2027-06-03', logo_url:'',
   }]);
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
 
   await act(async () => { root.render(<App />); });
-  expect(container.textContent).toContain('Welcome to APEXOPS');
-  expect(container.textContent).toContain('Organizer sign in');
-  expect(container.textContent).toContain('Staff sign in');
+  expect(container.textContent).toContain('Select your portal.');
+  expect(container.textContent).toContain('Client / Organiser');
+  expect(container.textContent).toContain('Platform Admin');
+  expect(container.textContent).toContain('Event Operations');
+  expect(container.textContent).toContain('Staff & Delivery');
+  expect(container.querySelector('input[aria-label="Work email"]')).toBeNull();
+  expect(container.querySelector('input[aria-label="Password"]')).toBeNull();
   expect(container.textContent).toContain('Request a demo');
 
-  await act(async () => { buttonWithText(container, 'Find your event').click(); });
+  await act(async () => { buttonWithText(container, 'Platform Admin').click(); });
+  expect(container.textContent).toContain('Admin sign in');
+  expect(container.querySelector('.lg-tabs')).toBeNull();
+  await act(async () => { buttonWithText(container, 'Back to portal selection').click(); });
+
+  await act(async () => { buttonWithText(container, 'Event Operations').click(); });
+  expect(container.textContent).toContain('Operations sign in');
+  expect(container.querySelector('.lg-tabs')).toBeNull();
+  await act(async () => { buttonWithText(container, 'Back to portal selection').click(); });
+
+  await act(async () => { buttonWithText(container, 'Staff & Delivery').click(); });
+  expect(container.textContent).toContain('Staff sign in');
+  expect(container.querySelector('.lg-tabs')).toBeNull();
+  await act(async () => { buttonWithText(container, 'Back to portal selection').click(); });
+
+  await act(async () => { buttonWithText(container, 'Request a client account').click(); });
+  expect(container.textContent).toContain('Request an account');
+  expect(container.textContent).toContain('This is an account request only.');
+  await act(async () => { buttonWithText(container, 'Back to sign in').click(); });
+
+  await act(async () => { buttonWithText(container, 'Client / Organiser').click(); });
+  expect(container.textContent).toContain('Client / Organiser sign in');
+  expect(container.querySelector('.lg-tabs')).toBeNull();
+  await act(async () => { buttonWithText(container, 'Back to portal selection').click(); });
+
+  await act(async () => { buttonWithText(container, 'Exhibitor access').click(); });
+  expect(container.querySelector('.lg-tabs')).toBeNull();
   expect(container.textContent).toContain('Example Expo');
   await act(async () => { buttonWithText(container, 'Example Expo').click(); });
   expect(container.querySelector('#public-event-code')).not.toBeNull();
   expect(window.location.search).toContain('event=example-expo');
+  await act(async () => { buttonWithText(container, 'Back to event list').click(); });
+  expect(container.textContent).toContain('Choose your event');
+  expect(container.querySelector('#public-event-code')).toBeNull();
+  expect(window.location.search).not.toContain('event=');
+  await act(async () => { buttonWithText(container, 'Second Expo').click(); });
+  expect(container.querySelector('#public-event-code')).not.toBeNull();
+  expect(window.location.search).toContain('event=second-expo');
 
   await act(async () => { root.unmount(); });
   container.remove();
   window.history.replaceState({}, '', '/');
+});
+
+test('demo portal hides Platform Admin and ignores direct admin links', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  global.__DEMO_MODE__ = true;
+  window.history.replaceState({}, '', '/?admin');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  try {
+    await act(async () => { root.render(<App />); });
+    expect(container.textContent).toContain('Select your portal.');
+    expect(container.textContent).not.toContain('Platform Admin');
+    expect(container.textContent).not.toContain('Admin sign in');
+    expect(container.querySelector('input[aria-label="Work email"]')).toBeNull();
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+    global.__DEMO_MODE__ = false;
+    window.history.replaceState({}, '', '/');
+  }
+});
+
+test('organization client admins enter the Client Workspace before Event Operations', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'client-admin' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'client-event', client_id:'client', slug:'client-event', name:'Client event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:false, memberships:[{ client_id:'client', event_id:null, role:'client_admin' }] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  await act(async () => { root.render(<App />); });
+  await act(async () => { buttonWithText(container, 'Client / Organiser').click(); });
+  const email = container.querySelector('input[aria-label="Work email"]');
+  const password = container.querySelector('input[aria-label="Password"]');
+  await act(async () => {
+    email.value = 'admin@example.test';
+    email.dispatchEvent(new Event('input', { bubbles:true }));
+    password.value = 'test-password';
+    password.dispatchEvent(new Event('input', { bubbles:true }));
+  });
+  await act(async () => { buttonWithText(container, 'Sign in').click(); });
+
+  expect(container.textContent).toContain('Create test event');
+  expect(container.textContent).not.toContain('Operations event:');
+  await act(async () => { root.unmount(); });
+  container.remove();
+  window.history.replaceState({}, '', '/');
+});
+
+test.each([
+  ['staff', 'Staff', 'Staff queue fixture'],
+  ['ops', 'Operations', 'Operations event: Unified event'],
+  ['client_admin', 'Client / Organiser', 'Client workspace fixture'],
+])('role-specific %s sign-in routes to the appropriate workspace', async (role, portal, expected) => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  let activeEvent = null;
+  getActiveEvent.mockImplementation(() => activeEvent);
+  setActiveEvent.mockImplementation(event => { activeEvent = event; });
+  getEventSlug.mockReturnValue('unified-event');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'unified-user', email:'alex@example.test' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'unified-event', client_id:'client', slug:'unified-event', name:'Unified event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:false, memberships:[{ client_id:'client', event_id:role === 'client_admin' ? null : 'unified-event', role }] });
+  getPublicEvents.mockResolvedValue([]);
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<App />);});
+    if (portal === 'Client / Organiser') await act(async()=>{buttonWithText(container, portal).click();});
+    else await openRolePortal(container, portal);
+    await act(async()=>{buttonWithText(container, 'Sign in').click();});
+    expect(container.textContent).toContain(expected);
+    expect(container.textContent).not.toContain('Owner dashboard fixture');
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    window.history.replaceState({}, '', '/');
+  }
+});
+
+test('demo credentials cannot be used through a different role portal', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  global.__DEMO_MODE__ = true;
+  window.history.replaceState({}, '', '/');
+  getPublicEvents.mockResolvedValue([]);
+  getUserEventAccess.mockClear();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<App />); });
+    await act(async () => { buttonWithText(container, 'Event Operations').click(); });
+    const email = container.querySelector('input[aria-label="Work email"]');
+    const password = container.querySelector('input[aria-label="Password"]');
+    await act(async () => {
+      changeInputValue(email, 'staff@apexops.demo');
+      changeInputValue(password, 'DemoAccess26!');
+    });
+    await act(async () => { buttonWithText(container, 'Sign in').click(); });
+    expect(container.textContent).toContain('This is the Staff & Delivery demo account.');
+    expect(container.textContent).not.toContain('Staff queue fixture');
+    expect(getUserEventAccess).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+    global.__DEMO_MODE__ = false;
+    window.history.replaceState({}, '', '/');
+  }
+});
+
+test('event Operations users still enter the Operations workspace', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  let activeEvent = null;
+  getActiveEvent.mockImplementation(() => activeEvent);
+  setActiveEvent.mockImplementation(event => { activeEvent = event; });
+  getEventSlug.mockReturnValue('ops-event');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'ops-user' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'ops-event', client_id:'client', slug:'ops-event', name:'Operations event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:false, memberships:[{ client_id:'client', event_id:'ops-event', role:'ops' }] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  await act(async () => { root.render(<App />); });
+  await openRolePortal(container, 'Operations');
+  const email = container.querySelector('input[aria-label="Work email"]');
+  const password = container.querySelector('input[aria-label="Password"]');
+  await act(async () => {
+    email.value = 'ops@example.test';
+    email.dispatchEvent(new Event('input', { bubbles:true }));
+    password.value = 'test-password';
+    password.dispatchEvent(new Event('input', { bubbles:true }));
+  });
+  await act(async () => { buttonWithText(container, 'Sign in').click(); });
+
+  expect(container.textContent).toContain('Operations event: Operations event');
+  await act(async () => { root.unmount(); });
+  container.remove();
+  window.history.replaceState({}, '', '/');
+});
+
+test.each([
+  ['Client / Organiser', 'organisation-wide client administrator access'],
+  ['Operations sign in', 'Operations event: Internal event'],
+  ['Staff sign in', 'Staff queue fixture'],
+])('Platform Owner using %s does not open the owner dashboard', async (entry, expected) => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  let activeEvent = null;
+  getActiveEvent.mockImplementation(() => activeEvent);
+  setActiveEvent.mockImplementation(event => { activeEvent = event; });
+  getEventSlug.mockReturnValue('internal-event');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'platform-admin' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'internal', client_id:'ece', slug:'internal-event', name:'Internal event', billing_exempt:true }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:true, memberships:[] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => { root.render(<App />); });
+  if (entry === 'Client / Organiser') await act(async () => { buttonWithText(container, entry).click(); });
+  else await openRolePortal(container, entry === 'Operations sign in' ? 'Operations' : 'Staff');
+  const email = container.querySelector('input[aria-label="Work email"]');
+  const password = container.querySelector('input[aria-label="Password"]');
+  await act(async () => {
+    email.value = 'owner@example.test';
+    email.dispatchEvent(new Event('input', { bubbles:true }));
+    password.value = 'test-password';
+    password.dispatchEvent(new Event('input', { bubbles:true }));
+  });
+  await act(async () => { buttonWithText(container, 'Sign in').click(); });
+  expect(container.textContent).toContain(expected);
+  expect(container.textContent).not.toContain('Owner dashboard fixture');
+  expect(container.textContent).not.toContain('Platform Admin');
+  await act(async () => { root.unmount(); });
+  container.remove();
+  window.history.replaceState({}, '', '/');
+});
+
+test('a Platform Owner with a client membership enters client-only mode from client sign-in', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'dual-user' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'client-event', client_id:'client', slug:'client-event', name:'Client event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:true, memberships:[{ user_id:'dual-user', client_id:'client', event_id:null, role:'client_admin' }] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => { root.render(<App />); });
+  await act(async () => { buttonWithText(container, 'Client / Organiser').click(); });
+  const email = container.querySelector('input[aria-label="Work email"]');
+  const password = container.querySelector('input[aria-label="Password"]');
+  await act(async () => {
+    email.value = 'dual@example.test';
+    email.dispatchEvent(new Event('input', { bubbles:true }));
+    password.value = 'test-password';
+    password.dispatchEvent(new Event('input', { bubbles:true }));
+  });
+  await act(async () => { buttonWithText(container, 'Sign in').click(); });
+  expect(container.textContent).toContain('Client workspace fixture');
+  expect(container.textContent).not.toContain('Owner dashboard fixture');
+  await act(async () => { root.unmount(); });
+  container.remove();
+  window.history.replaceState({}, '', '/');
+});
+
+test.each([
+  ['staff', ['Home','My queue'], ['Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query','Rebooking','Events & team']],
+  ['ops', ['Home','My queue','Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query'], ['Rebooking','Events & team']],
+  ['client_admin', ['Home','My queue','Event operations','Suppliers & staff','People','Exhibitors','Exhibitor view','Log a query','Events & team'], ['Rebooking']],
+])('shared menu exposes only %s role tools and stays visible inside them', async(role, allowed, forbidden)=>{
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  let activeEvent=null;
+  getActiveEvent.mockImplementation(()=>activeEvent);
+  setActiveEvent.mockImplementation(event=>{activeEvent=event;});
+  getEventSlug.mockReturnValue('role-event');
+  getAvailableEvents.mockResolvedValue([{id:'role-event',client_id:'client',slug:'role-event',name:'Role event',exhibitor_code:'TEST'}]);
+  getUserEventAccess.mockResolvedValue({platformAdmin:false,memberships:[{client_id:'client',event_id:role==='client_admin'?null:'role-event',role}]});
+  supabase.auth.getSession.mockResolvedValue({data:{session:{user:{id:'role-user',email:'role@example.test'}}}});
+  supabase.auth.onAuthStateChange.mockReturnValue({data:{subscription:{unsubscribe:jest.fn()}}});
+  const container=document.createElement('div');
+  document.body.appendChild(container);
+  const root=createRoot(container);
+  try {
+    await act(async()=>{root.render(<App />);});
+    const nav=()=>container.querySelector('nav[aria-label="Main navigation"]');
+    const navButton=label=>[...nav().querySelectorAll('button')].find(button=>button.textContent.trim()===label);
+    allowed.forEach(label=>expect(navButton(label)).toBeDefined());
+    forbidden.forEach(label=>expect(navButton(label)).toBeUndefined());
+    expect(navButton('Platform admin')).toBeUndefined();
+    const expectedViews={
+      'Event operations':'Operations event: Role event','My queue':'Staff queue fixture','Suppliers & staff':'Staff setup fixture',
+      'People':'People setup fixture','Exhibitors':'Exhibitor setup fixture','Exhibitor view':'Exhibitor status fixture',
+      'Log a query':'Client query fixture','Events & team':'Client workspace fixture',
+    };
+    for (const [label, expected] of Object.entries(expectedViews)) {
+      if (!allowed.includes(label)) continue;
+      await act(async()=>{navButton(label).click();await Promise.resolve();});
+      expect(container.textContent).toContain(expected);
+      expect(nav()).not.toBeNull();
+    }
+  } finally {
+    await act(async()=>{root.unmount();});
+    container.remove();
+    window.history.replaceState({}, '', '/');
+  }
+});
+
+test('delivery-only users enter deliveries from the Staff & Delivery portal', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.history.replaceState({}, '', '/');
+  let activeEvent = null;
+  getActiveEvent.mockImplementation(() => activeEvent);
+  setActiveEvent.mockImplementation(event => { activeEvent = event; });
+  getEventSlug.mockReturnValue('delivery-event');
+  supabase.auth.getSession.mockResolvedValue({ data:{ session:null } });
+  supabase.auth.signInWithPassword.mockResolvedValue({ data:{ session:{ user:{ id:'delivery-user' } } }, error:null });
+  supabase.auth.onAuthStateChange.mockReturnValue({ data:{ subscription:{ unsubscribe:jest.fn() } } });
+  getAvailableEvents.mockResolvedValue([{ id:'delivery-event', client_id:'client', slug:'delivery-event', name:'Delivery event' }]);
+  getUserEventAccess.mockResolvedValue({ platformAdmin:false, memberships:[{ client_id:'client', event_id:'delivery-event', role:'delivery' }] });
+  getPublicEvents.mockResolvedValue([]);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<App />); });
+    await openRolePortal(container, 'Staff');
+    await act(async () => { buttonWithText(container, 'Sign in').click(); });
+    expect(container.textContent).toContain('Deliveries fixture');
+    expect(container.textContent).not.toContain('Event operations');
+    expect(container.textContent).not.toContain('Orders & packages');
+    expect(container.textContent).not.toContain('My queue');
+    expect(buttonWithText(container, 'Home')).toBeUndefined();
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+    window.history.replaceState({}, '', '/');
+  }
+});
+
+test.each([
+  ['Client / Organiser', 'organiser@apexops.demo', 'Client workspace fixture', 'Event Operations'],
+  ['Event Operations', 'operations@apexops.demo', 'Operations event: ESG Africa 2026', 'Client Workspace'],
+  ['Staff & Delivery', 'staff@apexops.demo', 'Staff queue fixture', 'Event Operations'],
+  ['Staff & Delivery', 'supplier@apexops.demo', 'Deliveries fixture', 'My queue'],
+  ['Exhibitor access', 'exhibitor@apexops.demo', 'Access services for your stand at this event.', 'Event Operations'],
+])('demo login for %s opens a role-scoped workspace and provides a return path', async (portal, emailAddress, expected, forbidden) => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  global.__DEMO_MODE__ = true;
+  window.history.replaceState({}, '', '/');
+  let activeEvent = null;
+  getActiveEvent.mockImplementation(() => activeEvent);
+  setActiveEvent.mockImplementation(event => { activeEvent = event; });
+  getEventSlug.mockReturnValue('esg-africa-2026');
+  getAvailableEvents.mockResolvedValue([{
+    id:'demo-event-esg-africa-2026', client_id:'demo-client-ece', slug:'esg-africa-2026',
+    name:'ESG Africa 2026', billing_exempt:true, exhibitor_code:'ESGAF-20260930',
+  }]);
+  getPublicEvents.mockResolvedValue([]);
+  getUserEventAccess.mockClear();
+  supabase.auth.getSession.mockClear();
+  supabase.auth.onAuthStateChange.mockClear();
+  supabase.auth.signInWithPassword.mockClear();
+  supabase.auth.signOut.mockClear();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<App />); });
+    await act(async () => { buttonWithText(container, portal).click(); });
+    if (portal === 'Exhibitor access') {
+      await act(async () => { buttonWithText(container, 'Sign in to exhibitor demo').click(); });
+    }
+    expect(container.textContent).toContain(emailAddress);
+    expect(container.textContent).toContain('DemoAccess26!');
+    const email = container.querySelector('input[aria-label="Work email"]');
+    const password = container.querySelector('input[aria-label="Password"]');
+    await act(async () => {
+      changeInputValue(email, emailAddress);
+      changeInputValue(password, 'DemoAccess26!');
+    });
+    await act(async () => {
+      buttonWithText(container, 'Sign in').click();
+    });
+
+    expect(container.textContent).toContain(expected);
+    if (forbidden) expect(container.textContent).not.toContain(forbidden);
+    expect(getUserEventAccess).not.toHaveBeenCalled();
+    expect(supabase.auth.getSession).not.toHaveBeenCalled();
+    expect(supabase.auth.onAuthStateChange).not.toHaveBeenCalled();
+    expect(supabase.auth.signInWithPassword).not.toHaveBeenCalled();
+
+    if (portal === 'Exhibitor access') {
+      await act(async () => { buttonWithText(container, 'Check My Status').click(); });
+    }
+    expect(buttonWithText(container, 'Back to dashboard')).toBeDefined();
+    await act(async () => { buttonWithText(container, 'Back to dashboard').click(); });
+    expect(container.textContent).toContain(portal === 'Exhibitor access' ? 'Exhibitor workspace.' : 'Everything you can do for this event');
+    await act(async () => { buttonWithText(container, 'Sign out').click(); });
+    expect(supabase.auth.signOut).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Select your portal.');
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+    global.__DEMO_MODE__ = false;
+    setActiveEvent(null);
+    window.history.replaceState({}, '', '/');
+  }
 });

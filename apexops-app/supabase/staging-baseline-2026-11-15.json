@@ -1,0 +1,233 @@
+{
+  "project_ref": "ersytghtkfcznlucaloc",
+  "captured_at": "2026-11-15T11:39:45.20086+00:00",
+  "clients": [
+    {
+      "id": "cc6a177d-64e9-48a0-ab79-f941b2a67bb9",
+      "name": "Executive Conference Events",
+      "slug": "executive-conference-events",
+      "event_limit": 1,
+      "billing_mode": "unmanaged",
+      "billing_status": "active",
+      "billing_plan": "legacy",
+      "paid_through": null,
+      "term_started_at": null,
+      "term_ends_at": null,
+      "committed_events": 0,
+      "prepaid_event_credits": 0,
+      "trial_started_at": null,
+      "trial_ends_at": null
+    }
+  ],
+  "memberships": [],
+  "platform_admins": [],
+  "platform_admins_captured_at": "2026-11-15T11:53:27Z",
+  "pricing": {
+    "id": true,
+    "updated_at": "2026-11-14T20:27:10.799231+00:00",
+    "updated_by": null,
+    "event_tiers": [
+      {"id":"small","name":"Small","listPrice":15000,"maxLocations":50,"minLocations":1},
+      {"id":"medium","name":"Medium","listPrice":25000,"maxLocations":100,"minLocations":51},
+      {"id":"large","name":"Large","listPrice":45000,"maxLocations":200,"minLocations":101},
+      {"id":"extra_large","name":"Extra Large","listPrice":70000,"maxLocations":400,"minLocations":201},
+      {"id":"major","name":"Major","listPrice":100000,"maxLocations":600,"minLocations":401},
+      {"id":"enterprise","name":"Enterprise","pricing":"custom_quote","listPrice":null,"maxLocations":null,"minLocations":601}
+    ],
+    "volume_plans": [
+      {"id":"vol_12","maxEvents":19,"discountPct":5,"eventsPerYear":12},
+      {"id":"vol_20","maxEvents":29,"discountPct":8,"eventsPerYear":20},
+      {"id":"vol_30","maxEvents":49,"discountPct":12,"eventsPerYear":30},
+      {"id":"vol_50","maxEvents":74,"discountPct":15,"eventsPerYear":50},
+      {"id":"vol_75","maxEvents":100,"discountPct":18,"eventsPerYear":75}
+    ]
+  },
+  "events": [
+    {
+      "id": "e237640e-6e65-4938-8702-6efc014ce75b",
+      "client_id": "cc6a177d-64e9-48a0-ab79-f941b2a67bb9",
+      "name": "ESG Africa 2026",
+      "slug": "esg-africa-2026",
+      "event_start_date": "2026-09-30",
+      "event_end_date": "2026-10-01",
+      "build_up_start_date": "2026-09-29",
+      "build_up_end_date": "2026-09-29",
+      "breakdown_start_date": "2026-10-01",
+      "breakdown_end_date": "2026-10-01",
+      "billing_exempt": false
+    }
+  ],
+  "policies": [
+    {"cmd":"ALL","qual":"((role <> 'platform_admin'::text) AND has_client_access(client_id, event_id, ARRAY['client_admin'::text]) AND client_billing_is_current(client_id) AND ((event_id IS NULL) OR is_event_operational(event_id)))","roles":["authenticated"],"tablename":"client_event_memberships","policyname":"active client admins manage memberships","schemaname":"public","with_check":"((role <> 'platform_admin'::text) AND has_client_access(client_id, event_id, ARRAY['client_admin'::text]) AND client_billing_is_current(client_id) AND ((event_id IS NULL) OR is_event_operational(event_id)))"},
+    {"cmd":"SELECT","qual":"((user_id = auth.uid()) OR has_client_access(client_id, event_id, ARRAY['client_admin'::text]))","roles":["authenticated"],"tablename":"client_event_memberships","policyname":"members read memberships","schemaname":"public","with_check":null},
+    {"cmd":"ALL","qual":"is_platform_admin()","roles":["authenticated"],"tablename":"client_event_memberships","policyname":"platform admins manage memberships","schemaname":"public","with_check":"is_platform_admin()"},
+    {"cmd":"SELECT","qual":"has_client_membership(id)","roles":["authenticated"],"tablename":"clients","policyname":"members can read clients","schemaname":"public","with_check":null},
+    {"cmd":"ALL","qual":"is_platform_admin()","roles":["authenticated"],"tablename":"clients","policyname":"platform admins manage clients","schemaname":"public","with_check":"is_platform_admin()"},
+    {"cmd":"INSERT","qual":null,"roles":["authenticated"],"tablename":"events","policyname":"active client admins create events","schemaname":"public","with_check":"(has_client_access(client_id, id, ARRAY['client_admin'::text]) AND client_billing_is_current(client_id))"},
+    {"cmd":"UPDATE","qual":"(has_client_access(client_id, id, ARRAY['client_admin'::text]) AND is_event_operational(id))","roles":["authenticated"],"tablename":"events","policyname":"active client admins update events","schemaname":"public","with_check":"(has_client_access(client_id, id, ARRAY['client_admin'::text]) AND is_event_operational(id))"},
+    {"cmd":"SELECT","qual":"(is_platform_admin() OR ((CURRENT_DATE <= (COALESCE(breakdown_end_date, event_end_date) + 30)) AND client_billing_is_current(client_id) AND has_client_access(client_id, id, ARRAY['client_admin'::text, 'event_admin'::text, 'ops'::text, 'staff'::text])) OR ((CURRENT_DATE <= ((COALESCE(event_end_date, breakdown_end_date) + '1 year'::interval))::date) AND has_client_access(client_id, id, ARRAY['client_admin'::text])))","roles":["authenticated"],"tablename":"events","policyname":"event history access","schemaname":"public","with_check":null},
+    {"cmd":"SELECT","qual":"has_client_access(client_id, id)","roles":["authenticated"],"tablename":"events","policyname":"members read assigned events","schemaname":"public","with_check":null},
+    {"cmd":"ALL","qual":"is_platform_admin()","roles":["authenticated"],"tablename":"events","policyname":"platform admins manage all events","schemaname":"public","with_check":"is_platform_admin()"},
+    {"cmd":"SELECT","qual":"(user_id = auth.uid())","roles":["authenticated"],"tablename":"platform_admins","policyname":"users read own platform admin flag","schemaname":"public","with_check":null},
+    {"cmd":"ALL","qual":"is_platform_admin()","roles":["authenticated"],"tablename":"platform_pricing","policyname":"platform admins manage pricing","schemaname":"public","with_check":"is_platform_admin()"}
+  ],
+  "grants_by_table_and_role": [
+    {"table_name":"client_event_memberships","grantee":"anon","privileges":["REFERENCES","TRIGGER","TRUNCATE"]},
+    {"table_name":"client_event_memberships","grantee":"authenticated","privileges":["DELETE","INSERT","REFERENCES","SELECT","TRIGGER","TRUNCATE","UPDATE"]},
+    {"table_name":"client_event_memberships","grantee":"postgres","privileges":["DELETE","INSERT","REFERENCES","SELECT","TRIGGER","TRUNCATE","UPDATE"]},
+    {"table_name":"client_event_memberships","grantee":"service_role","privileges":["REFERENCES","TRIGGER","TRUNCATE"]},
+    {"table_name":"clients","grantee":"anon","privileges":["REFERENCES","TRIGGER","TRUNCATE"]},
+    {"table_name":"clients","grantee":"authenticated","privileges":["REFERENCES","SELECT","TRIGGER","TRUNCATE"]},
+    {"table_name":"clients","grantee":"postgres","privileges":["DELETE","INSERT","REFERENCES","SELECT","TRIGGER","TRUNCATE","UPDATE"]},
+    {"table_name":"clients","grantee":"service_role","privileges":["REFERENCES","TRIGGER","TRUNCATE"]},
+    {"table_name":"events","grantee":"anon","privileges":["REFERENCES","TRIGGER","TRUNCATE"]},
+    {"table_name":"events","grantee":"authenticated","privileges":["DELETE","INSERT","REFERENCES","TRIGGER","TRUNCATE","UPDATE"]},
+    {"table_name":"events","grantee":"postgres","privileges":["DELETE","INSERT","REFERENCES","SELECT","TRIGGER","TRUNCATE","UPDATE"]},
+    {"table_name":"events","grantee":"service_role","privileges":["REFERENCES","TRIGGER","TRUNCATE"]},
+    {"table_name":"platform_admins","grantee":"anon","privileges":["REFERENCES","TRIGGER","TRUNCATE"]},
+    {"table_name":"platform_admins","grantee":"authenticated","privileges":["REFERENCES","SELECT","TRIGGER","TRUNCATE"]},
+    {"table_name":"platform_admins","grantee":"postgres","privileges":["DELETE","INSERT","REFERENCES","SELECT","TRIGGER","TRUNCATE","UPDATE"]},
+    {"table_name":"platform_admins","grantee":"service_role","privileges":["REFERENCES","TRIGGER","TRUNCATE"]},
+    {"table_name":"platform_pricing","grantee":"authenticated","privileges":["INSERT","SELECT","UPDATE"]},
+    {"table_name":"platform_pricing","grantee":"postgres","privileges":["DELETE","INSERT","REFERENCES","SELECT","TRIGGER","TRUNCATE","UPDATE"]},
+    {"table_name":"platform_pricing","grantee":"service_role","privileges":["REFERENCES","TRIGGER","TRUNCATE"]}
+  ],
+  "preflight_checks": {
+    "account_status_column_exists": false,
+    "billing_plans_table_exists": false,
+    "billing_plan_versions_table_exists": false,
+    "client_registration_submissions_table_exists": false,
+    "client_subscriptions_table_exists": false,
+    "platform_audit_log_table_exists": false,
+    "is_platform_admin_function_exists": true,
+    "auth_uid_function_exists": true,
+    "anon_role_exists": true,
+    "authenticated_role_exists": true,
+    "service_role_exists": true,
+    "dashboard_status": "Healthy",
+    "dashboard_branch": "main",
+    "dashboard_migrations_indicator": "No migrations",
+    "dashboard_backup_indicator": "No backups"
+  },
+  "post_migration_verification": {
+    "captured_at": "2026-11-15T12:04:42.489497+00:00",
+    "migration_file": "supabase/platform-billing-foundation-migration.sql",
+    "applied_to_project_ref": "ersytghtkfcznlucaloc",
+    "transaction_result": "Success. No rows returned.",
+    "existing_client_entitlements_unchanged": true,
+    "existing_memberships_unchanged": true,
+    "existing_pricing_values_unchanged": true,
+    "existing_events_and_exemptions_unchanged": true,
+    "existing_policies_unchanged": true,
+    "existing_grants_unchanged": true,
+    "existing_client_account_status": "active",
+    "pricing_version_1_matches_existing_rate_card": true,
+    "foundation_tables_present": [
+      "billing_plans",
+      "billing_plan_versions",
+      "client_registration_submissions",
+      "client_subscriptions",
+      "platform_audit_log"
+    ],
+    "all_foundation_tables_have_rls": true,
+    "platform_admin_policy_count": 5,
+    "migration_triggers_enabled": 13,
+    "platform_admin_rows_available_for_app_access_test": 0,
+    "membership_rows_available_for_client_access_test": 0,
+    "app_level_role_access_test": "Not verifiable: staging contains no Platform Admin rows or client memberships.",
+    "backup_status": "Supabase Free plan does not include project backups; pre-migration baseline is archived separately."
+  },
+  "invoice_migration_verification": {
+    "captured_at": "2026-11-15T18:04:17Z",
+    "migration_file": "supabase/platform-invoice-records-migration.sql",
+    "applied_to_project_ref": "ersytghtkfcznlucaloc",
+    "transaction_result": "Success. No rows returned.",
+    "client_preserved": true,
+    "existing_record_counts": {
+      "clients": 1,
+      "memberships": 0,
+      "platform_admins": 0,
+      "events": 1,
+      "pricing": 1
+    },
+    "invoice_tables_present": [
+      "client_credit_notes",
+      "client_invoice_items",
+      "client_invoices",
+      "invoice_number_counters",
+      "platform_invoice_tax_settings"
+    ],
+    "all_invoice_tables_have_rls": true,
+    "invoice_policy_count": 4,
+    "invoice_rpc_functions_present": [
+      "create_client_invoice(jsonb)",
+      "update_client_invoice_draft(uuid,jsonb)",
+      "create_client_credit_note(uuid,jsonb)",
+      "issue_client_invoice(uuid)"
+    ],
+    "invoice_trigger_count": 10,
+    "tax_settings_seed_rows": 1,
+    "anonymous_invoice_select_grant": false,
+    "app_level_role_access_test": "Not verifiable: staging contains no Platform Admin rows or client memberships."
+  },
+  "stage3_payment_migration_verification": {
+    "captured_at": "2026-11-16T15:32:35Z",
+    "migration_file": "supabase/platform-invoice-payments-migration.sql",
+    "applied_to_project_ref": "ersytghtkfcznlucaloc",
+    "transaction_result": "Success. No rows returned.",
+    "payment_tables_present": [
+      "client_payment_allocations",
+      "client_payment_checkout_sessions",
+      "client_payments"
+    ],
+    "all_payment_tables_have_rls": true,
+    "invoice_and_payment_policy_count": 12,
+    "proof_bucket": {
+      "public": false,
+      "file_size_limit": 10485760,
+      "allowed_mime_types": ["application/pdf", "image/jpeg", "image/png"]
+    },
+    "proof_storage_policies": [
+      "client admins read own payment evidence",
+      "client admins upload own payment evidence"
+    ],
+    "payment_rpc_functions_present": [
+      "record_client_payment(jsonb)",
+      "submit_client_eft_payment(uuid,bigint,date,text,text,uuid)",
+      "review_client_eft_payment(uuid,boolean,text)",
+      "reverse_client_payment(uuid,text)",
+      "create_client_payfast_checkout(uuid,uuid)",
+      "record_verified_payfast_payment(uuid,text,date)"
+    ],
+    "anonymous_gateway_settlement_allowed": false,
+    "service_role_gateway_settlement_allowed": true,
+    "existing_record_counts_unchanged": {
+      "clients": 1,
+      "memberships": 0,
+      "platform_admins": 0,
+      "events": 1,
+      "pricing": 1
+    }
+  },
+  "stage4_registration_migration_verification": {
+    "captured_at": "2026-11-16T16:31:54Z",
+    "migration_file": "supabase/platform-registration-access-migration.sql",
+    "applied_to_project_ref": "ersytghtkfcznlucaloc",
+    "transaction_result": "Success. No rows returned.",
+    "account_status_column_present": true,
+    "existing_account_status_counts": {"active":1},
+    "client_billing_helper_enforces_account_status": true,
+    "registration_table_rls_enabled": true,
+    "registration_intake_grants": {"service_role":true,"anon":false},
+    "review_and_activation_rpcs_present": true,
+    "event_account_guard_trigger_present": true,
+    "existing_record_counts_unchanged": {
+      "clients": 1,
+      "memberships": 0,
+      "platform_admins": 0,
+      "events": 1,
+      "pricing": 1
+    },
+    "app_level_role_access_test": "Not verifiable: staging contains no Platform Admin rows or client memberships."
+  }
+}

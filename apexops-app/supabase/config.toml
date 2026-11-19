@@ -1,0 +1,11 @@
+[functions.register-client]
+verify_jwt = false
+
+[functions.payfast-itn]
+verify_jwt = false
+
+[functions.payfast-exhibitor-itn]
+verify_jwt = false
+
+[functions.yoco-exhibitor-webhook]
+verify_jwt = false

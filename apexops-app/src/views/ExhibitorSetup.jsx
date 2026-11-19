@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { addExhibitor, getExhibitors, removeExhibitor, updateExhibitor, upsertExhibitorRecords, readableError } from '../lib/mock';
-import { downloadWorkbook, readWorkbookRows } from '../lib/workbook';
-import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, TEAL, CORAL, BG, FONT } from '../theme';
+import { addExhibitor, getExhibitors, normalizeStand, removeExhibitor, updateExhibitor, upsertExhibitorRecords, readableError } from '../lib/mock';
+import { downloadWorkbook } from '../lib/workbook';
+import { applyExhibitorImportExtras, EXHIBITOR_TEMPLATE_COLUMNS, EXHIBITOR_TEMPLATE_EXAMPLE, getExhibitorFileUrl, getExhibitorProfiles, getOrders, getOrderSettings, getPackages, hasLogo, readServiceImportRows, saveExhibitorProfile, saveOrderSettings, sendExhibitorReminder } from '../lib/exhibitorServices';
+import { NAVY, NAVY_DEEP, GOLD_PALE, BLUE, CORAL, BG, FONT } from '../theme';
 
 export default function ExhibitorSetup({ onBack }) {
   const [exhibitors, setExhibitors] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [packages, setPackages] = useState([]);
+  const [checklistItems, setChecklistItems] = useState([]);
+  const [checklistLabel, setChecklistLabel] = useState('');
+  const [checklistKind, setChecklistKind] = useState('manual');
+  const [directoryFilter, setDirectoryFilter] = useState('all');
   const [form, setForm] = useState(createExhibitorForm());
   const [editing, setEditing] = useState(null);
   const [message, setMessage] = useState('');
@@ -12,13 +19,42 @@ export default function ExhibitorSetup({ onBack }) {
   const [exhibitorSearch, setExhibitorSearch] = useState('');
   const exhibitorRefs = useRef({});
 
-  async function refresh() { setExhibitors(await getExhibitors()); }
+  async function refresh() {
+    const [exhibitorResult, profilesResult, ordersResult, packagesResult, settingsResult] = await Promise.allSettled([
+      getExhibitors(), getExhibitorProfiles(), getOrders(), getPackages(), getOrderSettings(),
+    ]);
+    if (exhibitorResult.status === 'fulfilled') setExhibitors(exhibitorResult.value);
+    else setError(readableError(exhibitorResult.reason, 'Could not load exhibitor records.'));
+    if (profilesResult.status === 'fulfilled') setExhibitors(profilesResult.value);
+    if (ordersResult.status === 'fulfilled') setOrders(ordersResult.value);
+    if (packagesResult.status === 'fulfilled') setPackages(packagesResult.value);
+    if (settingsResult.status === 'fulfilled') setChecklistItems(settingsResult.value.exhibitor_checklist_items || []);
+    const failedResult = [profilesResult, ordersResult, packagesResult, settingsResult].find(result => result.status === 'rejected');
+    if (failedResult) setError(readableError(failedResult.reason, 'Some exhibitor service details are unavailable.'));
+  }
   useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 30000);
+    const refreshOnFocus = () => { if (!document.hidden) void refresh(); };
+    window.addEventListener('focus', refreshOnFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshOnFocus);
+    };
+  }, []);
 
   const searchNeedle = exhibitorSearch.trim().toLowerCase();
-  const filteredExhibitors = searchNeedle
+  const searchedExhibitors = searchNeedle
     ? exhibitors.filter(exhibitor => `${exhibitor.name} ${exhibitor.stand}`.toLowerCase().includes(searchNeedle))
     : exhibitors;
+  const filteredExhibitors = searchedExhibitors.filter(exhibitor => {
+    const tasks = getChecklistTasks(exhibitor, { packages, orders, checklistItems });
+    const hasMissing = tasks.some(task => task.required && !task.complete);
+    return directoryFilter === 'all' || (directoryFilter === 'missing' ? hasMissing : !hasMissing);
+  });
+  const checklistSummary = getChecklistSummary(exhibitors, { packages, orders, checklistItems });
 
   useEffect(() => {
     if (!searchNeedle || !filteredExhibitors.length) return undefined;
@@ -28,29 +64,94 @@ export default function ExhibitorSetup({ onBack }) {
   }, [exhibitorSearch, exhibitors]);
 
   function downloadTemplate() {
-    downloadWorkbook('APEXOPS-exhibitors-template.xlsx', [{ name:'Exhibitors', rows:[
-      { Company: 'Example Exhibitor Ltd', Stand: 'A01', Contact: 'Example Contact', Email: 'contact@example.com', 'Work No.': '+27 00 000 0000', 'Cell No.': '+27 00 000 0000' },
-    ] }]);
+    downloadWorkbook('APEXOPS-exhibitors-template.xlsx', [{ name:'Exhibitors', headers:EXHIBITOR_TEMPLATE_COLUMNS, rows:[EXHIBITOR_TEMPLATE_EXAMPLE] }]);
   }
 
   function downloadReport() {
-    downloadWorkbook('APEXOPS-exhibitor-report.xlsx', [{ name:'Exhibitors', rows: exhibitors.map(exhibitor => ({
+    downloadWorkbook('APEXOPS-exhibitor-report.xlsx', [{ name:'Exhibitors', headers:['Stand','Exhibitor','Contact','Phone','Email','Missing items'], rows: exhibitors.map(exhibitor => ({
       Stand: exhibitor.stand,
       Exhibitor: exhibitor.name,
       Contact: exhibitor.contact || '',
       Phone: exhibitor.phone || '',
       Email: exhibitor.email || '',
-      'Exhibitor pack received': exhibitor.pack_collected ? 'Yes' : 'No',
-      'Pack received by': exhibitor.pack_collected_by || '',
-      'Day 1 booked out': exhibitor.scanner_day1_booked_out ? 'Yes' : 'No',
-      'Day 1 out at': exhibitor.scanner_day1_booked_out_at || '',
-      'Day 1 booked in': exhibitor.scanner_day1_booked_in ? 'Yes' : 'No',
-      'Day 1 in at': exhibitor.scanner_day1_booked_in_at || '',
-      'Day 2 booked out': exhibitor.scanner_day2_booked_out ? 'Yes' : 'No',
-      'Day 2 out at': exhibitor.scanner_day2_booked_out_at || '',
-      'Day 2 booked in': exhibitor.scanner_day2_booked_in ? 'Yes' : 'No',
-      'Day 2 in at': exhibitor.scanner_day2_booked_in_at || '',
+      'Missing items': getChecklistTasks(exhibitor, { packages, orders, checklistItems }).filter(task => task.required && !task.complete).map(task => task.label).join('; '),
     })) }]);
+  }
+
+  function downloadMissingReport() {
+    const rows = exhibitors.map(exhibitor => ({
+      Stand:exhibitor.stand,
+      Exhibitor:exhibitor.name,
+      Email:splitEmailAddresses(exhibitor.email)[0] || '',
+      'Missing items':getChecklistTasks(exhibitor, { packages, orders, checklistItems }).filter(task => task.required && !task.complete).map(task => task.label).join('; '),
+    })).filter(row => row['Missing items']);
+    downloadWorkbook('APEXOPS-exhibitor-missing-items.xlsx', [{ name:'Missing items', headers:['Stand','Exhibitor','Email','Missing items'], rows }]);
+  }
+
+  async function addChecklistItem(event) {
+    event.preventDefault();
+    const label = checklistLabel.trim();
+    if (!label) return;
+    const next = [...checklistItems, { id:crypto.randomUUID(), label:label.slice(0, 80), auto_kind:checklistKind }];
+    try {
+      await saveOrderSettings({ exhibitor_checklist_items:next });
+      setChecklistItems(next);
+      setChecklistLabel('');
+      setMessage(`Checklist item “${label}” added to this event.`);
+    } catch (saveError) {
+      setError(readableError(saveError, 'Could not add the checklist item.'));
+    }
+  }
+
+  async function removeChecklistItem(itemId) {
+    const next = checklistItems.filter(item => item.id !== itemId);
+    try {
+      await saveOrderSettings({ exhibitor_checklist_items:next });
+      setChecklistItems(next);
+    } catch (saveError) {
+      setError(readableError(saveError, 'Could not remove the checklist item.'));
+    }
+  }
+
+  async function toggleChecklistTask(exhibitor, task, checked) {
+    try {
+      if (task.source === 'pack') {
+        await updateExhibitor(exhibitor.stand, { pack_collected:checked, pack_collected_at:checked ? new Date().toISOString() : null });
+      } else {
+        await saveExhibitorProfile(exhibitor.stand, {
+          checklist_status:{ ...(exhibitor.checklist_status || {}), [task.id]:checked },
+        });
+      }
+      await refresh();
+    } catch (saveError) {
+      setError(readableError(saveError, 'Could not update this checklist item.'));
+    }
+  }
+
+  async function downloadExhibitorFile(file) {
+    try {
+      const url = await getExhibitorFileUrl(file);
+      if (!url) throw new Error('This file is unavailable in the current demo session.');
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noreferrer';
+      link.download = file.file_name || 'exhibitor-artwork';
+      link.click();
+    } catch (fileError) {
+      setError(readableError(fileError, 'Could not download this file.'));
+    }
+  }
+
+  async function emailReminder(exhibitor) {
+    const missing = getChecklistTasks(exhibitor, { packages, orders, checklistItems }).filter(task => task.required && !task.complete).map(task => task.label);
+    if (!missing.length) return;
+    try {
+      const result = await sendExhibitorReminder(exhibitor.stand, missing);
+      setMessage(result.message || `Reminder sent to ${exhibitor.name}.`);
+    } catch (reminderError) {
+      setError(readableError(reminderError, 'Could not send this exhibitor reminder.'));
+    }
   }
 
   async function importWorkbook(event) {
@@ -58,18 +159,25 @@ export default function ExhibitorSetup({ onBack }) {
     if (!file) return;
     setError(''); setMessage('');
     try {
-      const rows = await readWorkbookRows(await file.arrayBuffer());
+      const rows = await readServiceImportRows(file);
       const normalized = rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key.toLowerCase().replace(/[^a-z0-9]/g, '_'), String(value).trim()])));
       const imported = normalized.map(row => ({
         stand: row.stand || row.stand_number,
         name: row.name || row.exhibitor || row.company,
         contact: row.contact || row.contact_name,
-        phone: row.phone || row.mobile || row.contact_number,
-        email: row.email,
+        phone: [row.phone, row.mobile, row.cell_no_, row.cell_no, row.work_no_, row.work_no, row.contact_number, row.mobile_2, row.cell_no_2].filter(Boolean).join('; '),
+        email: [row.email, row.email_2, row.email_3, row.email_4].filter(Boolean).join('; '),
       })).filter(row => row.stand && row.name);
       if (!imported.length) throw new Error('No rows with Stand and Exhibitor/Company columns were found.');
+      const stands = imported.map(row => normalizeStand(row.stand));
+      if (new Set(stands).size !== stands.length) throw new Error('This file contains duplicate stand numbers. Remove duplicates and import again.');
       await upsertExhibitorRecords(imported);
-      setMessage(`Imported ${imported.length} exhibitor records.`);
+      try {
+        const extras = await applyExhibitorImportExtras(rows);
+        setMessage(`Imported ${imported.length} exhibitor records and ${extras} packages/fascia names.`);
+      } catch (extrasError) {
+        setMessage(`Imported ${imported.length} exhibitor records. Package and fascia details could not be fully imported: ${readableError(extrasError, 'Exhibitor services are not available yet.')}`);
+      }
       await refresh();
     } catch (importError) { setError(readableError(importError, 'Could not import this workbook.')); }
     event.target.value = '';
@@ -124,14 +232,31 @@ export default function ExhibitorSetup({ onBack }) {
         <button onClick={onBack} style={secondaryButton}>Back</button>
       </header>
       <main className="apex-service-main directory-main" style={{ maxWidth: 1500, width:'calc(100% - 48px)', margin: '0 auto', padding:'34px 0 64px' }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'end', gap:20, marginBottom:22 }}><div><div style={eyebrow}>Event directory</div><h2 style={{ color: NAVY, margin:'6px 0 0', fontSize:28 }}>Exhibitors <span style={{ color:'#718089', fontSize:16, fontWeight:600 }}>({exhibitors.length})</span></h2><div style={{ color:'#687780', fontSize:13, marginTop:6 }}>The master stand list used by Ops and Check My Status.</div></div><div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}><button type="button" onClick={downloadReport} style={secondaryButton}>Export exhibitor report</button><button type="button" onClick={downloadTemplate} style={secondaryButton}>Download Excel template</button><label style={{ ...primaryButton, cursor:'pointer', whiteSpace:'nowrap' }}>Import CSV / Excel<input type="file" accept=".csv,.xlsx,.xls" onChange={importWorkbook} style={{ display:'none' }} /></label></div></div>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'end', gap:20, marginBottom:22 }}><div><div style={eyebrow}>Event directory</div><h2 style={{ color: NAVY, margin:'6px 0 0', fontSize:28 }}>Exhibitors <span style={{ color:'#718089', fontSize:16, fontWeight:600 }}>({exhibitors.length})</span></h2><div style={{ color:'#687780', fontSize:13, marginTop:6 }}>The master stand list, artwork, and readiness checklist for this event.</div></div><div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}><button type="button" onClick={downloadMissingReport} style={secondaryButton}>Export missing items</button><button type="button" onClick={downloadReport} style={secondaryButton}>Export full report</button><button type="button" onClick={downloadTemplate} style={secondaryButton}>Download Excel template</button><label style={{ ...primaryButton, cursor:'pointer', whiteSpace:'nowrap' }}>Import CSV / Excel<input type="file" accept=".csv,.xlsx,.xls" onChange={importWorkbook} style={{ display:'none' }} /></label></div></div>
+        <section className="exhibitor-checklist-summary">
+          <div className="exhibitor-checklist-stat"><strong>{checklistSummary.complete}/{checklistSummary.total}</strong><span>Required items complete</span></div>
+          <div className="exhibitor-checklist-bars">{checklistSummary.byLabel.map(item => <div key={item.label}><span>{item.label}</span><progress value={item.complete} max={Math.max(item.total, 1)} /><small>{item.complete}/{item.total}</small></div>)}</div>
+          <form className="exhibitor-checklist-add" onSubmit={addChecklistItem}>
+            <input aria-label="New checklist item" placeholder="Add an event checklist item" maxLength={80} value={checklistLabel} onChange={event => setChecklistLabel(event.target.value)} />
+            <select aria-label="Checklist completion rule" value={checklistKind} onChange={event => setChecklistKind(event.target.value)}>
+              <option value="manual">Manual tick</option><option value="artwork_vinyl">Vinyl artwork upload</option><option value="artwork_fabric">Fabric artwork upload</option><option value="logo">Logo upload</option>
+            </select>
+            <button type="submit" style={primaryButton}>Add item</button>
+          </form>
+          {!!checklistItems.length && <div className="exhibitor-checklist-custom">{checklistItems.map(item => <span key={item.id}>{item.label}<button type="button" aria-label={`Remove ${item.label}`} onClick={() => removeChecklistItem(item.id)}>×</button></span>)}</div>}
+        </section>
         <form className="directory-form" onSubmit={save} style={{ background:'#fff', padding:20, borderRadius:8, marginBottom:22, border:'1px solid #e1e6e5', borderTop:`3px solid ${BLUE}`, boxShadow:'0 4px 16px rgba(13,26,50,.05)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
             <input required disabled={Boolean(editing)} placeholder="Stand (e.g. A09/A10)" value={form.stand} onChange={e => setForm({ ...form, stand: e.target.value })} />
             <input required placeholder="Exhibitor name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
             <input placeholder="Contact name" value={form.contact || ''} onChange={e => setForm({ ...form, contact: e.target.value })} />
-            {[1, 2, 3, 4].map(number => <input key={number} type="tel" placeholder={`Mobile ${number}${number === 1 ? ' (primary)' : ''}`} value={form[`phone${number}`] || ''} onChange={e => setForm({ ...form, [`phone${number}`]: e.target.value })} />)}
-            {[1, 2, 3, 4].map(number => <input key={`email-${number}`} type="email" placeholder={`Email ${number}${number === 1 ? ' (primary)' : ''}`} value={form[`email${number}`] || ''} onChange={e => setForm({ ...form, [`email${number}`]: e.target.value })} />)}
+            <input type="tel" placeholder="Primary mobile" value={form.phone1 || ''} onChange={e => setForm({ ...form, phone1: e.target.value })} />
+            <input type="email" placeholder="Primary email" value={form.email1 || ''} onChange={e => setForm({ ...form, email1: e.target.value })} />
+            <details className="exhibitor-extra-contacts">
+              <summary>Additional contacts</summary>
+              <div>{[2, 3, 4].map(number => <input key={number} type="tel" placeholder={`Mobile ${number}`} value={form[`phone${number}`] || ''} onChange={e => setForm({ ...form, [`phone${number}`]: e.target.value })} />)}
+                {[2, 3, 4].map(number => <input key={`email-${number}`} type="email" placeholder={`Email ${number}`} value={form[`email${number}`] || ''} onChange={e => setForm({ ...form, [`email${number}`]: e.target.value })} />)}</div>
+            </details>
           </div>
 
           <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -152,115 +277,127 @@ export default function ExhibitorSetup({ onBack }) {
             <span style={{ color:'#718089', fontSize:11 }}>{searchNeedle ? `${filteredExhibitors.length} match${filteredExhibitors.length === 1 ? '' : 'es'}` : `${exhibitors.length} stands`}</span>
           </div>
           <input id="exhibitor-directory-search" value={exhibitorSearch} onChange={event => setExhibitorSearch(event.target.value)} placeholder="Type a company name or stand number, e.g. Nedbank or A01" style={directorySearchInputStyle} />
+          <div className="exhibitor-directory-filters" role="group" aria-label="Filter exhibitors by checklist">
+            {[['all','All stands'],['missing','Needs attention'],['complete','Checklist complete']].map(([value,label]) => <button key={value} type="button" className={directoryFilter === value ? 'is-active' : ''} onClick={() => setDirectoryFilter(value)}>{label}</button>)}
+          </div>
         </div>
         {message && <div style={{ color:'#1E8449', marginBottom:12 }}>{message}</div>}
         {filteredExhibitors.map(exhibitor => <div key={exhibitor.stand} ref={element => { exhibitorRefs.current[exhibitor.stand] = element; }} className="exhibitor-card directory-row" style={rowStyle}>
           <div style={{ width: 86, fontWeight: 800, color: BLUE, fontSize:14, letterSpacing:.6 }}>{exhibitor.stand}</div>
           <LogoTile exhibitor={exhibitor} onSaved={refresh} onError={setError} />
-          <div style={{ flex:'0 0 260px', minWidth:0, overflowWrap:'anywhere' }}><strong style={{ display:'block', color:NAVY, fontSize:14 }}>{exhibitor.name}</strong><div style={{ color: '#596a73', fontSize: 12, marginTop:5 }}>{exhibitor.contact || 'No contact recorded'}</div><div style={{ marginTop:3, display:'grid', gap:2 }}>{splitEmailAddresses(exhibitor.email).length ? splitEmailAddresses(exhibitor.email).slice(0, 4).map((email, index) => <a key={`${email}-${index}`} href={`mailto:${email}`} style={{ ...contactLink, fontSize:12, fontWeight:600 }}>Email {index + 1}: {email}</a>) : <span style={{ color:'#78858b', fontSize:12 }}>Email not recorded</span>}</div><div style={{ marginTop:3, display:'grid', gap:2 }}>{splitPhoneNumbers(exhibitor.phone).length ? splitPhoneNumbers(exhibitor.phone).slice(0, 4).map((phone, index) => <a key={`${phone}-${index}`} href={whatsappLink(phone)} target="_blank" rel="noreferrer" style={{ ...contactLink, fontSize:12, fontWeight:600 }}>WhatsApp {index + 1}: {phone}</a>) : <span style={{ color:'#78858b', fontSize:12 }}>Mobile not recorded</span>}</div></div>
-          <PackCollection exhibitor={exhibitor} onSaved={refresh} onError={setError} />
-          <ScannerCheckout exhibitor={exhibitor} onSaved={refresh} onError={setError} />
-          <div style={{ display:'flex', alignItems:'center', gap:12, marginLeft:'auto' }}>
-            <div style={{ display:'flex', gap:8 }}>
-              <button onClick={() => edit(exhibitor)} style={secondaryButton}>Edit</button>
-              <button onClick={() => remove(exhibitor)} style={deleteButton}>Remove</button>
-            </div>
+          <ExhibitorContacts exhibitor={exhibitor} />
+          <ChecklistPanel exhibitor={exhibitor} packages={packages} orders={orders} checklistItems={checklistItems} onToggle={toggleChecklistTask} onDownload={downloadExhibitorFile} />
+          <div className="exhibitor-card-actions">
+            <button type="button" onClick={() => emailReminder(exhibitor)} disabled={!getChecklistTasks(exhibitor, { packages, orders, checklistItems }).some(task => task.required && !task.complete)} style={secondaryButton}>Email missing items</button>
+            <button type="button" onClick={() => edit(exhibitor)} style={secondaryButton}>Edit</button>
+            <button type="button" onClick={() => remove(exhibitor)} style={deleteButton}>Remove</button>
           </div>
         </div>)}
-        {searchNeedle && !filteredExhibitors.length && <div style={emptySearchStyle}>No exhibitor or stand matches “{exhibitorSearch}”.</div>}
+        {!filteredExhibitors.length && <div style={emptySearchStyle}>{searchNeedle ? `No exhibitor or stand matches “${exhibitorSearch}”.` : directoryFilter === 'missing' ? 'All exhibitors have completed their required checklist items.' : 'No exhibitors match this filter.'}</div>}
       </main>
     </div>
   );
 }
 
-function PackCollection({ exhibitor, onSaved, onError }) {
-  const [collectedBy, setCollectedBy] = useState(exhibitor.pack_collected_by || '');
-  const collected = Boolean(exhibitor.pack_collected);
+function getChecklistTasks(exhibitor, { packages, orders, checklistItems }) {
+  const pkg = packages.find(item => item.code === exhibitor.package_code);
+  const packageHasFascia = !pkg || (pkg.features || []).some(feature => feature.key === 'fascia_name');
+  const files = exhibitor.files || [];
+  const standOrders = orders.filter(order => normalizeStand(order.stand) === normalizeStand(exhibitor.stand));
+  const filesOf = kind => files.filter(file => file.kind === kind);
+  const tasks = [];
+  if (packageHasFascia) tasks.push({
+    id:'fascia', label:'Fascia name', required:true, automatic:true,
+    complete:Boolean(exhibitor.fascia_name && exhibitor.fascia_status !== 'pending'),
+    hint:exhibitor.fascia_name ? `Submitted: ${exhibitor.fascia_name}` : 'Waiting for fascia wording',
+  });
+  const logoFiles = filesOf('logo');
+  const logoRequired = hasLogo(pkg) || Boolean(exhibitor.logo_paid);
+  tasks.push({
+    id:'logo', label:'Logo artwork', required:logoRequired, automatic:true,
+    complete:Boolean(exhibitor.logo_url || logoFiles.length), hint:logoFiles.length ? `${logoFiles.length} file${logoFiles.length === 1 ? '' : 's'} uploaded` : exhibitor.logo_url ? 'Logo added to directory' : logoRequired ? 'Logo required by package' : 'Optional',
+    files:logoFiles,
+  });
+  [
+    { feature:'vinyl', kind:'artwork_vinyl', label:'Vinyl graphics artwork' },
+    { feature:'fabric_wall', kind:'artwork_fabric', label:'Fabric banner artwork' },
+  ].filter(task => (pkg?.features || []).some(item => item.key === task.feature)).forEach(task => {
+    const artworkFiles = filesOf(task.kind);
+    tasks.push({
+      id:task.kind, label:task.label, required:true, automatic:true,
+      complete:artworkFiles.length > 0,
+      hint:artworkFiles.length ? `${artworkFiles.length} file${artworkFiles.length === 1 ? '' : 's'} uploaded` : 'Required by package',
+      files:artworkFiles,
+    });
+  });
+  tasks.push({
+    id:'welcome-pack', source:'pack', label:'Welcome pack collected', required:true, automatic:false,
+    complete:Boolean(exhibitor.pack_collected), hint:exhibitor.pack_collected_by ? `Received by ${exhibitor.pack_collected_by}` : 'Not collected',
+  });
+  tasks.push({
+    id:'furniture-order', label:'Furniture order', required:false, automatic:true,
+    complete:standOrders.length > 0, hint:standOrders.length ? `${standOrders.length} order${standOrders.length === 1 ? '' : 's'} submitted` : 'No additional order',
+  });
+  checklistItems.forEach(item => {
+    const linkedFiles = item.auto_kind && item.auto_kind !== 'manual' ? filesOf(item.auto_kind) : [];
+    const automatic = item.auto_kind && item.auto_kind !== 'manual';
+    tasks.push({
+      id:item.id, label:item.label, required:true, automatic,
+      complete:automatic ? linkedFiles.length > 0 : Boolean(exhibitor.checklist_status?.[item.id]),
+      hint:automatic ? (linkedFiles.length ? `${linkedFiles.length} file${linkedFiles.length === 1 ? '' : 's'} uploaded` : 'Waiting for upload') : 'Manual check',
+      files:linkedFiles,
+    });
+  });
+  return tasks;
+}
 
-  useEffect(() => {
-    setCollectedBy(exhibitor.pack_collected_by || '');
-  }, [exhibitor.pack_collected_by]);
+function getChecklistSummary(exhibitors, context) {
+  const byLabel = new Map();
+  let total = 0;
+  let complete = 0;
+  exhibitors.forEach(exhibitor => getChecklistTasks(exhibitor, context).filter(task => task.required).forEach(task => {
+    total += 1;
+    if (task.complete) complete += 1;
+    const value = byLabel.get(task.label) || { label:task.label, complete:0, total:0 };
+    value.total += 1;
+    if (task.complete) value.complete += 1;
+    byLabel.set(task.label, value);
+  }));
+  return { complete, total, byLabel:[...byLabel.values()] };
+}
 
-  async function save(patch) {
-    try {
-      await updateExhibitor(exhibitor.stand, patch);
-      await onSaved();
-    } catch (saveError) {
-      onError(readableError(saveError, 'Could not update pack collection details.'));
-    }
-  }
-
-  return <div className="pack-collection-panel" style={packPanelStyle} onClick={event => event.stopPropagation()}>
-    <div style={packHeaderStyle}>Exhibitor pack</div>
-    <label style={packCheckStyle}>
-      <input type="checkbox" checked={collected} onChange={event => save({ pack_collected: event.target.checked, pack_collected_at: event.target.checked ? new Date().toISOString() : null })} />
-      <span>{collected ? 'Collected' : 'Not collected'}</span>
-    </label>
-    <input value={collectedBy} onChange={event => setCollectedBy(event.target.value)} onBlur={() => save({ pack_collected_by: collectedBy.trim() || null })} placeholder="Received by" style={packInputStyle} aria-label={`Person who received pack for ${exhibitor.stand}`} />
-    {exhibitor.pack_collected_at && <div style={packStampStyle}>Recorded {formatScannerStamp(exhibitor.pack_collected_at)}</div>}
+function ExhibitorContacts({ exhibitor }) {
+  const emails = splitEmailAddresses(exhibitor.email);
+  const phones = splitPhoneNumbers(exhibitor.phone);
+  return <div className="exhibitor-contact-summary">
+    <strong>{exhibitor.name}</strong>
+    <small>{exhibitor.contact || 'No primary contact recorded'}</small>
+    {emails[0] && <a href={`mailto:${emails[0]}`}>{emails[0]}</a>}
+    {phones[0] && <a href={whatsappLink(phones[0])} target="_blank" rel="noreferrer">{phones[0]}</a>}
+    {(emails.length > 1 || phones.length > 1) && <details>
+      <summary>+{Math.max(emails.length - 1, 0) + Math.max(phones.length - 1, 0)} more contacts</summary>
+      {emails.slice(1).map((email, index) => <a key={`email-${index}`} href={`mailto:${email}`}>{email}</a>)}
+      {phones.slice(1).map((phone, index) => <a key={`phone-${index}`} href={whatsappLink(phone)} target="_blank" rel="noreferrer">{phone}</a>)}
+    </details>}
   </div>;
 }
 
-function ScannerCheckout({ exhibitor, onSaved, onError }) {
-  const [outStaffName, setOutStaffName] = useState(exhibitor.scanner_out_staff_name || exhibitor.scanner_staff_name || '');
-  const [outStaffContact, setOutStaffContact] = useState(exhibitor.scanner_out_staff_contact || exhibitor.scanner_staff_contact || '');
-  const [inStaffName, setInStaffName] = useState(exhibitor.scanner_in_staff_name || '');
-  const [inStaffContact, setInStaffContact] = useState(exhibitor.scanner_in_staff_contact || '');
-
-  useEffect(() => {
-    setOutStaffName(exhibitor.scanner_out_staff_name || exhibitor.scanner_staff_name || '');
-    setOutStaffContact(exhibitor.scanner_out_staff_contact || exhibitor.scanner_staff_contact || '');
-    setInStaffName(exhibitor.scanner_in_staff_name || '');
-    setInStaffContact(exhibitor.scanner_in_staff_contact || '');
-  }, [exhibitor.scanner_out_staff_name, exhibitor.scanner_out_staff_contact, exhibitor.scanner_in_staff_name, exhibitor.scanner_in_staff_contact, exhibitor.scanner_staff_name, exhibitor.scanner_staff_contact]);
-
-  async function save(patch) {
-    try {
-      await updateExhibitor(exhibitor.stand, patch);
-      await onSaved();
-    } catch (saveError) {
-      onError(readableError(saveError, 'Could not update scanner details.'));
-    }
-  }
-
-  function toggle(day, action, checked) {
-    const prefix = `scanner_day${day}_booked_${action}`;
-    const timestamp = checked ? new Date().toISOString() : null;
-    save({ [prefix]: checked, [`${prefix}_at`]: timestamp });
-  }
-
-  const day1Out = Boolean(exhibitor.scanner_day1_booked_out || exhibitor.scanner_booked_out);
-  const day1In = Boolean(exhibitor.scanner_day1_booked_in || exhibitor.scanner_booked_in);
-  const day2Out = Boolean(exhibitor.scanner_day2_booked_out);
-  const day2In = Boolean(exhibitor.scanner_day2_booked_in);
-  const day1OutAt = exhibitor.scanner_day1_booked_out_at || exhibitor.scanner_booked_out_at;
-  const day1InAt = exhibitor.scanner_day1_booked_in_at || exhibitor.scanner_booked_in_at;
-  const day2OutAt = exhibitor.scanner_day2_booked_out_at;
-  const day2InAt = exhibitor.scanner_day2_booked_in_at;
-  const returnOverdue = (day1Out && !day1In && day1OutAt && Date.now() > new Date(day1OutAt).getTime() + 24 * 60 * 60 * 1000) || (day2Out && !day2In && day2OutAt && Date.now() > new Date(day2OutAt).getTime() + 24 * 60 * 60 * 1000);
-  const fullyReturned = day1In && (!day2Out || day2In);
-
-  return <div className="scanner-control-panel" style={{ ...scannerPanelStyle, ...(returnOverdue ? scannerOverduePanelStyle : {}) }} onClick={event => event.stopPropagation()}>
-    <div style={scannerHeaderStyle}><div><div style={{ color:returnOverdue ? '#9f2d2d' : NAVY, fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:.8 }}>Scanner custody · 2 days</div><div style={{ color:returnOverdue ? '#b24b4b' : '#7a8a94', fontSize:10, marginTop:2 }}>{returnOverdue ? 'A scanner return is overdue' : 'Record each daily handover'}</div></div><span style={{ ...scannerStatusStyle, ...(returnOverdue ? scannerOverdueStatusStyle : {}) }}>{returnOverdue ? 'Return overdue' : fullyReturned ? 'Returned' : day1Out || day2Out ? 'With stand' : 'Not issued'}</span></div>
-    <div style={scannerColumnsStyle}>
-      <ScannerDay day="Day 1" out={day1Out} in={day1In} outAt={day1OutAt} inAt={day1InAt} onToggle={toggle.bind(null, 1)} overdue={returnOverdue && day1Out && !day1In} staffName={outStaffName} staffContact={outStaffContact} onStaffNameChange={setOutStaffName} onStaffContactChange={setOutStaffContact} onStaffNameSave={() => save({ scanner_out_staff_name: outStaffName })} onStaffContactSave={() => save({ scanner_out_staff_contact: outStaffContact })} />
-      <ScannerDay day="Day 2" out={day2Out} in={day2In} outAt={day2OutAt} inAt={day2InAt} onToggle={toggle.bind(null, 2)} overdue={returnOverdue && day2Out && !day2In} staffName={inStaffName} staffContact={inStaffContact} onStaffNameChange={setInStaffName} onStaffContactChange={setInStaffContact} onStaffNameSave={() => save({ scanner_in_staff_name: inStaffName })} onStaffContactSave={() => save({ scanner_in_staff_contact: inStaffContact })} />
-    </div>
-  </div>;
-}
-
-function ScannerDay({ day, out, in: bookedIn, outAt, inAt, onToggle, overdue, staffName, staffContact, onStaffNameChange, onStaffContactChange, onStaffNameSave, onStaffContactSave }) {
-  return <div style={{ ...scannerLaneStyle, ...(out ? scannerLaneActiveStyle : {}), ...(overdue ? scannerOverdueLaneStyle : {}) }}>
-    <div style={{ color:NAVY, fontSize:10, fontWeight:800, marginBottom:5 }}>{day}</div>
-    <label style={scannerCheckStyle}><input type="checkbox" checked={out} onChange={event => onToggle('out', event.target.checked)} /> <span>Booked out</span></label>
-    {outAt && <div style={scannerStampStyle}>Out: {formatScannerStamp(outAt)}</div>}
-    <label style={{ ...scannerCheckStyle, marginTop:4 }}><input type="checkbox" checked={bookedIn} onChange={event => onToggle('in', event.target.checked)} /> <span>Booked in</span></label>
-    {inAt && <div style={scannerStampStyle}>In: {formatScannerStamp(inAt)}</div>}
-    <div style={scannerDayFieldsStyle}>
-      <input value={staffName} onChange={event => onStaffNameChange(event.target.value)} onBlur={onStaffNameSave} placeholder="Staff name" style={scannerInputStyle} />
-      <input value={staffContact} onChange={event => onStaffContactChange(event.target.value)} onBlur={onStaffContactSave} placeholder="Staff number" style={scannerInputStyle} />
-    </div>
-  </div>;
+function ChecklistPanel({ exhibitor, packages, orders, checklistItems, onToggle, onDownload }) {
+  const tasks = getChecklistTasks(exhibitor, { packages, orders, checklistItems });
+  const complete = tasks.filter(task => task.complete && task.required).length;
+  const required = tasks.filter(task => task.required).length;
+  return <section className="exhibitor-checklist">
+    <header><strong>Readiness checklist</strong><span>{complete}/{required} complete</span></header>
+    {tasks.map(task => <div className="exhibitor-checklist-row" key={task.id}>
+      <label>
+        <input type="checkbox" checked={task.complete} disabled={task.automatic} onChange={event => onToggle(exhibitor, task, event.target.checked)} />
+        <span><strong>{task.label}</strong><small>{task.hint}</small></span>
+      </label>
+      {task.files?.map(file => <button key={file.id || file.file_name} type="button" onClick={() => onDownload(file)}>Download {file.file_name}</button>)}
+      {!task.required && <em>Optional</em>}
+    </div>)}
+    {exhibitor.pack_collected_at && <small className="exhibitor-checklist-stamp">Pack recorded {formatLocalStamp(exhibitor.pack_collected_at)}</small>}
+  </section>;
 }
 
 function LogoTile({ exhibitor, onSaved, onError }) {
@@ -285,26 +422,6 @@ const directorySearchStyle = { background:'#f7fafc', border:'1px solid #dce7ed',
 const directorySearchInputStyle = { border:'1px solid #cbdbe4', borderRadius:8, padding:'12px 14px', fontSize:13, color:NAVY, background:'#fff' };
 const emptySearchStyle = { background:'#fff', border:'1px dashed #cbdbe4', borderRadius:8, color:'#718089', textAlign:'center', padding:'28px 20px', marginBottom:10, fontSize:13 };
 const rowStyle = { background:'linear-gradient(135deg, #ffffff 0%, #f8fbfd 100%)', border:'1px solid #dce7ed', borderLeft:`4px solid ${BLUE}`, borderRadius:14, padding:'20px 24px', marginBottom:12, display:'flex', alignItems:'center', justifyContent:'space-between', gap:20, boxShadow:'0 8px 22px rgba(13,26,50,.07)', transition:'transform .18s ease, box-shadow .18s ease' };
-const packPanelStyle = { width:190, flex:'0 0 190px', padding:'11px', border:'1px solid #dce8ee', borderRadius:9, background:'#f7fbfd' };
-const packHeaderStyle = { color:NAVY, fontSize:10, fontWeight:800, textTransform:'uppercase', letterSpacing:.8, marginBottom:8 };
-const packCheckStyle = { display:'flex', alignItems:'center', gap:7, color:'#304653', fontSize:11, fontWeight:700, cursor:'pointer' };
-const packInputStyle = { width:'100%', boxSizing:'border-box', marginTop:9, padding:'7px 8px', border:'1px solid #d5e1e6', borderRadius:5, color:NAVY, fontSize:11, background:'#fff' };
-const packStampStyle = { color:'#718089', fontSize:10, marginTop:7 };
-const scannerCheckStyle = { display:'flex', alignItems:'center', gap:7, color:'#304653', fontSize:11, fontWeight:700, cursor:'pointer' };
-const scannerStampStyle = { color:'#718089', fontSize:10, paddingLeft:22 };
-const scannerContactTitle = { color:'#718089', fontSize:10, fontWeight:700, marginTop:3 };
-const scannerPanelStyle = { width:560, flex:'0 0 560px', maxWidth:'46vw', padding:'12px', border:'1px solid #dfe7ec', borderRadius:10, background:'#fff', boxShadow:'0 2px 8px rgba(13,26,50,.05)' };
-const scannerHeaderStyle = { display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, paddingBottom:9, marginBottom:9, borderBottom:'1px solid #edf1f3' };
-const scannerStatusStyle = { color:'#536a76', background:'#f0f4f6', border:'1px solid #dfe7eb', borderRadius:999, padding:'4px 7px', fontSize:9, fontWeight:800, whiteSpace:'nowrap' };
-const scannerLaneStyle = { minWidth:0, padding:'8px', border:'1px solid #edf1f3', borderRadius:7, background:'#fbfcfd' };
-const scannerLaneActiveStyle = { borderColor:'#b9d9cb', background:'#f5fbf7' };
-const scannerOverduePanelStyle = { borderColor:'#efb4b4', background:'#fff7f7', boxShadow:'0 2px 10px rgba(192,57,43,.12)' };
-const scannerOverdueStatusStyle = { color:'#9f2d2d', background:'#fde8e8', borderColor:'#efb4b4' };
-const scannerOverdueLaneStyle = { borderColor:'#efc2c2', background:'#fffafa' };
-const scannerColumnsStyle = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 };
-const scannerDayFieldsStyle = { display:'grid', gap:6, marginTop:10, paddingTop:9, borderTop:'1px solid #e8eef0' };
-const scannerInputStyle = { minWidth:0, padding:'6px 7px', fontSize:10, borderRadius:5 };
-const contactLink = { color:BLUE, textDecoration:'none' };
 function createExhibitorForm() { return { stand:'', name:'', contact:'', phone1:'', phone2:'', phone3:'', phone4:'', email1:'', email2:'', email3:'', email4:'', logo_url:'', logo_file:null }; }
 function splitPhoneNumbers(value) { return String(value || '').split(/\s*;\s*|\s*,\s*|\s+\/\s+/).map(phone => phone.trim()).filter(Boolean); }
 function splitEmailAddresses(value) { return String(value || '').split(/\s*;\s*|\s*,\s*/).map(email => email.trim()).filter(Boolean); }
@@ -316,7 +433,7 @@ function emailFields(value) {
   const emails = splitEmailAddresses(value);
   return { email1: emails[0] || '', email2: emails[1] || '', email3: emails[2] || '', email4: emails[3] || '' };
 }
-function firstContact(value) { return String(value).split(/[;,]/)[0].trim(); }
+function firstContact(value) { return String(value || '').split(/[;,]/)[0].trim(); }
 function whatsappLink(value) {
   const digits = whatsappDigits(firstContact(value));
   return digits ? `https://wa.me/${digits}` : `tel:${encodeURIComponent(value)}`;
@@ -325,4 +442,4 @@ function whatsappDigits(value) {
   const digits = String(value || '').replace(/\D/g, '');
   return /^0[6-8]\d{8}$/.test(digits) ? `27${digits.slice(1)}` : digits;
 }
-function formatScannerStamp(value) { return new Date(value).toLocaleString([], { dateStyle:'short', timeStyle:'short' }); }
+function formatLocalStamp(value) { return new Date(value).toLocaleString([], { dateStyle:'short', timeStyle:'short' }); }

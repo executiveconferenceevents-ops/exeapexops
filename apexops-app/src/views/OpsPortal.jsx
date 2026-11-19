@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   getQueries, addQuery, updateQuery,
-  CATEGORIES, getExhibitors, getStaff, getRebookingRequests, getOpsNotifications, markOpsNotificationRead, readableError, STATUS_FLOW, STATUS_COLORS,
+  CATEGORIES, getExhibitors, getStaff, getOpsNotifications, markOpsNotificationRead, readableError, STATUS_FLOW, STATUS_COLORS,
 } from '../lib/mock';
 import StatusBadge from '../components/StatusBadge';
 import PhotoGallery from '../components/PhotoGallery';
 import EvidenceUploader from '../components/EvidenceUploader';
 import QueryForm from '../components/QueryForm';
-import { Activity, AlertTriangle, Archive, Bell, Building2, Camera, Check, CheckCircle2, ClipboardList, ClipboardPlus, FileText, Hammer, HeartPulse, LayoutDashboard, Menu, Monitor, MoreHorizontal, Package, Palette, Plus, Printer, Shield, Sparkles, Truck, Users, Wifi, X, Zap } from 'lucide-react';
+import OpsBoard, { AreaStrip } from '../components/OpsBoard';
+import StaffQuickTabs from '../components/StaffQuickTabs';
+import { Activity, AlertTriangle, Columns3, List as ListIcon, Archive, Bell, Building2, Camera, Check, CheckCircle2, ClipboardList, ClipboardPlus, FileText, Hammer, HeartPulse, LayoutDashboard, Menu, Monitor, MoreHorizontal, Package, Palette, Plus, Printer, Shield, Sparkles, Truck, Users, Wifi, X, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getActiveEvent } from '../lib/eventScope';
 import { NAVY, NAVY_DEEP, GOLD, GOLD_PALE, BG, BLUE, TEAL, CORAL, GREEN, FONT, DISPLAY_FONT } from '../theme';
@@ -138,18 +140,19 @@ const DEPARTMENT_ICONS = {
   Organiser: Users,
 };
 
-export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
+export default function OpsPortal({ onOpenStaff, onOpenExhibitors, initialQueryId, onInitialQueryOpened }) {
   const activeEvent = getActiveEvent();
   const eventName = activeEvent?.name || 'Event workspace';
   const [menuOpen, setMenuOpen] = useState(false);
   const [queries, setQueries]   = useState([]);
   const [staff, setStaff]       = useState([]);
   const [exhibitors, setExhibitors] = useState([]);
-  const [rebookings, setRebookings] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [notifications, setNotifications] = useState([]);
   const [toast, setToast] = useState(null);
   const [tab, setTab]           = useState('DASHBOARD');
+  const [queueView, setQueueView] = useState(() => { try { return window.localStorage.getItem('apexops-ops-view') || 'board'; } catch { return 'board'; } });
+  const chooseQueueView = view => { setQueueView(view); try { window.localStorage.setItem('apexops-ops-view', view); } catch { /* ignore */ } };
   const [filter, setFilter]     = useState('ALL');
   const [staffFilter, setStaffFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState(null);
@@ -189,11 +192,10 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
   useEffect(() => {
     let cancelled = false;
     const loadInitialData = async () => {
-      const [queryResult, staffResult, exhibitorResult, rebookingResult] = await Promise.allSettled([
+      const [queryResult, staffResult, exhibitorResult] = await Promise.allSettled([
         getQueries(),
         getStaff(),
         getExhibitors(),
-        getRebookingRequests().catch(() => []),
       ]);
       if (cancelled) return;
 
@@ -203,7 +205,6 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
       else setError(readableError(staffResult.reason, 'Could not load staff.'));
       if (exhibitorResult.status === 'fulfilled') setExhibitors(exhibitorResult.value);
       else setError(readableError(exhibitorResult.reason, 'Could not load exhibitors.'));
-      if (rebookingResult.status === 'fulfilled') setRebookings(rebookingResult.value);
       setInitialLoading(false);
     };
 
@@ -244,9 +245,17 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (initialLoading || !initialQueryId) return;
+    const query = queries.find(item => item.id === initialQueryId);
+    if (query) setSelected(query);
+    else setError('This request is no longer available in the selected event.');
+    onInitialQueryOpened?.();
+  }, [initialLoading, initialQueryId, queries, onInitialQueryOpened]);
+
   function exportOperationsReport(format) {
     try {
-      const html = buildOperationsReport({ queries, rebookings, eventName });
+      const html = buildOperationsReport({ queries, eventName });
       if (format === 'word') downloadWordReport('APEXOPS-operations-report.doc', html);
       else printPdfReport(html);
     } catch (reportError) {
@@ -351,6 +360,12 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
   const taskRows = tab === 'DASHBOARD' ? dashboardRows : shown;
   const visibleTaskRows = taskRows.filter(query => staffFilter === 'ALL'
     || (staffFilter === 'UNASSIGNED' ? !query.assignedTo : String(query.assignedTo || '') === String(staffFilter)));
+
+  const matchesStaffFilter = query => staffFilter === 'ALL'
+    || (staffFilter === 'UNASSIGNED' ? !query.assignedTo : String(query.assignedTo || '') === String(staffFilter));
+  const boardRows = tab === 'DASHBOARD' && !statusFilter
+    ? [...visibleTaskRows, ...dashboardPool.filter(q => q.status === 'COMPLETED' && isSameDay(q.completedAt || q.updatedAt) && matchesStaffFilter(q))]
+    : visibleTaskRows;
 
   const toggleStatusFilter = (nextFilter) => {
     setTab('DASHBOARD');
@@ -503,15 +518,18 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
         </div>
       </div>
 
+      {tab === 'DASHBOARD' && <AreaStrip queries={queries} activeArea={filter} onPick={setFilter} isOverdue={isOverdue} />}
+      {tab !== 'NOTIFICATIONS' && <StaffQuickTabs staff={staff} selectedId={staffFilter} onSelect={setStaffFilter} rows={taskRows} showAll showUnassigned selectLabel="Filter by staff member" />}
+
       {/* Query list */}
       <div className="ops-query-workspace">
         <div className="ops-workspace-toolbar">
           <div className="ops-workspace-heading"><span>Request queue</span><label>Department <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="ALL">All departments</option>{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></label></div>
           <div className="ops-workspace-controls">
-            <label>Assigned to <select aria-label="Filter tasks by staff member" value={staffFilter} onChange={event=>setStaffFilter(event.target.value)}>
-              <option value="ALL">All staff</option><option value="UNASSIGNED">Unassigned</option>
-              {staff.map(member=><option key={member.id} value={member.id}>{member.name}</option>)}
-            </select></label>
+            {tab !== 'NOTIFICATIONS' && <div className="ob-switch" role="tablist" aria-label="Queue view">
+              <button type="button" role="tab" aria-selected={queueView === 'board'} className={queueView === 'board' ? 'is-on' : ''} onClick={()=>chooseQueueView('board')}><Columns3 size={13} /> Board</button>
+              <button type="button" role="tab" aria-selected={queueView === 'list'} className={queueView === 'list' ? 'is-on' : ''} onClick={()=>chooseQueueView('list')}><ListIcon size={13} /> List</button>
+            </div>}
             <button disabled={tab === 'NOTIFICATIONS'} title="Export only the tasks currently shown as PDF" onClick={()=>exportTaskReport('pdf')} style={{ ...viewExportButton, opacity:tab === 'NOTIFICATIONS' ? .5 : 1 }}><Printer size={14} /> View PDF</button>
             <button disabled={tab === 'NOTIFICATIONS'} title="Export only the tasks currently shown as Word" onClick={()=>exportTaskReport('word')} style={{ ...viewExportButton, opacity:tab === 'NOTIFICATIONS' ? .5 : 1 }}><FileText size={14} /> View Word</button>
             <button onClick={()=>setShowForm(true)} style={{ ...btnPrimary, display:'inline-flex', alignItems:'center', gap:7 }}><Plus size={15} /> Log Query</button>
@@ -525,7 +543,9 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
             {notification.query_id && <button onClick={()=>markNotificationRead(notification)} style={btnSecondary}>Open query</button>}
           </div>)}
           {notifications.length === 0 && <div style={{ textAlign:'center', color:'#6f7b82', padding:40 }}>No notifications yet.</div>}
-        </div> : <>
+        </div> : queueView === 'board' ? (
+          <OpsBoard rows={boardRows} staff={staff} onOpen={setSelected} onPatch={saveEdit} isOverdue={isOverdue} />
+        ) : <>
           {visibleTaskRows.length > 0 && <QueryHeadings />}
           {visibleTaskRows.map(q => (
             <QueryRow key={q.id} q={q} staff={staff} onSelect={()=>setSelected(q)} />
@@ -545,7 +565,7 @@ export default function OpsPortal({ onOpenStaff, onOpenExhibitors }) {
       {/* Log new query modal */}
       {showForm && (
         <Modal title="Log New Query" onClose={()=>setShowForm(false)} wide>
-          <QueryForm exhibitors={exhibitors} onSubmit={submitQuery} onCancel={()=>setShowForm(false)} />
+          <QueryForm exhibitors={exhibitors} staff={staff} onSubmit={submitQuery} onCancel={()=>setShowForm(false)} />
         </Modal>
       )}
 

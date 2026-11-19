@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, ClipboardPlus, X } from 'lucide-react';
+import { ArrowLeft, Camera, Check, ChevronDown, Send, X } from 'lucide-react';
 import { CATEGORIES, EST_OPTIONS, prepareQueryPhoto, QUERY_PHOTO_LIMIT } from '../lib/mock';
-import { BLUE } from '../theme';
+import { categoryVisual } from '../lib/categoryIcons';
+import './QueryForm.css';
 
 const DEPARTMENT_ISSUES = {
   'Stand Builder': ['Stand not ready', 'Stand build delayed', 'Incorrect stand number', 'Missing walls', 'Carpet missing/damaged', 'Fascia missing/incorrect', 'Furniture/stand items missing', 'Builder still working'],
@@ -19,24 +20,36 @@ const DEPARTMENT_ISSUES = {
   Other: ['Venue issue', 'Parking/access issue', 'Air-conditioning issue', 'Toilet issue', 'Catering issue', 'Noise issue', 'Other'],
 };
 
-const blank = { stand: '', exhibitor: '', contact: '', phone: '', category: '', est: '1 hour' };
+const blank = { stand: '', exhibitor: '', contact: '', phone: '', category: '', est: '1 hour', assignedTo: '' };
 
-export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmit, onCancel, clientMode = false }) {
+export default function QueryForm({ exhibitors = [], staff = [], initialValues = {}, onSubmit, onCancel, clientMode = false }) {
   const [form, setForm] = useState(() => ({ ...blank, ...initialValues }));
   const [quickIssues, setQuickIssues] = useState([]);
   const [customIssue, setCustomIssue] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [photos, setPhotos] = useState([]);
+  const [showContact, setShowContact] = useState(false);
   const [submissionId] = useState(() => crypto.randomUUID());
   const photoPreviews = useMemo(() => photos.map(file => URL.createObjectURL(file)), [photos]);
   useEffect(() => () => photoPreviews.forEach(url => URL.revokeObjectURL(url)), [photoPreviews]);
   const submissionInProgress = useRef(false);
   const selectedExhibitor = exhibitors.find(item => item.name === form.exhibitor);
+  const standLocked = clientMode && Boolean(initialValues.exhibitor);
+  const visual = form.category ? categoryVisual(form.category) : null;
 
   function selectExhibitor(name) {
     const exhibitor = exhibitors.find(item => item.name === name);
     setForm(current => ({ ...current, exhibitor: name, stand: exhibitor?.stand || '', contact: exhibitor?.contact || '', phone: exhibitor?.phone || '' }));
+  }
+
+  function pickCategory(category) {
+    setForm(current => ({ ...current, category }));
+    setQuickIssues([]); setCustomIssue(''); setError('');
+  }
+
+  function toggleIssue(issue) {
+    setQuickIssues(current => current.includes(issue) ? current.filter(item => item !== issue) : [...current, issue]);
   }
 
   async function addPhotos(fileList) {
@@ -57,6 +70,8 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
   async function submit(event) {
     event.preventDefault();
     if (submissionInProgress.current) return;
+    if (!form.exhibitor) { setError('Choose the exhibitor and stand first.'); return; }
+    if (!form.category) { setError('Tap the kind of problem first.'); return; }
     const details = [...quickIssues].sort((left, right) => left.localeCompare(right)).concat(customIssue.trim()).filter(Boolean).join('; ');
     if (!details) {
       setError('Please select an issue or describe the problem.');
@@ -75,85 +90,102 @@ export default function QueryForm({ exhibitors = [], initialValues = {}, onSubmi
     }
   }
 
+  const ready = Boolean(form.exhibitor && form.category && (quickIssues.length || customIssue.trim()));
+
   return (
-    <form className="apex-query-form" onSubmit={submit}>
-      <div style={introStyle}><ClipboardPlus size={18} color={BLUE} /><span>Capture the request details so the right team can resolve it quickly.</span></div>
-      <div style={gridStyle}>
-        <Field label="Exhibitor / Stand" required>
-          <select aria-label="Exhibitor / Stand" required value={form.exhibitor} onChange={event => selectExhibitor(event.target.value)} style={inputStyle}>
-            <option value="">Select exhibitor and stand...</option>
-            {exhibitors.map(item => <option key={`${item.stand}-${item.name}`} value={item.name}>{item.name} - Stand {item.stand}</option>)}
+    <form className="qf" onSubmit={submit} noValidate>
+      {standLocked ? (
+        <div className="qf-who">
+          {selectedExhibitor?.logo_url && <img src={selectedExhibitor.logo_url} alt="" />}
+          <span><strong>Stand {form.stand}</strong><small>{form.exhibitor}</small></span>
+        </div>
+      ) : (
+        <label className="qf-field">
+          <span className="qf-label">Exhibitor / stand</span>
+          <select className="qf-input" aria-label="Exhibitor / Stand" value={form.exhibitor} onChange={event => selectExhibitor(event.target.value)}>
+            <option value="">Choose exhibitor and stand…</option>
+            {exhibitors.map(item => <option key={`${item.stand}-${item.name}`} value={item.name}>{item.name} · Stand {item.stand}</option>)}
           </select>
-          {selectedExhibitor?.logo_url && <img src={selectedExhibitor.logo_url} alt={`${selectedExhibitor.name} logo`} style={selectedLogoStyle} />}
-        </Field>
-        <Field label="Department" required>
-          <select aria-label="Department" required value={form.category} onChange={event => { setForm(current => ({ ...current, category: event.target.value })); setQuickIssues([]); setCustomIssue(''); }} style={inputStyle}>
-            <option value="">Select department...</option>
-            {CATEGORIES.map(category => <option key={category}>{category}</option>)}
-          </select>
-        </Field>
-        <Field label="Contact Name"><input aria-label="Contact Name" value={form.contact} onChange={event => setForm(current => ({ ...current, contact: event.target.value }))} style={inputStyle} /></Field>
-        <Field label="Phone"><input aria-label="Phone" value={form.phone} onChange={event => setForm(current => ({ ...current, phone: event.target.value }))} style={inputStyle} /></Field>
-      </div>
-      {form.category && <Field label="Issue selection">
-        <div style={issuesStyle}>
-          {(DEPARTMENT_ISSUES[form.category] || []).map(issue => {
-            const checked = quickIssues.includes(issue);
-            return <label key={issue} style={{ ...issueStyle, borderColor: checked ? '#bfdcff' : '#dfe4e6', background: checked ? '#f4faff' : '#fff' }}>
-              <input type="checkbox" checked={checked} onChange={() => setQuickIssues(current => checked ? current.filter(item => item !== issue) : [...current, issue])} style={issueCheckboxStyle} />
-              <span>{issue}</span>
-            </label>;
+        </label>
+      )}
+
+      {!clientMode && staff.length > 0 && <label className="qf-field">
+        <span className="qf-label">Assign to staff (optional)</span>
+        <select className="qf-input" aria-label="Assign to staff" value={form.assignedTo} onChange={event => setForm(current => ({ ...current, assignedTo:event.target.value }))}>
+          <option value="">Leave unassigned</option>
+          {staff.map(member => {
+            const departments = (Array.isArray(member.departments) ? member.departments : [member.category]).filter(Boolean);
+            const context = [member.supplier_name, ...departments].filter(Boolean).join(' · ');
+            return <option key={member.id} value={String(member.id)}>{[member.name || 'Unnamed staff', context].filter(Boolean).join(' · ')}</option>;
           })}
-        </div>
-      </Field>}
-      <Field label="Issue details / free text">
-        <textarea aria-label="Issue details / free text" rows={3} value={customIssue} onChange={event => setCustomIssue(event.target.value)} placeholder="Add details about the problem..." style={{ ...inputStyle, minHeight: 92, resize: 'vertical' }} />
-      </Field>
-      <Field label={`Photos of the issue (optional, up to ${QUERY_PHOTO_LIMIT})`}>
-        <div style={photoRowStyle}>
-          {photoPreviews.map((url, index) => <div key={url} style={thumbWrapStyle}>
-            <img src={url} alt={`Attached photo ${index + 1}`} style={thumbStyle} />
-            <button type="button" aria-label={`Remove photo ${index + 1}`} onClick={() => setPhotos(current => current.filter((_, i) => i !== index))} style={thumbRemoveStyle}><X size={12} /></button>
-          </div>)}
-          {photos.length < QUERY_PHOTO_LIMIT && <label style={addPhotoStyle}>
-            <Camera size={20} /><span>Add photo</span>
-            <input type="file" accept="image/*" multiple aria-label="Add photos of the issue" onChange={event => { addPhotos(event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
-          </label>}
-        </div>
-      </Field>
-      {!clientMode && <Field label="Estimated Fix Time">
-        <select aria-label="Estimated Fix Time" value={form.est} onChange={event => setForm(current => ({ ...current, est: event.target.value }))} style={inputStyle}>
-          {EST_OPTIONS.map(option => <option key={option}>{option}</option>)}
         </select>
-      </Field>}
-      {clientMode && <p style={{ color: '#687780', fontSize: 12, margin: '4px 0 0' }}>Your query goes to the Ops Desk. The operations team will assign the appropriate staff member.</p>}
-      {error && <div role="alert" style={/already logged|already been submitted/i.test(error) ? duplicateWarningStyle : formErrorStyle}>{error}</div>}
-      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
-        {onCancel && <button type="button" onClick={onCancel} style={secondaryButton}>Cancel</button>}
-        <button type="submit" disabled={saving} style={primaryButton}>{saving ? 'Submitting...' : 'Submit Query'}</button>
+      </label>}
+
+      {!form.category ? (
+        <section className="qf-step">
+          <h3 className="qf-q"><span className="qf-num">1</span> What kind of problem?</h3>
+          <div className="qf-tiles">
+            {CATEGORIES.map(category => {
+              const { Icon, tone, short } = categoryVisual(category);
+              return <button key={category} type="button" className={`qf-tile qf-tone--${tone}`} onClick={() => pickCategory(category)} title={category}>
+                <Icon size={30} strokeWidth={1.8} /><span>{short}</span>
+              </button>;
+            })}
+          </div>
+        </section>
+      ) : (
+        <>
+          <div className={`qf-chosen qf-tone--${visual.tone}`}>
+            <span className="qf-chosen-icon"><visual.Icon size={26} strokeWidth={1.8} /></span>
+            <span className="qf-chosen-text"><small>Problem type</small><strong>{form.category}</strong></span>
+            <button type="button" className="qf-change" onClick={() => pickCategory('')}><ArrowLeft size={15} /> Change</button>
+          </div>
+          <section className="qf-step">
+            <h3 className="qf-q"><span className="qf-num">2</span> What's wrong? <small>Tap all that apply</small></h3>
+            <div className="qf-chips">
+              {(DEPARTMENT_ISSUES[form.category] || []).map(issue => {
+                const on = quickIssues.includes(issue);
+                return <button key={issue} type="button" className={`qf-chip${on ? ' is-on' : ''}`} aria-pressed={on} onClick={() => toggleIssue(issue)}>
+                  {on && <Check size={16} strokeWidth={3} />} {issue}
+                </button>;
+              })}
+            </div>
+            <textarea className="qf-input" rows={2} aria-label="More details" value={customIssue} onChange={event => setCustomIssue(event.target.value)} placeholder="Anything else? (optional)" />
+          </section>
+          <section className="qf-step">
+            <div className="qf-photos">
+              {photoPreviews.map((url, index) => <div key={url} className="qf-thumb">
+                <img src={url} alt={`Photo ${index + 1}`} />
+                <button type="button" aria-label={`Remove photo ${index + 1}`} onClick={() => setPhotos(current => current.filter((_, itemIndex) => itemIndex !== index))}><X size={14} /></button>
+              </div>)}
+              {photos.length < QUERY_PHOTO_LIMIT && <label className="qf-addphoto">
+                <Camera size={24} /><span>{photos.length ? 'Add another' : 'Add a photo'}</span><small>optional</small>
+                <input type="file" accept="image/*" capture="environment" multiple aria-label="Add photos of the problem" onChange={event => { addPhotos(event.target.files); event.target.value = ''; }} />
+              </label>}
+            </div>
+          </section>
+          {!clientMode && <section className="qf-step">
+            <h3 className="qf-q qf-q--small">Estimated fix time</h3>
+            <div className="qf-chips qf-chips--tight">{EST_OPTIONS.map(option => <button key={option} type="button" className={`qf-chip${form.est === option ? ' is-on' : ''}`} aria-pressed={form.est === option} onClick={() => setForm(current => ({ ...current, est:option }))}>{option}</button>)}</div>
+          </section>}
+          <section className="qf-contact">
+            <button type="button" className="qf-contact-toggle" aria-expanded={showContact} onClick={() => setShowContact(value => !value)}>
+              <span>Contact on the stand: <strong>{form.contact || 'not set'}</strong>{form.phone ? ` · ${form.phone}` : ''}</span>
+              <ChevronDown size={18} className={showContact ? 'is-open' : ''} />
+            </button>
+            {showContact && <div className="qf-contact-fields">
+              <input className="qf-input" aria-label="Contact name" placeholder="Contact name" value={form.contact} onChange={event => setForm(current => ({ ...current, contact:event.target.value }))} />
+              <input className="qf-input" aria-label="Phone" type="tel" inputMode="tel" placeholder="Mobile number" value={form.phone} onChange={event => setForm(current => ({ ...current, phone:event.target.value }))} />
+            </div>}
+          </section>
+        </>
+      )}
+      {error && <div role="alert" className={`qf-alert${/already logged|already been submitted/i.test(error) ? ' qf-alert--amber' : ''}`}>{error}</div>}
+      <div className="qf-actions">
+        {onCancel && <button type="button" className="qf-btn qf-btn--ghost" onClick={onCancel}>Cancel</button>}
+        {form.category && <button type="submit" className="qf-btn qf-btn--send" disabled={saving || !ready}><Send size={18} /> {saving ? 'Sending…' : clientMode ? 'Send to Ops Desk' : 'Log query'}</button>}
       </div>
+      {clientMode && form.category && <p className="qf-note">The Ops Desk assigns the right technician and you can follow progress on your status page.</p>}
     </form>
   );
 }
-
-function Field({ label, required, children }) {
-  return <div style={fieldStyle}><div>{label}{required && <strong style={{ color: '#C0392B' }}> *</strong>}</div>{children}</div>;
-}
-
-const introStyle = { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, color: '#5d6d7a', fontSize: 13, background: '#f3f8ff', border: '1px solid #dfeaf8', borderRadius: 6, padding: '10px 12px' };
-const gridStyle = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 };
-const fieldStyle = { display: 'grid', gap: 6, marginBottom: 12, color: '#555', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' };
-const inputStyle = { width: '100%', boxSizing: 'border-box', border: '1px solid #cfdadd', borderRadius: 5, padding: '9px 10px', color: '#172746', fontSize: 13, fontWeight: 500, textTransform: 'none' };
-const selectedLogoStyle = { width: 44, height: 44, objectFit: 'contain', borderRadius: 6, border: '1px solid #dfe7eb', background: '#fff', padding: 4, marginTop: 8 };
-const issuesStyle = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 };
-const issueStyle = { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 9, minHeight: 42, padding: '8px 10px', border: '1px solid', borderRadius: 5, color: '#2d3c44', fontSize: 12, fontWeight: 500, textAlign: 'left', textTransform: 'none', cursor: 'pointer' };
-const issueCheckboxStyle = { width: 16, height: 16, flex: '0 0 16px', margin: 0, padding: 0, accentColor: BLUE };
-const formErrorStyle = { color: '#922B21', fontSize: 13, marginTop: 10 };
-const photoRowStyle = { display: 'flex', flexWrap: 'wrap', gap: 10 };
-const thumbWrapStyle = { position: 'relative', width: 84, height: 84 };
-const thumbStyle = { width: 84, height: 84, objectFit: 'cover', borderRadius: 6, border: '1px solid #cfdadd' };
-const thumbRemoveStyle = { position: 'absolute', top: -6, right: -6, width: 22, height: 22, display: 'grid', placeItems: 'center', border: 'none', borderRadius: '50%', background: '#172746', color: '#fff', cursor: 'pointer', padding: 0 };
-const addPhotoStyle = { width: 84, height: 84, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 4, border: '1px dashed #9fb0b6', borderRadius: 6, color: '#5d6d7a', fontSize: 11, fontWeight: 600, textTransform: 'none', cursor: 'pointer', background: '#f7fafb' };
-const duplicateWarningStyle = { color: '#805C16', fontSize: 13, marginTop: 10, padding: '10px 12px', background: '#FFF7E8', border: '1px solid #F0DCA9', borderRadius: 5 };
-const primaryButton = { border: 'none', borderRadius: 5, padding: '10px 16px', background: '#172746', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' };
-const secondaryButton = { border: '1px solid #d6dfdf', borderRadius: 5, padding: '10px 16px', background: '#fff', color: '#172746', fontSize: 12, fontWeight: 700, cursor: 'pointer' };
